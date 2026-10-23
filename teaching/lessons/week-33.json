@@ -1,0 +1,231 @@
+{
+  "week": 33,
+  "introduction": [
+    "A process-health check can remain green while users cannot list tasks. Observability begins with a question about user behavior and adds enough measurement to answer it. You will instrument the familiar API and distinguish process health, dependency readiness and a meaningful synthetic request.",
+    "To keep the stack small, this lesson uses the existing local Compose Taskboard as a separate telemetry sandbox, with its own existing Compose database. It does not change the Kubernetes GitOps deployment. All dashboards bind to127.0.0.1; metrics are not a public endpoint."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Taskboard at ~/dev-opps-lab/app/taskboard with its generated .env and Compose setup from earlier lessons. Local ports8000/9090/3000 free. Stop an earlier Compose app before rebuilding its image."
+  ],
+  "concepts": [
+    {
+      "title": "Counters, rates and histograms",
+      "paragraphs": [
+        "A counter accumulates events; rate over a time window estimates events per second and handles resets. An error ratio divides bad events by eligible events over the same window. A histogram counts observations in cumulative duration buckets; its sum/count supports a mean while bucket ratios support threshold SLOs."
+      ],
+      "example": "100successful health checks can hide10failed task-list requests; choose endpoint eligibility explicitly.",
+      "judgment": "A panel is useful when it changes a decision. Show request rate, error fraction, latency and saturation rather than collecting every available metric."
+    },
+    {
+      "title": "Cardinality and the observer boundary",
+      "paragraphs": [
+        "Each distinct label combination creates another series. Route templates such as /tasks/{task_id} stay bounded; actual IDs, raw URLs, user IDs and tokens do not. The instrumentation below labels the matched template and uses <unmatched> for unknown routes.",
+        "Prometheus scrapes from outside the application process. A separate synthetic request validates a response contract. Gatus embodies that same distinction: status alone is weaker than status plus expected body and latency."
+      ],
+      "example": "A200response with no items field violates the list contract even if its status is green.",
+      "judgment": "Keep application authentication checks, synthetic-monitor credentials and telemetry access scoped independently."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Add explicit metrics instrumentation",
+      "purpose": "Create a small wrapper without changing domain logic.",
+      "commands": [
+        {
+          "code": "cd \"$HOME/dev-opps-lab/app/taskboard\"\nmkdir -p observability\ncat > reference/metrics.py <<'PY'\nimport time\nfrom fastapi import Response\nfrom prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST\nfrom reference.stage07 import app\nrequests = Counter(\"taskboard_http_requests_total\", \"Completed HTTP requests\", [\"method\", \"route\", \"status\"])\nduration = Histogram(\"taskboard_http_duration_seconds\", \"HTTP response duration\", [\"method\", \"route\"], buckets=[.005,.01,.025,.05,.1,.25,.5,1,2,5])\n@app.middleware(\"http\")\nasync def measure(request, call_next):\n    started = time.perf_counter()\n    response = await call_next(request)\n    if request.url.path != \"/metrics\":\n        route = getattr(request.scope.get(\"route\"), \"path\", \"<unmatched>\")\n        requests.labels(request.method, route, str(response.status_code)).inc()\n        duration.labels(request.method, route).observe(time.perf_counter()-started)\n    return response\n@app.get(\"/metrics\", include_in_schema=False)\nasync def metrics():\n    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)\nPY\ncat > Dockerfile.metrics <<'DOCKER'\nFROM devopps-taskboard:w25\nUSER root\nRUN python -m pip install --no-cache-dir prometheus-client==0.22.1\nCOPY reference/metrics.py /app/reference/metrics.py\nUSER 10001:10001\nDOCKER\ndocker build -f Dockerfile.metrics -t devopps-taskboard:metrics .",
+          "explain": [
+            "The heredoc writes a wrapper around stage07. Counter counts completed responses by bounded method/route/status; Histogram records seconds with explicit buckets. /metrics exposes Prometheus text and is excluded from its own request count.",
+            "The derived Dockerfile adds only the pinned metrics dependency and wrapper to the familiar runtime image, then returns to UID10001. -f selects that Dockerfile. This single-process example needs additional multiprocess configuration if you later run multiple Uvicorn workers."
+          ],
+          "expected": "New image builds; domain/API tests remain applicable.",
+          "troubleshoot": "If the base tag is absent, rebuild week25 runtime first. Do not install packages interactively into a running container and call that reproducible."
+        }
+      ],
+      "checkpoint": "Explain why route template labels avoid one series per task ID."
+    },
+    {
+      "title": "Start a single metrics stack",
+      "purpose": "Resolve official component versions once and retain them locally.",
+      "commands": [
+        {
+          "code": "PROMETHEUS_TAG=$(curl -fsSL https://api.github.com/repos/prometheus/prometheus/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])')\nGRAFANA_TAG=$(curl -fsSL https://api.github.com/repos/grafana/grafana/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"].removeprefix(\"v\"))')\nGRAFANA_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')\nprintf 'PROMETHEUS_TAG=%s\nGRAFANA_TAG=%s\nGRAFANA_PASSWORD=%s\n' \"$PROMETHEUS_TAG\" \"$GRAFANA_TAG\" \"$GRAFANA_PASSWORD\" > observability/local.env\nchmod 600 observability/local.env\nprintf \"\\nobservability/local.env\\n\" >> .gitignore\nset -a\n. observability/local.env\nset +a\ncat > observability/prometheus.yml <<'YAML'\nglobal:\n  scrape_interval: 5s\nscrape_configs:\n- job_name: taskboard\n  static_configs:\n  - targets: ['app:8000']\nYAML\ncat > observability/datasource.yml <<'YAML'\napiVersion: 1\ndatasources:\n- name: Taskboard\n  uid: taskboard-prom\n  type: prometheus\n  access: proxy\n  url: http://prometheus:9090\n  isDefault: true\nYAML\ncat > observability.yaml <<'YAML'\nservices:\n  app:\n    image: devopps-taskboard:metrics\n    command: [python, -m, uvicorn, 'reference.metrics:app', --host, 0.0.0.0, --port, '8000', --no-access-log]\n  prometheus:\n    image: prom/prometheus:${PROMETHEUS_TAG}\n    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.retention.time=24h]\n    volumes: ['./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro']\n    ports: ['127.0.0.1:9090:9090']\n    networks: [backend]\n  grafana:\n    image: grafana/grafana:${GRAFANA_TAG}\n    environment:\n      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}\n      GF_USERS_ALLOW_SIGN_UP: 'false'\n    volumes:\n    - './observability/datasource.yml:/etc/grafana/provisioning/datasources/lab.yml:ro'\n    ports: ['127.0.0.1:3000:3000']\n    networks: [backend]\nYAML\ndocker compose -f compose.yaml -f observability.yaml up -d db migrate app prometheus grafana\ncurl -fsS http://127.0.0.1:8000/metrics\ncurl -fsS http://127.0.0.1:9090/-/ready",
+          "explain": [
+            "Official GitHub release responses supply concrete image versions. Store them with the random local Grafana password in a600-permission file; add observability/local.env to .gitignore before staging anything. set -a exports assignments loaded from this locally generated file; set +a ends automatic exporting.",
+            "Prometheus scrapes app:8000 every5seconds and retains24hours. Grafana's provisioned datasource uses the internal service address. The overlay changes only app image/command and adds the two services; ports are loopback-only. up starts the Compose dependency chain, including migrations.",
+            "curl checks metrics exposition and Prometheus readiness independently. Open http://127.0.0.1:3000 and log in as admin with the locally generated password; never commit or share it.",
+            "The .gitignore entry prevents the local Grafana credential file from being staged; it does not remove a secret already committed, which would require rotation and history review."
+          ],
+          "expected": "Metrics text includes taskboard_http_requests_total after traffic; Prometheus ready endpoint succeeds.",
+          "troubleshoot": "If up fails because a version variable is absent, reload observability/local.env in this terminal. Check Prometheus Targets for scrape errors rather than treating an empty graph as zero failures."
+        }
+      ],
+      "checkpoint": "In Grafana create four Time series panels using the queries below; save the dashboard and export its JSON into observability/dashboard.json."
+    },
+    {
+      "title": "Build decision-oriented panels and a synthetic check",
+      "purpose": "Use exact queries and validate the list contract.",
+      "commands": [
+        {
+          "code": "sum(rate(taskboard_http_requests_total{route=\"/tasks\"}[1m]))\nsum(rate(taskboard_http_requests_total{route=\"/tasks\",status=~\"5..\"}[1m])) / clamp_min(sum(rate(taskboard_http_requests_total{route=\"/tasks\"}[1m])),0.000001)\nhistogram_quantile(0.95,sum by (le) (rate(taskboard_http_duration_seconds_bucket{route=\"/tasks\"}[1m])))\nprocess_resident_memory_bytes{job=\"taskboard\"}",
+          "explain": [
+            "These are PromQL expressions for Grafana query editors, not shell commands. Use panel titles Requests per second, Server-error fraction, Task-list p95 seconds and Resident memory bytes.",
+            "rate uses a1-minute window; the denominator guard avoids divide-by-zero but an idle period is still no evidence of success. histogram_quantile estimates p95 from buckets; resident memory shows one saturation clue, not a total capacity verdict."
+          ],
+          "expected": "Panels populate after several scrapes and requests.",
+          "troubleshoot": "Check label spelling and target health first; a missing series differs from a zero-valued sample.",
+          "shell": "configuration"
+        },
+        {
+          "code": "set -a\n. .env\nset +a\nexport LAB_ALICE_TOKEN\npython3 - <<'PY'\nimport json,os,time,urllib.request\nstart=time.perf_counter()\nr=urllib.request.Request('http://127.0.0.1:8000/tasks',headers={'Authorization':'Bearer '+os.environ['LAB_ALICE_TOKEN']})\nwith urllib.request.urlopen(r,timeout=2) as response:\n body=json.load(response)\n assert response.status==200 and isinstance(body.get('items'),list), 'List contract failed'\nassert time.perf_counter()-start < 2, 'Latency threshold failed'\nprint('SYNTHETIC_PASS')\nPY",
+          "explain": [
+            "Load only the locally generated .env values; the Python script checks authenticated200, an items array and a chosen2-second lab bound. Assertions make bad data visible even when status200."
+          ],
+          "expected": "SYNTHETIC_PASS.",
+          "troubleshoot": "A401means the monitor identity is wrong; a503can be dependency failure. Preserve the distinction in the runbook."
+        }
+      ],
+      "checkpoint": "State the question and next action for every panel; record the synthetic location and what it cannot see."
+    }
+  ],
+  "failure": {
+    "title": "The process lives while task access fails",
+    "boundary": "Stop only the Compose lab database; the Kubernetes database is separate.",
+    "inject": [
+      {
+        "code": "docker compose -f compose.yaml -f observability.yaml stop db",
+        "explain": [
+          "Stop the scoped dependency while leaving the app process running."
+        ],
+        "expected": "/livez stays200; /readyz and authenticated task requests fail.",
+        "troubleshoot": "If the app itself exits, inspect its logs and separate that symptom from the intended dependency fault."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "curl -s -o /dev/null -w \"live=%{http_code}\n\" http://127.0.0.1:8000/livez\ncurl -s -o /dev/null -w \"ready=%{http_code}\n\" http://127.0.0.1:8000/readyz\ncurl -s -o /dev/null -w \"tasks=%{http_code}\n\" -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" http://127.0.0.1:8000/tasks",
+        "explain": [
+          "-o discards bodies while -w prints status; the authorized request measures user behavior, not merely process existence."
+        ],
+        "expected": "live200, ready503, tasks503.",
+        "troubleshoot": "If tasks401 check the token; do not count unauthorized monitor configuration as database failure."
+      }
+    ],
+    "hints": [
+      "Which endpoint touches the database?"
+    ],
+    "answer": {
+      "explanation": [
+        "The app is capable of executing its health handler but its useful dependency is unavailable. A process-only monitor misses the incident."
+      ],
+      "recover": [
+        {
+          "code": "docker compose -f compose.yaml -f observability.yaml start db",
+          "explain": [
+            "Restart the same database with its retained volume."
+          ],
+          "expected": "Database readiness recovers.",
+          "troubleshoot": "Wait for pg_isready rather than repeatedly restarting the app."
+        }
+      ],
+      "verification": {
+        "code": "curl -fsS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" http://127.0.0.1:8000/tasks",
+        "explain": [
+          "Verify the user endpoint after recovery."
+        ],
+        "expected": "JSON items array.",
+        "troubleshoot": "Re-run the full synthetic assertion, not only this status check."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why can total error ratio hide a broken endpoint?",
+      "hint": "Consider traffic weighting.",
+      "answer": "Frequent healthy health checks can dominate the denominator. Define eligible user routes and inspect important route-specific symptoms."
+    },
+    {
+      "prompt": "Why not label metrics with a task ID?",
+      "hint": "How many series after a year?",
+      "answer": "Each new ID adds distinct series and memory/storage cost. Use route templates; keep specific IDs in carefully scoped diagnostic events when necessary."
+    },
+    {
+      "prompt": "Is zero traffic100% availability?",
+      "hint": "What was observed?",
+      "answer": "No eligible requests means no request-based evidence. Synthetic coverage can provide another signal, but its definition must remain separate."
+    }
+  ],
+  "exercise": {
+    "brief": "Improve one dashboard panel and synthetic contract.",
+    "constraints": [
+      "No unbounded labels",
+      "Use a named user action"
+    ],
+    "deliverables": [
+      "Exported dashboard JSON",
+      "Synthetic pass/fail evidence"
+    ],
+    "acceptance": [
+      "Every panel has a decision",
+      "Wrong body with200would fail the check"
+    ],
+    "hints": [
+      "Separate process, dependency and user-path checks."
+    ],
+    "solution": [
+      "Use the exact/task route denominator, document the2-second chosen lab threshold, and add a response-shape assertion. Record a database outage and recovery in the same dashboard window."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker compose -f compose.yaml -f observability.yaml ps",
+      "explain": [
+        "Keep the recovered stack for week34. Stop it with the same compose files and down when ending the lab; omit -v to retain deliberate database data."
+      ],
+      "expected": "Only intended local services are running.",
+      "troubleshoot": "Avoid docker system prune; it affects unrelated projects."
+    }
+  ],
+  "references": [
+    {
+      "title": "Prometheus instrumenting",
+      "url": "https://prometheus.io/docs/practices/instrumentation/",
+      "usedFor": "Metric selection and labels"
+    },
+    {
+      "title": "Prometheus histograms",
+      "url": "https://prometheus.io/docs/practices/histograms/",
+      "usedFor": "Buckets and quantiles"
+    },
+    {
+      "title": "Grafana Prometheus datasource",
+      "url": "https://grafana.com/docs/grafana/latest/datasources/prometheus/",
+      "usedFor": "Datasource setup and query panels"
+    },
+    {
+      "title": "Gatus",
+      "url": "https://github.com/TwiN/gatus",
+      "usedFor": "Contract-aware synthetic checks"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "TwiN/gatus",
+      "principle": "Check the contract, not merely status.",
+      "application": "The independent authenticated list check validates both status and body; the database fault proves why process health is weaker.",
+      "url": "https://github.com/TwiN/gatus"
+    },
+    {
+      "repo": "SigNoz/signoz",
+      "principle": "Use signals to answer a question.",
+      "application": "This lesson starts with aggregate symptoms; the next adds request traces without installing a second full observability suite.",
+      "url": "https://github.com/SigNoz/signoz"
+    }
+  ],
+  "notes": [
+    "Instrumentation and configuration are provided in full; container execution was not available during authoring."
+  ],
+  "phase": "Observability and SRE",
+  "title": "Measure the user experience",
+  "outcome": "Instrument useful metrics and create a small actionable dashboard."
+}

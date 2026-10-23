@@ -1,0 +1,253 @@
+{
+  "week": 30,
+  "introduction": [
+    "Scaling is a hypothesis about a bottleneck. Adding Pods can improve request capacity while exhausting the database connection budget. This lesson connects resource requests, observed saturation and downstream limits.",
+    "You will install the Kubernetes resource-metrics API, measure a bounded load, configure an HPA and deliberately provoke an OOM in a separate disposable workload. A small local run establishes mechanics and starting assumptions, not production capacity."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Week29 Taskboard/PostgreSQL cluster. Keep the database and its claim. Python3, Docker, kubectl available."
+  ],
+  "concepts": [
+    {
+      "title": "Requests, limits and utilization",
+      "paragraphs": [
+        "A CPU request influences scheduling and provides the denominator for CPU-utilization HPA targets. A CPU limit can throttle; a memory limit can terminate a container that exceeds its enforced memory budget. Neither is the same as measured demand."
+      ],
+      "example": "With a100m CPU request, usage50m is50% utilization. Raising the request changes that percentage even if work is unchanged.",
+      "judgment": "Do not guess a tiny request merely to trigger scaling. Observe steady and peak load, and reserve headroom."
+    },
+    {
+      "title": "A control loop has prerequisites and consequences",
+      "paragraphs": [
+        "The HPA reads metrics and computes a desired replica count, bounded by min/max and stabilization behavior. Missing metrics or missing requests make the signal unavailable. Metrics Server supplies resource metrics; Prometheus application metrics are a separate system.",
+        "Taskboard currently opens short-lived database connections. More replicas or load increase concurrent connections; a future pool needs an explicit per-replica maximum."
+      ],
+      "example": "If20 replicas each allow10 connections, the potential200 connections may exceed a150-connection database budget before administrators and migrations are counted.",
+      "judgment": "Scaling app replicas cannot repair a saturated database or unbounded query. Measure tail latency, errors and dependencies alongside CPU."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Install resource metrics in this local cluster",
+      "purpose": "Download an official versioned release before applying its privileges.",
+      "commands": [
+        {
+          "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\ncd \"$HOME/dev-opps-lab/k8s\"\nMETRICS_TAG=$(curl -fsSL https://api.github.com/repos/kubernetes-sigs/metrics-server/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])')\ncurl -fL \"https://github.com/kubernetes-sigs/metrics-server/releases/download/$METRICS_TAG/components.yaml\" -o metrics-server.yaml\nkubectl apply -f metrics-server.yaml\nkubectl -n kube-system patch deployment metrics-server --type=json -p '[{\"op\":\"add\",\"path\":\"/spec/template/spec/containers/0/args/-\",\"value\":\"--kubelet-insecure-tls\"}]'\nkubectl -n kube-system rollout status deployment/metrics-server --timeout=180s\nkubectl top nodes\nkubectl -n devopps top pods",
+          "explain": [
+            "Resolve the official release tag once and retain the downloaded manifest/version. Read its ServiceAccount/RBAC rules before apply: this add-on observes node/workload resource use.",
+            "The kind-only insecure-TLS flag accepts the local kubelet serving certificate without validation. This weakens identity verification and must not be carried into production; production needs valid kubelet serving certificates.",
+            "top asks the metrics API for current CPU/memory, not historical latency. Initial samples can take a minute."
+          ],
+          "expected": "Numeric CPU/memory values for nodes and Pods.",
+          "troubleshoot": "If Metrics API is unavailable inspect metrics-server logs and APIService status; do not create HPA evidence from unknown values."
+        }
+      ],
+      "checkpoint": "Record metrics version and the local TLS exception with its production alternative."
+    },
+    {
+      "title": "Apply an HPA and generate a bounded load",
+      "purpose": "Use a small request stream and watch both replicas and database connections.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps autoscale deployment taskboard --cpu-percent=60 --min=2 --max=4\nkubectl -n devopps get hpa taskboard -w",
+          "explain": [
+            "autoscale creates an HPA targeting60% average CPU utilization of requests, bounded2–4. -w streams changes; stop observation with Ctrl+C."
+          ],
+          "expected": "Targets display current/60%, not unknown.",
+          "troubleshoot": "If no scale-out occurs that is a valid result: check actual load, CPU request denominator and downstream latency rather than fabricating scaling."
+        },
+        {
+          "code": "ALICE_TOKEN=$(kubectl -n devopps get secret taskboard-env -o jsonpath='{.data.LAB_ALICE_TOKEN}' | base64 --decode)\nkubectl -n devopps run load --image=busybox:1.37 --restart=Never --command -- sh -c 'i=0; while [ \"$i\" -lt 120 ]; do wget -T 2 -qO- http://taskboard/livez >/dev/null || echo FAILED; i=$((i+1)); sleep 0.25; done'\nkubectl -n devopps top pods\nkubectl -n devopps exec postgres-0 -- psql -U postgres -c \"SELECT state,count(*) FROM pg_stat_activity GROUP BY state;\"",
+          "explain": [
+            "The Secret read recovers a lab token for independent authenticated testing; base64 is decoding, not decryption. Do not print it.",
+            "The health-only load sends120 requests with2-second timeouts at a bounded rate. It isolates platform CPU and is intentionally not a database benchmark. >/dev/null discards successful bodies; failures stay visible.",
+            "top measures resources and pg_stat_activity groups database sessions. For representative workload, use the supplied system tests and a separate bounded authenticated task-list stream; record endpoint and concurrency rather than calling health traffic a capacity result."
+          ],
+          "expected": "Completed bounded load; observed metrics and session count. Scale-out may or may not occur.",
+          "troubleshoot": "No HPA movement under a light workload is expected. A capacity conclusion needs representative traffic and timestamped latency/error measurements."
+        }
+      ],
+      "checkpoint": "Record request count, concurrency, elapsed time and whether HPA acted; do not extrapolate a production maximum."
+    },
+    {
+      "title": "Observe the scaling control loop with a bounded CPU experiment",
+      "purpose": "Separate a controlled autoscaler test from realistic application capacity evidence.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps exec deployment/taskboard -- python -c 'import time; end=time.monotonic()+90; n=0\nwhile time.monotonic()<end: n=(n+1)%1000003\nprint(\"bounded CPU exercise complete\")'",
+          "explain": [
+            "In a separate terminal from the HPA watch, run a 90-second CPU loop inside one disposable app container. It deliberately consumes CPU measured by the autoscaler; it is not a business request benchmark.",
+            "The time.monotonic deadline bounds the load. The existing HPA may raise replicas toward its maximum of four; new replicas dilute average utilization and the load ends automatically."
+          ],
+          "expected": "Observe HPA utilization, desired replicas and new Pods. After load ends, record when scale-down occurs; default stabilization can retain replicas for several minutes.",
+          "troubleshoot": "If metrics are unknown, inspect Metrics Server. If scaling is delayed, inspect HPA conditions and CPU requests; do not remove bounds or claim the experiment proves production throughput."
+        },
+        {
+          "code": "kubectl -n devopps describe hpa taskboard\nkubectl -n devopps get pods\nkubectl -n devopps exec postgres-0 -- psql -U postgres -c \"SELECT state,count(*) FROM pg_stat_activity GROUP BY state;\"",
+          "explain": [
+            "Describe HPA decisions and inspect replica and database connection counts. Existing requests and their configured resources determine the computed utilization."
+          ],
+          "expected": "Evidence separates load, metric, scale-out and eventual scale-in timestamps.",
+          "troubleshoot": "If no scale occurs, report the condition and actual measurements rather than inventing a result."
+        }
+      ],
+      "checkpoint": "Explain why this proves a control-loop response but not the number of user requests the application can safely serve."
+    },
+    {
+      "title": "Measure latency distribution",
+      "purpose": "Port-forward Service in a second terminal as week29; run this bounded measurement in the first.",
+      "commands": [
+        {
+          "code": "mkdir -p \"$HOME/dev-opps-lab/evidence/w30\"\nexport ALICE_TOKEN\npython3 - <<'PY'\nimport concurrent.futures,json,os,time,urllib.request,urllib.error\nurl='http://127.0.0.1:18000/tasks'\ndef one(_):\n start=time.perf_counter()\n req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['ALICE_TOKEN']})\n try:\n  with urllib.request.urlopen(req,timeout=3) as r: r.read(); ok=r.status==200\n except (urllib.error.URLError,TimeoutError): ok=False\n return time.perf_counter()-start,ok\nwith concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool: rows=list(pool.map(one,range(100)))\ntimes=sorted(t for t,ok in rows)\nprint(json.dumps({'requests':100,'concurrency':4,'errors':sum(not ok for t,ok in rows),'p50_ms':times[49]*1000,'p95_ms':times[94]*1000,'max_ms':times[-1]*1000},indent=2))\nPY",
+          "explain": [
+            "The standard-library script sends100 authenticated list requests with4 workers and a3-second timeout. It counts failures and computes rank-based sample percentiles; reading each response includes body transfer time. export makes the token available to this child process."
+          ],
+          "expected": "JSON with100requests, errors and p50/p95/max in milliseconds.",
+          "troubleshoot": "Port-forward tests one selected Pod and includes tunnel overhead; it is useful for this bounded measurement, not proof of load-balanced fleet throughput. Check the tunnel if every request fails."
+        }
+      ],
+      "checkpoint": "Write a capacity assumption with an observed range and a falsification test."
+    }
+  ],
+  "failure": {
+    "title": "Separate OOM from health-check failure",
+    "boundary": "A new memory-hog Pod only; do not reduce PostgreSQL memory.",
+    "inject": [
+      {
+        "code": "kubectl -n devopps run memory-hog --image=python:3.14-slim --restart=Never --overrides='{\"spec\":{\"containers\":[{\"name\":\"memory-hog\",\"image\":\"python:3.14-slim\",\"command\":[\"python\",\"-c\",\"a=bytearray(256*1024*1024); import time; time.sleep(60)\"],\"resources\":{\"requests\":{\"memory\":\"16Mi\"},\"limits\":{\"memory\":\"48Mi\"}}}]}}' ",
+        "explain": [
+          "The process allocates256MiB inside a48Mi memory limit. The Pod is isolated and has no probes or persistent data."
+        ],
+        "expected": "Container terminates with OOMKilled.",
+        "troubleshoot": "An image-pull error must be resolved before this fault is actually exercised."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n devopps get pod memory-hog -o jsonpath='{.status.containerStatuses[0].state.terminated}'\nkubectl -n devopps describe pod memory-hog",
+        "explain": [
+          "Read the explicit termination reason and events."
+        ],
+        "expected": "OOMKilled, often exit137; there is no liveness probe.",
+        "troubleshoot": "Exit137 alone is insufficient because other SIGKILL causes exist; require the OOMKilled reason."
+      }
+    ],
+    "hints": [
+      "Which field identifies the termination reason?"
+    ],
+    "answer": {
+      "explanation": [
+        "The memory controller killed the process for exceeding its budget. A liveness restart is a different mechanism and should show probe failures. Repair memory demand or justified sizing, not probe timing."
+      ],
+      "recover": [
+        {
+          "code": "kubectl -n devopps delete pod memory-hog",
+          "explain": [
+            "Remove the one fault workload."
+          ],
+          "expected": "Deleted.",
+          "troubleshoot": "Do not change node memory settings for this bounded experiment."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps get deployment taskboard\nkubectl -n devopps top pods",
+        "explain": [
+          "Check healthy service replicas and measured memory."
+        ],
+        "expected": "Healthy service unaffected; no memory-hog Pod.",
+        "troubleshoot": "Look at actual Ready counts, not only desired HPA replicas."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What happens if CPU requests are absent?",
+      "hint": "What is utilization divided by?",
+      "answer": "The utilization target lacks its denominator; the HPA cannot derive that metric correctly. Inspect HPA conditions rather than assuming it is active."
+    },
+    {
+      "prompt": "Why can scaling worsen availability?",
+      "hint": "Count downstream concurrency.",
+      "answer": "More Pods can open more sessions and saturate a shared database; enforce a total connection/capacity budget and bound maximum replicas."
+    },
+    {
+      "prompt": "Why report p95 and failures together?",
+      "hint": "Consider fast error responses.",
+      "answer": "A service can fail quickly and look fast. Tail latency describes slow requests while error ratio prevents a fast failure from being interpreted as a good experience."
+    }
+  ],
+  "exercise": {
+    "brief": "Choose starting resource and replica budgets from your measurements.",
+    "constraints": [
+      "Keep max replicas4 in this local lab.",
+      "Separate health-only and authenticated-data traffic."
+    ],
+    "deliverables": [
+      "Measured baseline/load table",
+      "CPU/memory and downstream budget rationale"
+    ],
+    "acceptance": [
+      "Includes errors and tail latency",
+      "States what remains unproven"
+    ],
+    "hints": [
+      "A missing metric is a finding, not zero utilization."
+    ],
+    "solution": [
+      "Compare idle and loaded readings, reserve headroom and compute maximum app-side connections. Propose a representative next experiment instead of presenting the laptop maximum as production capacity."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n devopps delete pod load --ignore-not-found\nkubectl -n devopps delete hpa taskboard\nkubectl -n devopps scale deployment/taskboard --replicas=2",
+      "explain": [
+        "Remove temporary load and the HPA before later declarative replica experiments. Restore2replicas; keep resource metrics for observation."
+      ],
+      "expected": "2replicas and no HPA controlling the field.",
+      "troubleshoot": "Deleting the HPA avoids two owners competing over replicas in the GitOps lesson."
+    }
+  ],
+  "references": [
+    {
+      "title": "Resource management",
+      "url": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+      "usedFor": "Requests, limits and OOM"
+    },
+    {
+      "title": "Horizontal autoscaling",
+      "url": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/",
+      "usedFor": "Metrics requirements and control loop"
+    },
+    {
+      "title": "Metrics Server",
+      "url": "https://github.com/kubernetes-sigs/metrics-server",
+      "usedFor": "Installation and local TLS limitation"
+    },
+    {
+      "title": "PostgreSQL monitoring",
+      "url": "https://www.postgresql.org/docs/current/monitoring-stats.html",
+      "usedFor": "Database connection observations"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability is measured against a useful user action.",
+      "application": "Keep errors and latency together and state what the health-only load leaves untested.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    },
+    {
+      "repo": "ramitsurana/awesome-kubernetes",
+      "principle": "An extension needs a clear operational purpose.",
+      "application": "Metrics Server is added for HPA resource metrics; document its permissions and certificate exception instead of installing an entire monitoring suite by habit.",
+      "url": "https://github.com/ramitsurana/awesome-kubernetes"
+    }
+  ],
+  "notes": [
+    "No Kubernetes load or OOM run was executed on the authoring host. Capture actual values; none are supplied as fabricated results."
+  ],
+  "phase": "Kubernetes operations",
+  "title": "Measure capacity before scaling",
+  "outcome": "Set resource requests and limits from observed behavior and reason about autoscaling."
+}

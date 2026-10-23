@@ -1,0 +1,247 @@
+{
+  "week": 17,
+  "phase": "Terraform",
+  "title": "Make infrastructure changes reviewable",
+  "outcome": "Use Terraform's configuration, plan, state and apply workflow deliberately.",
+  "introduction": [
+    "Manual cloud commands created resources one at a time. Terraform records a desired configuration and asks providers to compare it with observed resources. You will first use a local file so every create, replacement and deletion is visible without cloud charges.",
+    "The same review discipline later applies to AWS. A plan describes proposed changes; apply executes them; state connects Terraform addresses to real objects. None of these files is a substitute for observing the actual service."
+  ],
+  "prerequisites": [
+    "Weeks 13–16: distinguish identity, resource ownership, cost and cleanup. Use Ubuntu Bash and Git.",
+    "Work in ~/dev-opps-lab/infra/local17. This lesson's managed files stay in that directory. No cloud resources are created."
+  ],
+  "concepts": [
+    {
+      "title": "Configuration, provider, state and plan",
+      "paragraphs": [
+        "Configuration describes intent. A provider implements operations for a particular API or local resource. State records which real object belongs to an address such as local_file.notice. A plan compares intent with state and refreshed observations.",
+        "Terraform can delete an object when its resource leaves configuration. State therefore matters: losing it does not delete infrastructure, but loses the normal ownership mapping. Store it privately and recoverably."
+      ],
+      "example": "local_file.notice is an address in Terraform; notice.txt is the actual filesystem path it manages.",
+      "judgment": "Read every create, update, replacement and deletion before apply. An unexpected resource or account is a reason to stop."
+    },
+    {
+      "title": "Immutability and sensitive data",
+      "paragraphs": [
+        "Some changes are in-place updates; others require replacement. A provider decides which attributes require a new object. Replacing a local file is cheap, while replacing a database may affect data and downtime.",
+        "A sensitive label suppresses normal display; it does not magically remove a value from state or a saved plan. Keep these artifacts away from public Git and grant access only to operators who need them."
+      ],
+      "example": "Changing a filename can remove the old managed file and create the new one. The plan must make that consequence explicit.",
+      "judgment": "Commit configuration and dependency lock, but not state, plan files or credentials. Reproducibility means exact dependencies plus understood inputs, not publishing secrets."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Install and record Terraform",
+      "purpose": "Run on the disposable Linux learning environment. These commands add HashiCorp's signed Ubuntu package source, then install its CLI.",
+      "commands": [
+        {
+          "code": "sudo apt-get update\nsudo apt-get install -y gnupg wget lsb-release\nwget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null\necho \"deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main\" | sudo tee /etc/apt/sources.list.d/hashicorp.list\nsudo apt-get update\nsudo apt-get install -y terraform\nterraform version",
+          "explain": [
+            "apt refreshes the package index and installs key/download tools. wget -O- writes the public signing key to stdout; gpg --dearmor converts it to the binary keyring; tee writes the system keyring with sudo.",
+            "lsb_release -cs selects the Ubuntu codename. signed-by limits this source's accepted signing key. The second apt update reads that source, install adds Terraform, and version records what was installed."
+          ],
+          "expected": "A Terraform 1.x version is displayed.",
+          "troubleshoot": "If package signature verification fails, stop and inspect the configured key/source rather than disabling verification. Do not rerun installation if Terraform is already appropriately installed.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Save the installed version in your evidence."
+    },
+    {
+      "title": "Define one resource",
+      "purpose": "A quoted heredoc preserves Terraform syntax and variable interpolation for Terraform, not Bash.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-lab/infra/local17/output ~/dev-opps-lab/evidence/week-17\ncd ~/dev-opps-lab/infra/local17\ncat > main.tf <<'EOF'\nterraform {\n  required_version = \">= 1.10, < 2.0\"\n  required_providers {\n    local = { source = \"hashicorp/local\", version = \"~> 2.5\" }\n  }\n}\nvariable \"filename\" {\n  type    = string\n  default = \"notice.txt\"\n  validation {\n    condition     = can(regex(\"^[a-z0-9-]+[.]txt$\", var.filename))\n    error_message = \"Use a simple lowercase .txt filename, without directories.\"\n  }\n}\nresource \"local_file\" \"notice\" {\n  filename        = \"${path.module}/output/${var.filename}\"\n  content         = \"Dev Opps: configuration is a reviewable promise.\\n\"\n  file_permission = \"0644\"\n}\noutput \"notice_path\" { value = local_file.notice.filename }\nEOF\ncat > .gitignore <<'EOF'\n.terraform/\n*.tfstate\n*.tfstate.*\n*.tfplan\ncrash.log\nEOF\nterraform fmt\nterraform init\nterraform validate",
+          "explain": [
+            "mkdir creates the exact learning directories. The resource writes only into output; validation disallows directory separators in filenames. content is the managed text and 0644 means owner write, others read.",
+            "The provider constraint selects a compatible 2.x release; init downloads it and records the exact selected release/checksums in .terraform.lock.hcl. fmt normalizes formatting; validate checks configuration structure.",
+            "The local .gitignore excludes downloaded providers, state and saved plans without excluding the dependency lock."
+          ],
+          "expected": "init completes and validate reports configuration valid.",
+          "troubleshoot": "A provider download failure is an installation/network problem; inspect it before running apply. A syntax error needs its file/line fixed, not bypassed.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Explain each HCL block before proceeding."
+    },
+    {
+      "title": "Review and apply the saved plan",
+      "purpose": "A plan file binds the reviewed proposed actions to the later apply.",
+      "commands": [
+        {
+          "code": "terraform plan -out=create.tfplan\nterraform show -no-color create.tfplan\nterraform apply create.tfplan\ncat output/notice.txt\nterraform state list\nterraform plan -detailed-exitcode\nprintf \"Plan exit status: %s\\n\" \"$?\"",
+          "explain": [
+            "plan -out writes a binary plan; show renders it for review. Apply that exact file only after verifying one local_file creation and no unrelated actions.",
+            "cat observes the real output; state list shows Terraform's tracked address. -detailed-exitcode returns 0 for no changes, 2 for changes and 1 for an error. Capture $? immediately because any later command replaces it."
+          ],
+          "expected": "One file is created, state lists local_file.notice, and the final plan returns status 0.",
+          "troubleshoot": "A final status 2 means changes remain; read them rather than treating all nonzero statuses as errors. Status 1 requires diagnosis.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record the real file, tracked address and converged no-change plan."
+    },
+    {
+      "title": "Preserve the right artifacts",
+      "purpose": "Review the Git change before committing; state never belongs in public history.",
+      "commands": [
+        {
+          "code": "git status --short\ngit add main.tf .gitignore .terraform.lock.hcl\ngit diff --cached\ngit commit -m \"Describe and verify a local Terraform resource\"",
+          "explain": [
+            "status reveals which files would enter version control. add names only configuration, ignore rules and dependency lock. diff --cached reviews exactly staged content; commit records it."
+          ],
+          "expected": "A commit with no tfstate, plan or credentials.",
+          "troubleshoot": "If this folder is not under the week-1 Git repository, return to ~/dev-opps-lab and verify its .git directory before initializing any new repository.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "In a note, translate the idea to aws_s3_bucket: a provider would call AWS instead of writing a file; identity and cost checks must precede apply."
+    }
+  ],
+  "failure": {
+    "title": "Predict a replacement before accepting it",
+    "boundary": "Only the managed local file inside infra/local17/output.",
+    "inject": [
+      {
+        "code": "terraform plan -var=filename=replacement.txt -out=replace.tfplan\nterraform show -no-color replace.tfplan",
+        "explain": [
+          "The alternate input changes the managed path. This creates a plan only, not a filesystem change."
+        ],
+        "expected": "A replacement action is shown for local_file.notice.",
+        "troubleshoot": "If output differs with a future provider version, read the actual actions and record that behavior instead of assuming replacement.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ls -l output\nterraform state show local_file.notice",
+        "explain": [
+          "ls observes existing files; state show reads the recorded resource attributes. Neither applies the plan."
+        ],
+        "expected": "The current notice still exists before apply.",
+        "troubleshoot": "If an earlier run changed it, first reconcile the current state and configuration before interpreting this comparison.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "Look for the old and new filename and the replacement marker.",
+      "An action in a saved plan has not happened yet."
+    ],
+    "answer": {
+      "explanation": [
+        "Changing a resource's identity/location can require replacement. Accept this one because the lab file is disposable and contains no unique data; the same plan shape on a production database deserves much more scrutiny."
+      ],
+      "recover": [
+        {
+          "code": "terraform apply replace.tfplan\nterraform plan -out=restore.tfplan\nterraform show -no-color restore.tfplan\nterraform apply restore.tfplan",
+          "explain": [
+            "Apply the reviewed replacement to observe it, then plan with the original default filename and review the reverse replacement before applying."
+          ],
+          "expected": "The managed file returns to output/notice.txt.",
+          "troubleshoot": "Do not manually delete state to undo a replacement; change desired configuration and review the recovery plan.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "test -f output/notice.txt\nterraform plan -detailed-exitcode",
+        "explain": [
+          "test checks the actual expected file. A no-change plan checks convergence with the original input."
+        ],
+        "expected": "File exists and plan status is 0.",
+        "troubleshoot": "If status 2, read the remaining difference before marking the exercise complete.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why is state not a disposable cache?",
+      "hint": "Think of object ownership.",
+      "answer": "It maps Terraform addresses to real resources and may contain important values. Removing it can orphan resources from normal management without deleting them."
+    },
+    {
+      "prompt": "What does sensitive=true not do?",
+      "hint": "Storage versus display.",
+      "answer": "It does not guarantee the value is absent from state or plans. Protect those artifacts separately."
+    },
+    {
+      "prompt": "Why apply a saved plan?",
+      "hint": "Tie review to execution.",
+      "answer": "It records the exact proposed actions and inputs. A fresh apply can generate different actions after configuration or observed state changes."
+    }
+  ],
+  "exercise": {
+    "brief": "Add a second clearly named local notice and prove its lifecycle.",
+    "constraints": [
+      "Only write inside infra/local17/output.",
+      "No shell provisioners and no cloud provider yet."
+    ],
+    "deliverables": [
+      "Reviewed create plan, both file contents, no-change plan and a scoped removal plan."
+    ],
+    "acceptance": [
+      "The second file is independently addressed.",
+      "Removing its resource deletes only that file.",
+      "Configuration and lock are committed; state remains private."
+    ],
+    "hints": [
+      "Use a second local_file resource with a different Terraform name and fixed filename."
+    ],
+    "solution": [
+      "Define local_file.handoff, plan and apply it, then remove just that block and inspect the resulting single delete. This demonstrates desired-state removal rather than manual filesystem cleanup."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "terraform plan -destroy -out=destroy.tfplan\nterraform show -no-color destroy.tfplan\nterraform apply destroy.tfplan",
+      "explain": [
+        "Create and review a destroy plan for this root module; it should contain only the lab's local files. Applying deletes those managed files, not configuration or evidence."
+      ],
+      "expected": "Managed local resources are removed and no cloud charges exist.",
+      "troubleshoot": "If the plan contains any unfamiliar resource, stop: you are in the wrong Terraform directory or state.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Install Terraform",
+      "url": "https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli",
+      "usedFor": "Signed Ubuntu package setup."
+    },
+    {
+      "title": "Terraform state",
+      "url": "https://developer.hashicorp.com/terraform/language/state",
+      "usedFor": "Resource ownership mapping and state importance."
+    },
+    {
+      "title": "Terraform CLI plan",
+      "url": "https://developer.hashicorp.com/terraform/cli/commands/plan",
+      "usedFor": "Saved plans and detailed exit codes."
+    },
+    {
+      "title": "Local file provider",
+      "url": "https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/file",
+      "usedFor": "Local file lifecycle and permissions."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "The-DevOps-Daily/devops-daily",
+      "principle": "Extend a happy-path tutorial with failure evidence",
+      "application": "The replacement plan is predicted, applied, recovered and checked for convergence.",
+      "url": "https://github.com/The-DevOps-Daily/devops-daily"
+    },
+    {
+      "repo": "MichaelCade/90DaysOfDevOps",
+      "principle": "IaC is a repeated experiment",
+      "application": "Record prediction, observed change and the earlier checks that remain true.",
+      "url": "https://github.com/MichaelCade/90DaysOfDevOps"
+    }
+  ],
+  "notes": [
+    "Terraform/provider commands are authored against primary documentation; no Terraform binary execution was available during this authoring step."
+  ]
+}

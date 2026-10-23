@@ -1,0 +1,258 @@
+{
+  "week": 21,
+  "phase": "Ansible and VM operations",
+  "title": "Configure machines consistently",
+  "outcome": "Use Ansible inventories, modules and roles to configure your Linux service.",
+  "introduction": [
+    "A server configured by a long sequence of remembered SSH commands is difficult to reproduce. This week turns the Taskboard memory service into a small Ansible role: the controller connects over SSH, observes the host and makes specific properties match the declared state. You will be able to identify which task changed which property and why a service restarted.",
+    "Terraform owns the existence and network identity of a machine. Ansible owns its operating-system packages, service account, application files and systemd unit. Give each property one owner. This lab deliberately uses the memory application so configuration mechanics are visible; its tasks disappear on restart, and it makes no database-recovery claim."
+  ],
+  "prerequisites": [
+    "Use the Ubuntu 24.04 Bash controller from the setup guide. Windows needs WSL for the controller; Ansible does not run natively in PowerShell. The controller needs Python 3.12+, python3-venv and SSH.",
+    "Prepare one disposable Ubuntu 24.04 VM with a sudo-capable SSH account and Python 3; use the complete week-14 provisioning procedure for a short AWS session or your existing local Ubuntu VM. For a local VM, install openssh-server from its console using sudo apt-get update then sudo apt-get install openssh-server python3; record its address using hostname -I and its account using whoami. Keep console access available. Never target your everyday workstation.",
+    "Use two VMs if available. One VM plus an explicit second-host inventory design is accepted, but label second-host execution pending. For AWS, recheck account/region, cost estimate and the week-14 exact-ID teardown; do not leave a paid VM running overnight.",
+    "The actual Taskboard source exists at ~/dev-opps-lab/app/taskboard. The target SSH key is the one installed when creating the VM. Verify its host-key fingerprint using the VM console before accepting the first connection."
+  ],
+  "concepts": [
+    {
+      "title": "Inventory says where; a role says what",
+      "paragraphs": [
+        "An inventory maps a stable name such as app1 to the current address and connection user. A play chooses a group, and a role supplies related tasks, templates and handlers. Moving to another host should change the inventory, not require copying every task.",
+        "Modules have defined inputs and results. The user module can check whether the account exists, while an unconditional shell useradd would fail on the second run. Module results report changed only when the managed property changes."
+      ],
+      "example": "app1 and app2 can share the taskboard role while each has its own address and port variable.",
+      "judgment": "Do not disable SSH host-key checking for convenience. A rebuilt host needs a newly verified fingerprint, not blind trust in whoever answers its old address."
+    },
+    {
+      "title": "Privilege and restart are explicit",
+      "paragraphs": [
+        "The SSH account is the transport identity. become elevates only the tasks needing administrative rights. The application runs as a different locked service user with no interactive shell and no sudo rights.",
+        "A handler is notified by changed tasks and normally runs once near the end of the play. Template changes notify restart; an unchanged template does not. Flushing handlers before health verification ensures the check observes the new configuration."
+      ],
+      "example": "An edit to the unit port restarts Taskboard once; a second identical run should not restart it.",
+      "judgment": "A green recap proves the declared tasks completed. A separate HTTP assertion is needed to establish useful service behavior."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Prepare the controller and its inventory",
+      "purpose": "Keep the automation in its own learning directory. Enter the real target values; the inventory contains connection metadata, not private-key contents.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-lab/config21/{roles/taskboard/{tasks,handlers,templates,files},evidence}\ncd ~/dev-opps-lab/config21\npython3 -m venv .venv\nsource .venv/bin/activate\npython -m pip install --no-cache-dir ansible-core ansible-lint\npython -m pip freeze > controller-requirements.lock\nansible --version\nread -r -p \"Disposable VM address: \" VM_HOST\nread -r -p \"SSH account on that VM: \" VM_USER\nread -r -p \"Absolute path to its private SSH key: \" VM_KEY\nexport VM_HOST VM_USER VM_KEY\npython - <<'PY'\nimport json,os\nfrom pathlib import Path\nkey=Path(os.environ[\"VM_KEY\"]).expanduser().resolve()\nassert key.is_file(), \"Use the existing private-key path\"\ninv={\"all\":{\"children\":{\"app\":{\"hosts\":{\"app1\":{\"ansible_host\":os.environ[\"VM_HOST\"],\"ansible_user\":os.environ[\"VM_USER\"],\"ansible_ssh_private_key_file\":str(key),\"ansible_python_interpreter\":\"/usr/bin/python3\",\"taskboard_port\":8000}}}}}}\nPath(\"inventory.json\").write_text(json.dumps(inv,indent=2))\nPY\nssh -i \"$VM_KEY\" \"$VM_USER@$VM_HOST\" \"python3 --version; id\"\nansible-inventory -i inventory.json --graph\nansible app -i inventory.json -m ansible.builtin.ping",
+          "explain": [
+            "mkdir creates only this project and role directories. venv isolates controller packages; pip installs the maintained core and lint tool, then freeze records the actual resolved versions for a reproducible controller rebuild. Upgrade this lock only after testing.",
+            "read obtains actual host, account and key path without inventing values. The small Python program writes valid JSON inventory and refuses a nonexistent key. SSH confirms the remote interpreter and identity; verify the fingerprint before accepting.",
+            "The inventory graph shows group app containing app1. Ansible ping is a Python/SSH module check, not ICMP and not an application health check."
+          ],
+          "expected": "app1 returns pong and the remote identity is the intended disposable VM user.",
+          "troubleshoot": "UNREACHABLE means investigate address, route, SSH key/user and port 22 first. Module interpreter errors come after transport works. A password-required sudo account uses --ask-become-pass on privileged runs below.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Create evidence/second-host-design.md describing app2 address discovery, distinct inventory entry and independent memory data; do not claim it ran unless it did."
+    },
+    {
+      "title": "Define a role with bounded ownership",
+      "purpose": "The source bundle contains application code and runtime locks only. The role installs a fixed release directory, a dedicated account and one loopback-only systemd service.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/config21\ntar --exclude=.venv --exclude=.env --exclude=.git --exclude=reports --exclude=__pycache__ -czf roles/taskboard/files/taskboard.tar.gz -C ~/dev-opps-lab/app/taskboard .\ncat > site.yml <<'EOF'\n---\n- name: Configure the disposable Taskboard VM\n  hosts: app\n  become: true\n  roles:\n    - taskboard\nEOF\ncat > roles/taskboard/tasks/main.yml <<'EOF'\n---\n- name: Validate the bounded service port\n  ansible.builtin.assert:\n    that:\n      - taskboard_port | int >= 1024\n      - taskboard_port | int <= 65535\n- name: Install Python virtual-environment support\n  ansible.builtin.apt:\n    name: [python3, python3-venv]\n    state: present\n    update_cache: true\n    cache_valid_time: 3600\n- name: Create the service group\n  ansible.builtin.group:\n    name: taskboard\n    system: true\n- name: Create a noninteractive service identity\n  ansible.builtin.user:\n    name: taskboard\n    group: taskboard\n    system: true\n    create_home: false\n    shell: /usr/sbin/nologin\n- name: Create a root-owned release directory\n  ansible.builtin.file:\n    path: /opt/devopps-taskboard\n    state: directory\n    owner: root\n    group: taskboard\n    mode: '0750'\n- name: Install the reviewed source bundle\n  ansible.builtin.unarchive:\n    src: taskboard.tar.gz\n    dest: /opt/devopps-taskboard\n    owner: root\n    group: taskboard\n  notify: Restart Taskboard\n- name: Install the exact runtime dependencies in a virtual environment\n  ansible.builtin.pip:\n    requirements: /opt/devopps-taskboard/requirements.lock\n    virtualenv: /opt/devopps-taskboard/.venv\n    virtualenv_command: /usr/bin/python3 -m venv\n  notify: Restart Taskboard\n- name: Render the systemd unit\n  ansible.builtin.template:\n    src: taskboard.service.j2\n    dest: /etc/systemd/system/devopps-taskboard.service\n    owner: root\n    group: root\n    mode: '0644'\n  notify: Restart Taskboard\n- name: Start and enable the application\n  ansible.builtin.systemd_service:\n    name: devopps-taskboard\n    daemon_reload: true\n    enabled: true\n    state: started\n- name: Apply pending configuration before observing health\n  ansible.builtin.meta: flush_handlers\n- name: Observe the application over HTTP on the target\n  ansible.builtin.uri:\n    url: 'http://127.0.0.1:{{ taskboard_port }}/livez'\n    status_code: 200\n    return_content: true\n  register: taskboard_health\n  until: taskboard_health.status == 200\n  retries: 10\n  delay: 1\n  when: not ansible_check_mode\nEOF\ncat > roles/taskboard/templates/taskboard.service.j2 <<'EOF'\n[Unit]\nDescription=Dev Opps Taskboard memory lab\nAfter=network.target\n[Service]\nType=simple\nUser=taskboard\nGroup=taskboard\nWorkingDirectory=/opt/devopps-taskboard\nEnvironment=PYTHONDONTWRITEBYTECODE=1\nExecStart=/opt/devopps-taskboard/.venv/bin/python -m uvicorn reference.stage03:app --host 127.0.0.1 --port {{ taskboard_port }} --no-access-log\nRestart=on-failure\nRestartSec=2\nNoNewPrivileges=true\n[Install]\nWantedBy=multi-user.target\nEOF\ncat > roles/taskboard/handlers/main.yml <<'EOF'\n---\n- name: Restart Taskboard\n  ansible.builtin.systemd_service:\n    name: devopps-taskboard\n    daemon_reload: true\n    state: restarted\nEOF",
+          "explain": [
+            "tar creates a compressed archive from the supplied source while excluding local secrets, environments and reports. The quoted heredocs write YAML and a Jinja template literally; Ansible later expands taskboard_port.",
+            "The package module manages Ubuntu packages. group/user create a locked service identity. file establishes a root-owned directory readable by the service group; unarchive and pip install code/dependencies there. Only the administrator can replace code.",
+            "The systemd unit starts the exact interpreter/module, binds loopback, disables raw access logs, and restarts on failure. PYTHONDONTWRITEBYTECODE avoids attempts to write bytecode into root-owned code. NoNewPrivileges prevents gaining additional privilege.",
+            "template notifies a single restart handler only when content changes. daemon_reload makes systemd notice unit changes. uri executes on the target; retry/delay bound initial startup observation to roughly ten attempts. It is skipped in check mode because prediction cannot start a missing service."
+          ],
+          "expected": "Role, unit, handler and play files exist with one clearly named managed service.",
+          "troubleshoot": "If unarchive reports perpetual changes, inspect archive timestamps/permissions and keep the archive unchanged between the two convergence runs. Do not regenerate it before measuring idempotency.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Write the ownership record: Terraform machine/network; Ansible OS/account/files/unit; app runtime business data. Memory data is explicitly disposable."
+    },
+    {
+      "title": "Apply and inspect the resulting process",
+      "purpose": "Use --ask-become-pass if your VM sudo requires a password. Add it consistently to the privileged commands; no password belongs in inventory.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/config21\nansible-playbook -i inventory.json site.yml --syntax-check\nansible-playbook -i inventory.json site.yml --limit app1\nansible-playbook -i inventory.json site.yml --limit app1\nansible app1 -i inventory.json -b -m ansible.builtin.command -a \"systemctl show devopps-taskboard -p User -p MainPID -p ActiveState\"\nansible app1 -i inventory.json -b -m ansible.builtin.command -a \"ss -ltnp sport = :8000\"",
+          "explain": [
+            "syntax-check parses the play without deployment. --limit restricts execution to the named host. The first real run converges it; the immediate second run should have changed=0 unless an explicitly investigated package-cache task varies.",
+            "-b enables privilege escalation for inspection. systemctl show prints the service account/process/state without environment secrets. ss inspects the listening address and process; command uses no shell expansion."
+          ],
+          "expected": "ActiveState=active, User=taskboard and a listener on 127.0.0.1:8000; the second normal run is unchanged.",
+          "troubleshoot": "If health fails, inspect systemctl status and journalctl -u devopps-taskboard -n 30 on this exact host. Distinguish import/dependency errors from a wrong port or permissions.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "A process exists, runs as the intended user and responds on the intended interface; none of those observations alone proves all three."
+    },
+    {
+      "title": "Reach the private service without opening a public port",
+      "purpose": "Leave the tunnel running while testing; use a second controller terminal for the HTTP request.",
+      "commands": [
+        {
+          "code": "ssh -i \"$VM_KEY\" -N -L 127.0.0.1:18021:127.0.0.1:8000 \"$VM_USER@$VM_HOST\"",
+          "explain": [
+            "-N runs no remote shell. -L forwards only controller loopback port 18021 through authenticated SSH to target loopback port 8000."
+          ],
+          "expected": "The foreground connection stays open and port 18021 serves the remote app.",
+          "troubleshoot": "Address already in use means choose another unused local port and update the request; do not kill an unrelated process.",
+          "shell": "bash"
+        },
+        {
+          "code": "curl --fail-with-body -sS http://127.0.0.1:18021/livez\ncurl --fail-with-body -sS -H \"Content-Type: application/json\" -d '{\"title\":\"Configured by Ansible\"}' http://127.0.0.1:18021/tasks",
+          "explain": [
+            "curl fails on HTTP errors, prints error details and sends a JSON create request. The returned UUID belongs to this memory process."
+          ],
+          "expected": "Health returns status ok and create returns a task ID/title.",
+          "troubleshoot": "If SSH works but curl fails, inspect target loopback listener and service logs before altering any cloud firewall.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Stop this tunnel with Ctrl+C after the observations."
+    }
+  ],
+  "failure": {
+    "title": "Reject a mistaken inventory port before changing the server",
+    "boundary": "Only the disposable app1 target; no machine address or SSH configuration changes.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-lab/config21\nansible-playbook -i inventory.json site.yml --limit app1 -e taskboard_port=70000",
+        "explain": [
+          "-e overrides only this run. The invalid TCP port must fail the first assertion before the service is changed."
+        ],
+        "expected": "The Validate the bounded service port task fails.",
+        "troubleshoot": "If it reaches the template, inspect whether the role validation was removed or skipped.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ansible-inventory -i inventory.json --host app1\nansible app1 -i inventory.json -m ansible.builtin.uri -a \"url=http://127.0.0.1:8000/livez status_code=200\"",
+        "explain": [
+          "Inspect the persisted host variables and independently request the original service endpoint. The -e override was temporary."
+        ],
+        "expected": "Inventory still says 8000; the existing service returns 200.",
+        "troubleshoot": "If an unrelated host appears, stop and correct the inventory before any privileged run.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "The failing task name is evidence: validation rejected input, not an SSH problem.",
+      "Extra variables can override inventory without editing it."
+    ],
+    "answer": {
+      "explanation": [
+        "Ansible variable precedence permits an operator to supply wrong values. The assertion makes that error local and early. A service that remains healthy after rejection is stronger evidence than a red recap alone."
+      ],
+      "recover": [
+        {
+          "code": "ansible-playbook -i inventory.json site.yml --limit app1",
+          "explain": [
+            "Run the same desired state without the erroneous override."
+          ],
+          "expected": "No unnecessary change or restart.",
+          "troubleshoot": "Compare the changed task list with the preceding successful run.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "ansible app1 -i inventory.json -m ansible.builtin.uri -a \"url=http://127.0.0.1:8000/livez status_code=200\"",
+        "explain": [
+          "Observe the intended endpoint on the managed host."
+        ],
+        "expected": "HTTP 200.",
+        "troubleshoot": "Read service logs only for this named unit if it fails.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why is an unconditional restart task different from a handler?",
+      "hint": "Watch the second recap.",
+      "answer": "An unconditional restart changes runtime on every run; a notified handler restarts only after a relevant task changed and runs once even if multiple tasks notify it."
+    },
+    {
+      "prompt": "Does ping prove Taskboard works?",
+      "hint": "What does the module actually run?",
+      "answer": "It proves SSH authentication and remote Python execution. The HTTP request and listener/user observations prove different application properties."
+    },
+    {
+      "prompt": "Why is the code owned by root while the service uses taskboard?",
+      "hint": "Separate execution from replacement.",
+      "answer": "The service can read and execute its release without modifying it or granting itself privilege. An administrator deploys reviewed replacements; runtime compromise should not rewrite the installed code."
+    }
+  ],
+  "exercise": {
+    "brief": "Move app1 to port 8002 using inventory only, then demonstrate a second unchanged run and update the tunnel.",
+    "constraints": [
+      "Keep target binding 127.0.0.1.",
+      "Do not duplicate the role or add unconditional shell restarts."
+    ],
+    "deliverables": [
+      "Before/after inventory diff and handler evidence.",
+      "New endpoint success and second-run recap.",
+      "Executed second-host result or a clearly marked app2 design."
+    ],
+    "acceptance": [
+      "Exactly the intended configuration change triggers a restart.",
+      "The second run is unchanged.",
+      "App1 and app2 data independence is explained."
+    ],
+    "hints": [
+      "Change taskboard_port in inventory.json and use the same play.",
+      "A memory restart loses old tasks; record that expected limitation."
+    ],
+    "solution": [
+      "The template consumes inventory data, reports changed and notifies the handler. The second run sees identical content. Adjust the remote side of -L to 8002 and create a fresh memory task to prove the new service. Restore port 8000 before week 22."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab/config21\nansible app1 -i inventory.json -b -m ansible.builtin.systemd_service -a \"name=devopps-taskboard state=stopped\"",
+      "explain": [
+        "Stop the one lab service when pausing. Keep the VM/configuration only for the next lesson with a recorded owner/expiry; resume with site.yml. For AWS, run week-14 exact-ID teardown if not continuing immediately."
+      ],
+      "expected": "Only devopps-taskboard stops; controller files remain.",
+      "troubleshoot": "Do not stop SSH or delete shared host accounts. Local VM deletion belongs to your hypervisor; AWS cleanup must use the recorded resource IDs.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Ansible installation",
+      "url": "https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html",
+      "usedFor": "Controller/managed-node requirements and package choices."
+    },
+    {
+      "title": "Ansible handlers",
+      "url": "https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_handlers.html",
+      "usedFor": "Change-triggered restart and handler flushing."
+    },
+    {
+      "title": "systemd service module",
+      "url": "https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/systemd_service_module.html",
+      "usedFor": "Explicit service state and daemon reload."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "ansible/ansible",
+      "principle": "Desired-state modules expose change semantics",
+      "application": "The role replaces remembered shell operations with user, package, template and service declarations; the second run and handler record test the model.",
+      "url": "https://github.com/ansible/ansible"
+    },
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Explain the observation, not just the command",
+      "application": "The learner distinguishes transport ping, process identity, listener binding and application HTTP behavior.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    }
+  ],
+  "notes": [
+    "Authored for Ubuntu 24.04 and source-checked against current Ansible documentation. A live SSH/Ansible VM execution has not been performed in the authoring environment."
+  ]
+}

@@ -1,0 +1,216 @@
+{
+  "week": 49,
+  "introduction": [
+    "The final capstone starts with users and consequences, not a diagram of every tool you learned. Taskboard needs a small product brief: who uses it, what data matters, expected load, failure impact and who will operate it.",
+    "Choose one primary deployment platform. Retain the second cloud as your earlier tested portability exercise; active-active complexity is optional and needs an actual requirement. Local execution is valid, but it supports local claims only.",
+    "Define acceptance before building. A measurable target includes workload, observation window, measurement method and response when it is missed. A five-minute test cannot prove a monthly availability promise."
+  ],
+  "prerequisites": [
+    "Earlier release, restore, performance and security evidence, including known gaps.",
+    "Your learner repository at ~/dev-opps-lab. No new cloud resources are required this week.",
+    "If choosing a cloud target later, use the earlier account/project/region and cost-inventory procedures before creating anything."
+  ],
+  "concepts": [
+    {
+      "title": "Requirements define adequate engineering",
+      "paragraphs": [
+        "Specify users, operations, data sensitivity and consequences of failure. A private learning service with synthetic data differs from a public customer system. Public Taskboard requires replacing teaching tokens with an established identity provider and reviewed verification of issuer, audience, expiry and ownership.",
+        "Separate functional requirements from reliability/security/operability constraints. Every major control should point to a requirement or threat, not simply a tool you want to showcase."
+      ],
+      "example": "A requirement to recover yesterday's completed tasks implies retained usable backups; a requirement to keep tasks private implies server-enforced identity and ownership.",
+      "judgment": "No architecture is universally production-ready. State which users, workload, threat and budget make your design adequate."
+    },
+    {
+      "title": "An SLO needs a denominator and a window",
+      "paragraphs": [
+        "A service-level indicator is a measured quantity such as successful valid task requests divided by valid task requests. An objective adds a target and observation window. Include failures that matter to users rather than only healthy infrastructure samples.",
+        "Latency should name operation, dataset, concurrency, warmup and fault intervals. RTO/RPO need a known recovery scenario. A cost ceiling needs inventory and an owner who reacts before or when it is exceeded."
+      ],
+      "example": "99.5% valid-request success over 28 days is an example objective, not something a five-minute lab demonstrates.",
+      "judgment": "Targets are hypotheses to test. Adjust them through a recorded product/risk decision, never quietly after a failed test."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Write a concrete service brief",
+      "purpose": "Use an editable baseline and replace assumptions with your actual choice.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nmkdir -p evidence/capstone\ncat > evidence/capstone/service-brief.md <<'MD'\n# Taskboard service brief\nUsers: small private learning team; synthetic tasks only.\nOperations: create, list, read, complete; API contract1.0.\nPrimary platform: local Compose for this baseline; replace only with a justified chosen target.\nSecondary cloud: retain earlier portability evidence, not mandatory active-active operation.\nDataset: at most1000 tasks per identity; larger workloads require pagination/resource-limit design.\nWorkload:10 clients,90% reads/10% completions,60s warmup/300s sample.\nLatency hypothesis: p95 below300ms under the stated local conditions; report errors/p99 too.\nAvailability: define a valid-request indicator and a28day objective; lab evidence cannot establish that window.\nRecovery target: RTO30min/RPO24h for the declared daily-logical-backup scenario.\nExposure: loopback/private tunnel only; synthetic tokens are not public authentication.\nCost boundary: no additional cloud spend for local baseline; account for local disk/power/time.\nOwners: name application, infrastructure, security-review and incident responsibilities.\nUnmet controls: list every missing item before calling the release ready.\nMD\ncat evidence/capstone/service-brief.md",
+          "explain": [
+            "The quoted heredoc creates a reviewable starting brief, not an automatic pass. Edit users, owners, targets and platform based on actual evidence.",
+            "The fixed workload preserves the course benchmark. Cost0 means no additional cloud resources here, not literally free hardware/energy."
+          ],
+          "expected": "A bounded service promise and visible assumptions.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Every major component must trace to one line of need or threat."
+    },
+    {
+      "title": "2 · Translate promises into acceptance evidence",
+      "purpose": "Make checks concrete before implementation.",
+      "commands": [
+        {
+          "code": "cat > evidence/capstone/acceptance.md <<'MD'\n# Acceptance contract\nBehavior: unit, realPostgres integration and realHTTP system reports; no skipped core cases.\nPrivacy: missing/invalididentity denied; cross-owner reads/completions404; denied update leaves state unchanged.\nReliability: bounded dependency503, readiness503/liveness200, committed task survives app/DB restarts.\nRecovery: separate destination; IDs/owners/titles/completion match; measuredRTO/RPO.\nDelivery: source commit, immutable tested image, config revision and schema history trace together.\nSecurity: scan triage, trusted artifact policy and scoped expiring exceptions.\nOperations: user-oriented telemetry, clear runbooks, current cost inventory and named owners.\nHandoff: another operator or labeled fresh-environment self-review can rebuild/deploy/recover.\nDecision: failed mandatory condition blocks release; exceptions require owner/scope/expiry and must not hide critical data/privacy failures.\nMD",
+          "explain": [
+            "Each row names an observation and retained evidence rather than an adjective such as robust.",
+            "Core identity/data controls are mandatory; a high score elsewhere cannot compensate for a known cross-user data leak."
+          ],
+          "expected": "A reviewable acceptance contract.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Map each check to an actual report or mark it incomplete."
+    },
+    {
+      "title": "3 · Challenge one assumption before committing to complexity",
+      "purpose": "Analyze a tenfold workload increase without secretly changing the contract.",
+      "commands": [
+        {
+          "code": "cat > evidence/capstone/assumption-challenge.md <<'MD'\n# Tenfold workload challenge\nCurrent limit:1000 tasks per identity; list is unpaginated.\nChanged need:10000 tasks per identity and100 concurrent users.\nWhat fails first? Form a hypothesis using query, connection, response-size and memory evidence.\nContract decision: design pagination and limits before claiming this workload is supported.\nCapacity decision: compare measured bottleneck improvement with extra replicas/DB connection budget.\nRisk: retries can amplify overload; creation is not idempotent.\nDecision record: retain current bounded scope or approve a separately versioned extension with new tests.\nMD\ngit status --short",
+          "explain": [
+            "Write the changed requirement and its consequences. Do not load-test the unsupported dataset and label any accidental success production scalability.",
+            "git status helps prepare a reviewed change to the brief/acceptance record."
+          ],
+          "expected": "A concrete requirement gap and justified scope decision.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Choose one platform because it meets requirements you can operate."
+    }
+  ],
+  "failure": {
+    "title": "A target has no measurement method",
+    "boundary": "Only the capstone design document.",
+    "inject": [
+      {
+        "code": "printf '\\nAvailability target: perfect.\\n' >> evidence/capstone/service-brief.md",
+        "explain": [
+          "Inject an intentionally untestable statement into the planning document."
+        ],
+        "expected": "A claim with no denominator/window.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "grep -n 'Availability\\|perfect' evidence/capstone/service-brief.md",
+        "explain": [
+          "Locate both the measurable discussion and the contradictory vague claim."
+        ],
+        "expected": "The added line cannot be verified.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "What event counts as success or failure?",
+      "Over which window and at which boundary?"
+    ],
+    "answer": {
+      "explanation": [
+        "Perfect is not an acceptance criterion. Define the user-visible indicator, window and target; retain insufficient observation time as an explicit limitation."
+      ],
+      "recover": [
+        {
+          "code": "python3 - <<'PY'\nfrom pathlib import Path\np=Path('evidence/capstone/service-brief.md')\np.write_text(''.join(line for line in p.read_text().splitlines(keepends=True) if line.strip() != 'Availability target: perfect.'))\nPY",
+          "explain": [
+            "Replace only the injected unsupported claim with a truthful evidence boundary."
+          ],
+          "expected": "No untestable perfection assertion.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "grep -n 'Availability' evidence/capstone/service-brief.md",
+        "explain": [
+          "Review the repaired requirement and limitation."
+        ],
+        "expected": "Target and measurement boundary are visible.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why choose one primary cloud/platform?",
+      "hint": "What extra requirement does a second active platform satisfy?",
+      "answer": "It reduces operating and failure complexity unless a concrete need justifies multiple active systems. Portability evidence can remain a separate exercise."
+    },
+    {
+      "prompt": "Can five successful minutes prove a monthly SLO?",
+      "hint": "Compare observation windows.",
+      "answer": "No. The sample supports behavior under stated conditions, not availability across unseen failures, updates and traffic for a month."
+    },
+    {
+      "prompt": "What changes before public exposure?",
+      "hint": "Are synthetic tokens an identity platform?",
+      "answer": "Adopt established identity-provider integration with maintained issuer/audience/expiry verification and proven ownership; review privacy, abuse, network and operating requirements for real users."
+    }
+  ],
+  "exercise": {
+    "brief": "Review the brief as a skeptical customer and identify three unmet requirements.",
+    "constraints": [
+      "No cloud creation this week.",
+      "Separate assumptions, measured facts and proposed targets."
+    ],
+    "deliverables": [
+      "Threat model, acceptance mapping and primary-platform decision record."
+    ],
+    "acceptance": [
+      "Every major control traces to need/threat.",
+      "Targets specify method/window/conditions.",
+      "Operating budget and ownership are explicit."
+    ],
+    "hints": [
+      "Challenge data sensitivity, tenfold traffic, zone loss or a leaked credential."
+    ],
+    "solution": [
+      "Choose the simplest platform that meets the stated need, preserve evidence for alternatives, and turn gaps into acceptance work before building."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "git status --short",
+      "explain": [
+        "Keep planning artifacts for the capstone. No resources were created."
+      ],
+      "expected": "Only intended documentation changes remain.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "SRE objectives",
+      "url": "https://sre.google/sre-book/service-level-objectives/",
+      "usedFor": "Indicator/target/window distinction."
+    },
+    {
+      "title": "AWS architecture review",
+      "url": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html",
+      "usedFor": "Requirement-oriented tradeoffs."
+    },
+    {
+      "title": "Google Cloud architecture framework",
+      "url": "https://docs.cloud.google.com/architecture/framework",
+      "usedFor": "Operational/security/cost review."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "milanm/DevOps-Roadmap",
+      "principle": "Review capabilities rather than collecting tools",
+      "application": "Use a second roadmap to check balance among software practice, systems, delivery, cloud, security and operations. Turn missing evidence into a specific exercise, such as restoration or denied access. Do not add a platform just because it appears on another map. Requirements and observed weaknesses decide the next work. Practice: During quarterly review, choose one weak capability, define an acceptance check and complete it before adding optional tooling.",
+      "url": "https://github.com/milanm/DevOps-Roadmap"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability is a measured promise",
+      "application": "Define a useful user action and measure success within a meaningful latency threshold. An SLO states the target over a window; an error budget describes allowed bad events. This makes release tradeoffs explicit. Alert on actionable conditions, write symptom runbooks and examine contributing conditions after incidents. Practice: Define a Taskboard SLI from success counts and latency. Calculate good/total from a sample, inject a brief failure and connect the alert to a runbook.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

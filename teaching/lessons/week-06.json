@@ -1,0 +1,240 @@
+{
+  "week": 6,
+  "introduction": [
+    "Tasks currently disappear with the process. A database moves state outside that process, but introduces a new boundary: connectivity, schema, transactions and recovery can now fail independently.",
+    "This week runs a real PostgreSQL database, applies explicit migrations and proves that task data survives an app restart. The integration tests use a separate disposable database. A mock cannot establish the SQL behavior being taught."
+  ],
+  "prerequisites": [
+    "Week 5's Docker client/server and Compose v2 work.",
+    "Use ~/dev-opps-lab/app/taskboard with its activated Python venv and the supplied Compose file.",
+    "Stop the week-5 container so port 8000 is available. Use only synthetic local data."
+  ],
+  "concepts": [
+    {
+      "title": "A table is a contract for stored state",
+      "paragraphs": [
+        "The tasks table stores a UUID primary key, owner, title, completion flag and timestamps. A primary key prevents duplicate identity. NOT NULL rejects missing required values. CHECK constraints reject states that should never exist, such as a completed task without a completion time.",
+        "Application validation provides useful client errors, but database constraints protect the stored invariant even if another writer bypasses that validation. A migration is a versioned change to this schema. Editing an already-applied migration can make history disagree with reality; add a new migration instead."
+      ],
+      "example": "The completion_consistent constraint requires completed_at to be null before completion and at least created_at after completion.",
+      "judgment": "Keep the business invariant explicit at both boundaries where it matters. Do not assume Python tests prove database enforcement."
+    },
+    {
+      "title": "Transactions make related changes succeed or fail together",
+      "paragraphs": [
+        "A transaction groups database operations. Commit makes the successful changes durable under the database's configured guarantees; rollback discards an uncommitted attempt. The reference uses context-managed transactions so exceptions do not leave half-applied work.",
+        "Concurrency adds another question: two requests can read and update at almost the same time. The completion operation must preserve its first timestamp under concurrent completion, not just when called twice in a single-threaded test."
+      ],
+      "example": "A failed migration must not record its version while leaving only half its statements applied.",
+      "judgment": "Test the failure path against actual PostgreSQL. Replacing the database with a fake removes the boundary you need evidence about."
+    },
+    {
+      "title": "Started, ready and persistent are separate properties",
+      "paragraphs": [
+        "A running database container may still be initializing. The Compose database healthcheck waits for PostgreSQL to accept connections. The migrate service then applies schema changes before app startup. A successful dependency startup check does not guarantee the dependency will stay available.",
+        "The named development volume outlives app replacement and ordinary container recreation. A volume is not a backup: deletion, bad writes or corruption can affect it. The test database uses a different name and disposable storage so test cleanup cannot silently target development data."
+      ],
+      "example": "/livez can remain 200 while /readyz and task operations report 503 after a database outage.",
+      "judgment": "Use liveness to avoid unnecessary restart loops and readiness to control whether a dependency-dependent service can accept useful traffic."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Prepare private credentials and select the database stage",
+      "purpose": "The initializer creates .env once without printing its random values. Existing .env is retained; do not paste it into evidence.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nif test ! -f .env; then python tools/init_lab.py || exit 1; fi\npython - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('.env')\ntext = p.read_text()\nassert 'TASKBOARD_STAGE=07' in text or 'TASKBOARD_STAGE=06' in text\np.write_text(text.replace('TASKBOARD_STAGE=07', 'TASKBOARD_STAGE=06'))\nPY\ngit check-ignore .env",
+          "explain": [
+            "cd and source select the project/interpreter. init_lab.py creates random credentials with exclusive creation and Linux mode 0600; if it says the file exists, retain it and continue.",
+            "The short Python edit reads only this local file and changes the non-secret stage selector from 07 to 06. It does not print the file.",
+            "git check-ignore confirms .env is excluded; if it is not, fix the ignore rule before committing anything.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Stage 06 is selected and git check-ignore prints .env.",
+          "troubleshoot": "An existing-file message from the initializer is protective, not a request to delete credentials. Check the stage line with grep '^TASKBOARD_STAGE=' .env, never cat the whole file."
+        }
+      ],
+      "checkpoint": "Explain which account owns tasks in stage 6: local-student, before the two-user stage."
+    },
+    {
+      "title": "Read the schema and start dependencies in order",
+      "purpose": "Compose supplies the complete database, migration and app configuration locally. It publishes only the app's loopback port.",
+      "commands": [
+        {
+          "code": "cat migrations/001_tasks.sql\ncat migrations/002_owner_order.sql\ndocker compose up --build -d app\ndocker compose ps\ndocker compose logs --tail 30 migrate\ncurl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/readyz || exit 1",
+          "explain": [
+            "cat displays the CREATE TABLE constraints and the compatible index migration.",
+            "up --build -d app builds the runtime and starts required services in dependency order. -d leaves them running in the background.",
+            "ps shows their state; logs inspects the explicit migration. curl verifies application readiness, not just container startup.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal.",
+            "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+          ],
+          "expected": "Database healthy, migrate exits successfully, app becomes ready. The schema contains constraints and an owner/order index.",
+          "troubleshoot": "If migration fails, inspect its sanitized error before starting the app manually. A listening database with the wrong schema is not ready for this app."
+        }
+      ],
+      "checkpoint": "Explain the primary key, owner filter, title constraint and completion consistency rule in your own words."
+    },
+    {
+      "title": "Prove persistence across app replacement",
+      "purpose": "Save a response as evidence, restart only the application, and compare the same actual task ID.",
+      "commands": [
+        {
+          "code": "mkdir -p reports\ncurl --fail --show-error -H 'Content-Type: application/json' -d '{\"title\":\"Persist through app restart\"}' http://127.0.0.1:8000/tasks > reports/week06-created.json || exit 1\ndocker compose restart app\ncurl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/readyz\ncurl --fail --show-error http://127.0.0.1:8000/tasks > reports/week06-after.json\npython - <<'PY' || exit 1\nimport json\nfrom pathlib import Path\nbefore = json.loads(Path('reports/week06-created.json').read_text())\nafter = json.loads(Path('reports/week06-after.json').read_text())\nassert before in after['items']\nprint('Original task, including timestamps, survived the app restart.')\nPY",
+          "explain": [
+            "mkdir prepares a report directory; the POST writes its JSON response to a file without echoing private configuration.",
+            "restart app replaces the running process without deleting the database volume. The bounded readiness read waits for useful service.",
+            "The list response is captured separately. Python loads both JSON documents and asserts the full original task is present; a missing or changed task fails the assertion.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal.",
+            "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+          ],
+          "expected": "The assertion passes for the same task ID, title and timestamps.",
+          "troubleshoot": "If the POST failed, do not treat an empty saved file as evidence. Inspect the HTTP error first."
+        }
+      ],
+      "checkpoint": "State exactly which failure this proves survival of, and why it does not yet prove backup recovery."
+    },
+    {
+      "title": "Exercise the real SQL boundary",
+      "purpose": "Read the test before running it. The fixture permits only the dedicated test database and creates a uniquely named schema per case.",
+      "commands": [
+        {
+          "code": "sed -n '1,220p' tests/integration/conftest.py\ndocker compose --profile test run --build --rm integration",
+          "explain": [
+            "sed prints a bounded portion of the integration fixture so you can inspect its target guards and cleanup.",
+            "--profile test enables test services. run --build --rm builds and executes the integration test container, returns its test exit status and removes that one-off container."
+          ],
+          "expected": "Tests connect to taskboard_test and exercise real SQL constraints, transaction rollback, concurrent completion and migration behavior.",
+          "troubleshoot": "If tests skip or cannot connect, that is missing database evidence. Inspect test-db health and the fixture's rejection message; never redirect it to taskboard to get it running."
+        }
+      ],
+      "checkpoint": "Pick one SQL constraint test and explain why a memory mock could not establish the same behavior."
+    }
+  ],
+  "failure": {
+    "title": "The app points to a nonexistent database host",
+    "boundary": "This overrides only the app's database URL in this Compose project. It leaves the development volume and database process intact.",
+    "inject": [
+      {
+        "code": "cat > compose.week06-fault.yaml <<'YAML'\nservices:\n  app:\n    environment:\n      DATABASE_URL: postgresql://taskboard:${POSTGRES_PASSWORD}@wrong-db:5432/taskboard\nYAML\ndocker compose -f compose.yaml -f compose.week06-fault.yaml up -d --no-deps --force-recreate app",
+        "explain": [
+          "The quoted here-document writes a literal Compose override; Compose later substitutes the password locally without printing it.",
+          "-f selects the base and override. --no-deps affects only app; --force-recreate applies its changed environment."
+        ],
+        "expected": "The app process starts but cannot resolve wrong-db for database operations.",
+        "troubleshoot": "Do not run docker compose config into shared evidence: expanded configuration can contain credentials."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "curl --include --max-time 5 http://127.0.0.1:8000/livez\ncurl --include --max-time 5 http://127.0.0.1:8000/readyz\ncurl --include --max-time 5 http://127.0.0.1:8000/tasks\ndocker compose ps db",
+        "explain": [
+          "Compare process-only liveness with database-dependent readiness and task behavior.",
+          "ps db checks whether the actual database remains healthy."
+        ],
+        "expected": "Liveness 200; readiness/task operations bounded 503; the real db remains healthy.",
+        "troubleshoot": "If liveness also fails, inspect app startup before attributing the symptom to dependency connectivity."
+      }
+    ],
+    "hints": [
+      "Compare the service name db with the override's hostname.",
+      "Healthy database state does not prove the app is configured to reach it."
+    ],
+    "answer": {
+      "explanation": [
+        "The database is present, but the app targets a different name. Repair the app configuration and recreate it. No database deletion or schema reset is needed."
+      ],
+      "recover": [
+        {
+          "code": "docker compose up -d --no-deps --force-recreate app",
+          "explain": [
+            "With no fault -f file, Compose uses the original configuration and recreates only the app."
+          ],
+          "expected": "The app returns to the intended db hostname.",
+          "troubleshoot": "Check that COMPOSE_FILE is not overriding the file selection in your shell if behavior differs."
+        }
+      ],
+      "verification": {
+        "code": "curl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/readyz\ncurl --fail --show-error http://127.0.0.1:8000/tasks",
+        "explain": [
+          "Verify readiness and retained tasks using the repaired app.",
+          "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+        ],
+        "expected": "Ready response and the original task data.",
+        "troubleshoot": "If tasks are missing, inspect stage and database identity; do not assume connectivity recovery proves data correctness."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why should a migration run separately from every app startup?",
+      "hint": "Consider multiple replicas starting together.",
+      "answer": "Schema changes need controlled ordering, identity and failure handling. Running them in every process creates contention and hides deployment decisions. The explicit migration job records a distinct result before the app depends on that schema."
+    },
+    {
+      "prompt": "Why is a named volume not a backup?",
+      "hint": "What happens after a bad write?",
+      "answer": "It preserves current data across container replacement, including mistakes. Recovery needs a separate usable copy and a tested restore procedure, which the capstone will establish."
+    },
+    {
+      "prompt": "Why reject a test URL pointing at taskboard?",
+      "hint": "What does the fixture do during cleanup?",
+      "answer": "Tests deliberately create and destroy data/schema. A dedicated database-name guard prevents configuration mistakes from turning test cleanup into development or production data loss. Isolation is part of test correctness."
+    }
+  ],
+  "exercise": {
+    "brief": "Add one real-database test for a stored invariant, and prove it catches an intentional defect in an isolated test schema.",
+    "constraints": [
+      "Use the guarded test database only.",
+      "Do not edit applied development migrations or weaken constraints globally."
+    ],
+    "deliverables": [
+      "Test code, a failing result and repaired passing result, plus a transaction explanation."
+    ],
+    "acceptance": [
+      "The test sends real SQL through the reference store/connection.",
+      "It fails for the intended invariant and cleans only its own schema.",
+      "Existing app data remains unchanged."
+    ],
+    "hints": [
+      "A completed task without completed_at violates the supplied table check."
+    ],
+    "solution": [
+      "In the isolated fixture transaction, attempt the invalid row and assert PostgreSQL rejects it.",
+      "Rollback the failed transaction before further queries; verify no invalid row was committed.",
+      "Run the complete integration suite after restoring the intended implementation."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker compose --profile test stop",
+      "explain": [
+        "Stop only this course Compose project's services while preserving its development volume and files. Do not add --volumes."
+      ],
+      "expected": "Containers stop; data remains for week 7.",
+      "troubleshoot": "Use docker compose ps -a to inspect stopped containers if needed."
+    }
+  ],
+  "references": [
+    {
+      "title": "Compose startup ordering",
+      "url": "https://docs.docker.com/compose/how-tos/startup-order/",
+      "usedFor": "Health-dependent startup and explicit migration ordering."
+    },
+    {
+      "title": "PostgreSQL constraints",
+      "url": "https://www.postgresql.org/docs/17/ddl-constraints.html",
+      "usedFor": "Stored invariants and table constraints."
+    },
+    {
+      "title": "Psycopg transactions",
+      "url": "https://www.psycopg.org/psycopg3/docs/basic/transactions.html",
+      "usedFor": "Commit/rollback and transaction context behavior."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "The supplied PostgreSQL/Compose tests are executable but were not run on the Windows authoring host, which has no operational Docker daemon. Record actual database evidence before passing this week."
+  ]
+}

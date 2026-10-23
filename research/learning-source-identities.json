@@ -1,0 +1,83 @@
+[
+  {
+    "repo": "The-DevOps-Daily/devops-daily",
+    "inspected_sha": "4cd12767d34f51510bfd08b05536c10dbcc6958a",
+    "latest_observed_commit_sha": "4cd12767d34f51510bfd08b05536c10dbcc6958a",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "40731dfc6b65054fc23aa9765345f5b41efac175",
+    "inspected_commit_date": "2026-10-20T08:17:27Z"
+  },
+  {
+    "repo": "bregman-arie/devops-exercises",
+    "inspected_sha": "9e49ef97f16377d901db01f3562187394828ca6a",
+    "latest_observed_commit_sha": "9e49ef97f16377d901db01f3562187394828ca6a",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "c25aaad53d4ee1ddc2ccae4d99597fd3fdd6e7d0",
+    "inspected_commit_date": "2025-12-27T14:22:30Z"
+  },
+  {
+    "repo": "kelseyhightower/kubernetes-the-hard-way",
+    "inspected_sha": "52eb26dad1a3e9e8083a899bc854421eb4842a73",
+    "latest_observed_commit_sha": "52eb26dad1a3e9e8083a899bc854421eb4842a73",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "1a0090fb98ca6073d43f72ea9c10d0be656e53ae",
+    "inspected_commit_date": "2025-04-10T06:11:35Z"
+  },
+  {
+    "repo": "MichaelCade/90DaysOfDevOps",
+    "inspected_sha": "2941b895eaac2056ec9431a21f3d09a60a3752f8",
+    "latest_observed_commit_sha": "2941b895eaac2056ec9431a21f3d09a60a3752f8",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "6f6394d3ab807f109d384a51408389e6d15e7c25",
+    "inspected_commit_date": "2026-06-24T15:28:22Z"
+  },
+  {
+    "repo": "milanm/DevOps-Roadmap",
+    "inspected_sha": "d7499e6dabe2fc54be85a28952080c0b6be857b3",
+    "latest_observed_commit_sha": "d7499e6dabe2fc54be85a28952080c0b6be857b3",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "a18af50a459754aebfe773f955c12e5fe15af03b",
+    "inspected_commit_date": "2026-07-14T15:33:19Z"
+  },
+  {
+    "repo": "ramitsurana/awesome-kubernetes",
+    "inspected_sha": "485a5637cd17c4c73e55731720eb14c6c8c0702b",
+    "latest_observed_commit_sha": "485a5637cd17c4c73e55731720eb14c6c8c0702b",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "ab58c331e907863c8db6762d5f28fa190cf259f2",
+    "inspected_commit_date": "2026-09-21T12:03:19Z"
+  },
+  {
+    "repo": "dastergon/awesome-sre",
+    "inspected_sha": "e91ef69aa52129662164e54cc22272bc90e9b636",
+    "latest_observed_commit_sha": "e91ef69aa52129662164e54cc22272bc90e9b636",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "d04c758f358a1f6232de9f6fc1a3c8935dae0b45",
+    "inspected_commit_date": "2022-10-08T12:00:11Z"
+  },
+  {
+    "repo": "stefanprodan/podinfo",
+    "inspected_sha": "3e0ff8ae123b710bc91de1315cba0f996a8896c2",
+    "latest_observed_commit_sha": "3e0ff8ae123b710bc91de1315cba0f996a8896c2",
+    "inspected_sha_matches_latest_commit": true,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "3d94b0e382e8eb372ef7f4c66fd0aa010351ec3e",
+    "inspected_commit_date": "2026-09-21T11:21:47Z"
+  },
+  {
+    "repo": "wmariuss/awesome-devops",
+    "inspected_sha": "8421d19d3a9adf77d807fe348e02044103a7c594",
+    "latest_observed_commit_sha": "43b5b4bcd46d16ff3c07cdd6f36c24f7cf824667",
+    "inspected_sha_matches_latest_commit": false,
+    "inspected_commit_verified": true,
+    "inspected_commit_tree_sha": "9c3a5021b65ab3b72b276f98542f48c8d02e2509",
+    "inspected_commit_date": "2026-10-20T14:41:36Z"
+  }
+]

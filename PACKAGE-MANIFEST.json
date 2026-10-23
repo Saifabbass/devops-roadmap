@@ -1,0 +1,20 @@
+[
+  {
+    "file": "dev-opps-labs.zip",
+    "files": 45,
+    "bytes": 52780,
+    "sha256": "5b0a392f063cf69f9a7da8f481a022cc0425620e8a5d872e9d6c8038d849c737"
+  },
+  {
+    "file": "Dev-Opps-Public-Site.zip",
+    "files": 88,
+    "bytes": 14412082,
+    "sha256": "07ea7a93a8327fcdce1b713bcc686da8120e202bf9f95b12df70ad8f606c760f"
+  },
+  {
+    "file": "Dev-Opps-Complete-Course.zip",
+    "files": 243,
+    "bytes": 15174754,
+    "sha256": "4f0013b673d5ae40c93424ae8431a840b010498d4e628f1248a09557ed1376c1"
+  }
+]

@@ -1,0 +1,346 @@
+{
+  "week": 39,
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: A deployment pipeline should receive a short-lived identity because a specific trusted job is running, not because someone copied a permanent cloud key into CI. Google Workload Identity Federation exchanges a GitLab-signed job token for credentials whose issuer, audience and claims must satisfy your provider policy.",
+    "Optional provider lab: This lesson deploys a small IAM-protected Cloud Run service through Terraform with a separate GCS state bucket. The service runs Taskboard’s stage03 entry point from the CI-built image as an intentionally disposable platform probe. Cloud Run instances can disappear or multiply, so in-memory task state is never presented as durable storage.",
+    "Optional provider lab: The preparation route writes and validates Terraform without a backend or cloud apply. The provider route creates registry storage, state storage and a request-billed service; record current regional prices, a one-hour execution window and teardown before running it. A minimum instance count of zero reduces idle compute but is not a spending cap."
+  ],
+  "prerequisites": [
+    "Cloud Shell and the week-37 disposable project, budget and context.env. Week-38 resources have been cleaned up.",
+    "A GitLab.com repository initialized with only a README on main dedicated to this infrastructure, its numeric project ID and namespace/group ID, protected main branch, and a Linux amd64 Docker runner. The bootstrap account can manage WIF, IAM, Artifact Registry and buckets.",
+    "The original tested Taskboard image digest and a read_registry deploy token. Terraform 1.16.0 is installed by the checksum-checked helper below. Provider resolution is recorded in .terraform.lock.hcl."
+  ],
+  "concepts": [
+    {
+      "title": "A token needs the right issuer, audience and claims",
+      "paragraphs": [
+        "Issuer identifies who signed the token. Audience identifies the intended recipient. Claims identify the GitLab namespace, project and protected ref. The policy below checks numeric namespace/project IDs and refs/heads/main with ref_protected=true; knowing a repository name is not enough.",
+        "A workload pool/provider validates the external token. A binding on the deployment service account permits that validated project identity to impersonate it. Resource IAM then limits what the deployment identity may do. Each boundary can fail independently."
+      ],
+      "example": "A token from the correct project with the wrong audience must fail before Terraform reads state.",
+      "judgment": "Do not log the token to diagnose federation. Inspect configured mappings and documented claim names; expose only selected nonsecret metadata when needed."
+    },
+    {
+      "title": "State, deployment and runtime have different owners",
+      "paragraphs": [
+        "Terraform state records resource identities and may contain sensitive values. A GCS backend supports locking; object versioning gives recovery history. It must exist before init and should be separate from AWS state and from application data.",
+        "The CI identity can manage Cloud Run in this disposable project, use the one runtime service account, read the one image repository and manage objects in the one state bucket. The runtime service account receives no project roles because this probe needs no Google APIs."
+      ],
+      "example": "The Terraform job can update a service but the running container cannot administer other resources.",
+      "judgment": "A managed runtime removes host administration; you still own image provenance, identity, request authorization, state architecture, limits and verification."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Check context and bootstrap isolated platform resources",
+      "purpose": "Create prerequisites under the human setup identity, not the CI identity.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/gcp\n. context.env\ngcloud auth list --filter=status:ACTIVE --format=\"value(account)\"\ngcloud projects describe \"$GCP_PROJECT\" --format=\"yaml(projectId,lifecycleState)\"\ngcloud billing budgets list --billing-account=\"$BILLING_ACCOUNT\" --format=\"table(displayName,name)\"\nmkdir -p evidence/w39\nread -r -p \"Numeric GitLab infrastructure project ID: \" GITLAB_PROJECT_ID\nread -r -p \"Numeric GitLab namespace/group ID: \" GITLAB_NAMESPACE_ID\nexport PROJECT_NUMBER=\"$(gcloud projects describe \"$GCP_PROJECT\" --format='value(projectNumber)')\"\nexport STATE_BUCKET=\"$GCP_PROJECT-w39-state\"\nexport DEPLOY_SA=\"gitlab-deployer@$GCP_PROJECT.iam.gserviceaccount.com\"\nexport RUNTIME_SA=\"run-probe@$GCP_PROJECT.iam.gserviceaccount.com\"\ngcloud services enable run.googleapis.com artifactregistry.googleapis.com iamcredentials.googleapis.com sts.googleapis.com --project=\"$GCP_PROJECT\"\ngcloud storage buckets create \"gs://$STATE_BUCKET\" --project=\"$GCP_PROJECT\" --location=\"$GCP_REGION\" --uniform-bucket-level-access --public-access-prevention\ngcloud storage buckets update \"gs://$STATE_BUCKET\" --versioning\ngcloud artifacts repositories create devopps-images --repository-format=docker --location=\"$GCP_REGION\" --project=\"$GCP_PROJECT\"\ngcloud iam service-accounts create gitlab-deployer --project=\"$GCP_PROJECT\"\ngcloud iam service-accounts create run-probe --project=\"$GCP_PROJECT\"",
+          "explain": [
+            "Verify context before creating billable storage. Record current Cloud Run, Artifact Registry and Storage prices and the planned one-hour lifetime. Preparation-only learners skip all provider commands and go to the configuration step.",
+            "The state bucket enables uniform IAM, public access prevention and version history. The repository holds images; neither is Terraform-managed here because they must exist before CI init.",
+            "Create distinct deployment and runtime identities. IDs are read from your actual GitLab project and namespace settings."
+          ],
+          "expected": "The private bucket, registry and two identities exist only in the disposable project.",
+          "troubleshoot": "If API or IAM policy blocks setup, preserve the failure and use preparation-only validation rather than broadening an organization policy."
+        }
+      ],
+      "checkpoint": "Explain why deleting the state bucket before Terraform destroy would make cleanup harder."
+    },
+    {
+      "title": "Trust only the protected GitLab project and grant scoped permissions",
+      "purpose": "Connect external identity to one deployment account.",
+      "commands": [
+        {
+          "code": "export WIF_PROVIDER=\"projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/devopps/providers/gitlab\"\nexport WIF_AUDIENCE=\"https://iam.googleapis.com/$WIF_PROVIDER\"\ngcloud iam workload-identity-pools create devopps --location=global --project=\"$GCP_PROJECT\"\ngcloud iam workload-identity-pools providers create-oidc gitlab --location=global --workload-identity-pool=devopps --project=\"$GCP_PROJECT\" --issuer-uri=https://gitlab.com --allowed-audiences=\"$WIF_AUDIENCE\" --attribute-mapping=\"google.subject=assertion.sub,attribute.project_id=assertion.project_id\" --attribute-condition=\"assertion.namespace_id == '$GITLAB_NAMESPACE_ID' && assertion.project_id == '$GITLAB_PROJECT_ID' && assertion.ref_path == 'refs/heads/main' && assertion.ref_protected == 'true'\"\ngcloud iam service-accounts add-iam-policy-binding \"$DEPLOY_SA\" --role=roles/iam.workloadIdentityUser --member=\"principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/devopps/attribute.project_id/$GITLAB_PROJECT_ID\" --condition=None\ngcloud projects add-iam-policy-binding \"$GCP_PROJECT\" --member=\"serviceAccount:$DEPLOY_SA\" --role=roles/run.developer --condition=None\ngcloud projects add-iam-policy-binding \"$GCP_PROJECT\" --member=\"serviceAccount:$DEPLOY_SA\" --role=roles/serviceusage.serviceUsageConsumer --condition=None\ngcloud iam service-accounts add-iam-policy-binding \"$RUNTIME_SA\" --member=\"serviceAccount:$DEPLOY_SA\" --role=roles/iam.serviceAccountUser --condition=None\ngcloud storage buckets add-iam-policy-binding \"gs://$STATE_BUCKET\" --member=\"serviceAccount:$DEPLOY_SA\" --role=roles/storage.objectAdmin\ngcloud artifacts repositories add-iam-policy-binding devopps-images --location=\"$GCP_REGION\" --project=\"$GCP_PROJECT\" --member=\"serviceAccount:$DEPLOY_SA\" --role=roles/artifactregistry.reader",
+          "explain": [
+            "Create a global workload pool and a GitLab.com OIDC provider with an explicit audience and restrictive claim condition. Numeric IDs resist name reuse. This configuration is for GitLab.com; self-managed issuers require their own verified issuer and keys.",
+            "The principalSet binding selects mapped project_id and allows impersonation only after provider validation. It does not bypass the namespace/ref condition.",
+            "Run Developer is project-scoped here because CI creates a new service; the project is disposable and dedicated. Service Usage Consumer supports quota/API use. Runtime actAs is limited to one service account, state access to one bucket, and image access to one repository."
+          ],
+          "expected": "No service-account key is generated. CI has no project IAM administration role.",
+          "troubleshoot": "If authentication fails, inspect the exact issuer and audience, then claim condition and account binding. GitLab and Google docs use differing issuer examples; this uses Google’s current GitLab SaaS issuer https://gitlab.com."
+        }
+      ],
+      "checkpoint": "Document the remaining breadth of Run Developer in this dedicated project; use environment-specific projects or narrower custom permissions for a shared environment."
+    },
+    {
+      "title": "Copy the tested image into the private Google registry",
+      "purpose": "Retain source provenance while obtaining the target registry digest.",
+      "commands": [
+        {
+          "code": "read -r -p \"Tested Taskboard image digest from CI: \" IMAGE_REF\ncase \"$IMAGE_REF\" in *@sha256:*) ;; *) exit 1;; esac\nREGISTRY_HOST=\"${IMAGE_REF%%/*}\"\nread -r -p \"Read-only registry username: \" REGISTRY_USER\nread -r -s -p \"Read-only registry token: \" REGISTRY_TOKEN; printf \"\\n\"\nprintf \"%s\" \"$REGISTRY_TOKEN\" | docker login \"$REGISTRY_HOST\" -u \"$REGISTRY_USER\" --password-stdin\nunset REGISTRY_TOKEN\ndocker pull \"$IMAGE_REF\"\ndocker logout \"$REGISTRY_HOST\"\ngcloud auth configure-docker \"$GCP_REGION-docker.pkg.dev\"\nexport TARGET_TAG=\"$GCP_REGION-docker.pkg.dev/$GCP_PROJECT/devopps-images/taskboard:w39\"\ndocker tag \"$IMAGE_REF\" \"$TARGET_TAG\"\ndocker push \"$TARGET_TAG\"\nexport TARGET_DIGEST=\"$(gcloud artifacts docker images describe \"$TARGET_TAG\" --project=\"$GCP_PROJECT\" --format='value(image_summary.digest)')\"\nexport RUN_IMAGE=\"${TARGET_TAG%:w39}@$TARGET_DIGEST\"\nprintf \"source=%s\\ntarget=%s\\n\" \"$IMAGE_REF\" \"$RUN_IMAGE\" > evidence/w39/provenance.txt\ndocker image inspect \"$IMAGE_REF\" \"$TARGET_TAG\" --format=\"{{.Id}}\"",
+          "explain": [
+            "Use the read-only GitLab token on stdin and remove its login afterward. Google’s Docker credential helper uses the authenticated human for this bootstrap push.",
+            "A tag is used for the copy only; deployment records the resulting Artifact Registry digest. Compare local image IDs to prove both tags refer to the same loaded image. Manifest serialization can affect registry digests, so preserve both rather than assuming equality."
+          ],
+          "expected": "The provenance record contains two real sha256 references and equal local image IDs.",
+          "troubleshoot": "If Artifact Registry cannot describe the tag, inspect the push result and repository region. Never replace a missing digest with a fabricated value."
+        }
+      ],
+      "checkpoint": "The original CI tests exercised the supplied runtime; this lesson changes its entry point and therefore runs a separately identified platform smoke test."
+    },
+    {
+      "title": "Author and validate Terraform without applying",
+      "purpose": "This is the full preparation-only path when cloud setup is unavailable.",
+      "commands": [
+        {
+          "code": "read -r -p \"GitLab infrastructure repository HTTPS URL: \" INFRA_GIT_URL\ngit clone \"$INFRA_GIT_URL\" ~/dev-opps-lab/gcp-platform\ncd ~/dev-opps-lab/gcp-platform\ngit switch -c add-gcp-platform",
+          "explain": [
+            "Clone the README-initialized infrastructure repository and create a feature branch. Use your normal secure Git credential flow; do not embed a token in the URL."
+          ],
+          "expected": "The working directory contains only the new infrastructure repository.",
+          "troubleshoot": "If the feature branch already exists, switch to it after checking its work. Do not force-push protected main."
+        },
+        {
+          "code": "cat > main.tf <<'EOF'\nterraform {\n  required_version = \"= 1.16.0\"\n  required_providers {\n    google = { source = \"hashicorp/google\", version = \"~> 7.0\" }\n  }\n  backend \"gcs\" {}\n}\nvariable \"project\" { type = string }\nvariable \"region\" { type = string }\nvariable \"image\" { type = string }\nvariable \"runtime_sa\" { type = string }\nprovider \"google\" {\n  project = var.project\n  region  = var.region\n}\nresource \"google_cloud_run_v2_service\" \"lab\" {\n  name                = \"devopps-w39\"\n  location            = var.region\n  deletion_protection = false\n  ingress             = \"INGRESS_TRAFFIC_ALL\"\n  template {\n    service_account = var.runtime_sa\n    scaling {\n      min_instance_count = 0\n      max_instance_count = 1\n    }\n    containers {\n      image   = var.image\n      command = [\"python\", \"-m\", \"uvicorn\"]\n      args    = [\"reference.stage03:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]\n      ports { container_port = 8000 }\n      resources {\n        limits = { cpu = \"1\", memory = \"512Mi\" }\n        cpu_idle = true\n      }\n      startup_probe {\n        http_get { path = \"/livez\" }\n        period_seconds = 3\n        failure_threshold = 10\n      }\n    }\n  }\n}\noutput \"service_url\" { value = google_cloud_run_v2_service.lab.uri }\nEOF\ncat > .gitignore <<'EOF'\n.terraform/\n*.tfstate*\n*.tfplan\n.gitlab-oidc\n.gcp-credentials.json\nEOF\ncat > install-terraform.py <<'PY'\nimport hashlib,io,pathlib,platform,urllib.request,zipfile\nversion=\"1.16.0\"\nassert platform.machine() in (\"x86_64\",\"amd64\"), \"Use a Linux amd64 runner for this lab\"\nname=f\"terraform_{version}_linux_amd64.zip\"\nbase=f\"https://releases.hashicorp.com/terraform/{version}/\"\ndata=urllib.request.urlopen(base+name,timeout=30).read()\nsums=urllib.request.urlopen(base+f\"terraform_{version}_SHA256SUMS\",timeout=30).read().decode()\nexpected=next(line.split()[0] for line in sums.splitlines() if line.split()[-1]==name)\nassert hashlib.sha256(data).hexdigest()==expected, \"checksum mismatch\"\nwith zipfile.ZipFile(io.BytesIO(data)) as z:\n    pathlib.Path(\"terraform\").write_bytes(z.read(\"terraform\"))\npathlib.Path(\"terraform\").chmod(0o755)\nPY\nprintf '\\nterraform\\n' >> .gitignore\npython3 install-terraform.py\n./terraform init -backend=false\n./terraform fmt\n./terraform validate",
+          "explain": [
+            "main.tf declares the Google provider, a partial GCS backend and four explicit inputs. The service uses a no-role runtime identity, zero minimum instances, one maximum instance and 512 MiB memory. Port 8000 matches the Taskboard command.",
+            "Ingress allows reaching the managed URL, but IAM invocation remains required because no allUsers binding or invoker-IAM bypass is configured. This is an authenticated internet-reachable service, not private network ingress.",
+            "The installer downloads Terraform 1.16.0 and verifies its archive against the official HTTPS checksum list; it does not claim an independent signature verification. init -backend=false downloads the provider and writes the dependency lock without cloud state access. fmt normalizes HCL; validate checks its schema."
+          ],
+          "expected": "Terraform validation succeeds and .terraform.lock.hcl records the chosen Google 7.x version and checksums. No service has been created by these commands.",
+          "troubleshoot": "If a schema changes, use the locked provider version and inspect its docs. Do not delete the lock to hide a validation error."
+        }
+      ],
+      "checkpoint": "Preparation-only learners commit these files and label provider IAM, state locking and deployment unexecuted."
+    },
+    {
+      "title": "Configure a reviewed keyless pipeline",
+      "purpose": "Generate short-lived credentials per job and apply the exact reviewed plan.",
+      "commands": [
+        {
+          "code": "cat > .gitlab-ci.yml <<'EOF'\nstages: [plan, apply]\ndefault:\n  image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable\n  id_tokens:\n    GITLAB_OIDC_TOKEN:\n      aud: $WIF_AUDIENCE\n  before_script:\n    - umask 077\n    - printf '%s' \"$GITLAB_OIDC_TOKEN\" > .gitlab-oidc\n    - gcloud iam workload-identity-pools create-cred-config \"$WIF_PROVIDER\" --service-account=\"$DEPLOY_SA\" --credential-source-file=\"$CI_PROJECT_DIR/.gitlab-oidc\" --output-file=.gcp-credentials.json\n    - export GOOGLE_APPLICATION_CREDENTIALS=\"$CI_PROJECT_DIR/.gcp-credentials.json\"\n    - gcloud auth login --cred-file=\"$GOOGLE_APPLICATION_CREDENTIALS\" --brief\n    - gcloud auth print-access-token > /dev/null\n    - python3 install-terraform.py\n    - ./terraform init -input=false -lockfile=readonly -backend-config=\"bucket=$STATE_BUCKET\" -backend-config=\"prefix=cloudrun/dev\"\n  after_script:\n    - rm -f .gitlab-oidc .gcp-credentials.json\nplan:\n  stage: plan\n  resource_group: devopps-gcp\n  rules:\n    - if: '$CI_COMMIT_BRANCH == \"main\" && $CI_COMMIT_REF_PROTECTED == \"true\"'\n  script:\n    - ./terraform fmt -check\n    - ./terraform validate\n    - ./terraform plan -input=false -out=review.tfplan\n    - ./terraform show -no-color review.tfplan\n  artifacts:\n    access: maintainer\n    expire_in: 1 hour\n    paths: [review.tfplan]\napply:\n  stage: apply\n  resource_group: devopps-gcp\n  needs: [plan]\n  rules:\n    - if: '$CI_COMMIT_BRANCH == \"main\" && $CI_COMMIT_REF_PROTECTED == \"true\"'\n      when: manual\n  allow_failure: false\n  environment: gcp-learning\n  script:\n    - ./terraform apply -input=false review.tfplan\n    - ./terraform output -raw service_url\nEOF\ngit add main.tf .terraform.lock.hcl .gitignore install-terraform.py .gitlab-ci.yml\ngit commit -m \"Add scoped GCP federation and reviewed Cloud Run plan\"\ngit push -u origin add-gcp-platform",
+          "explain": [
+            "Before committing, protect main in GitLab Settings > Repository, disable direct pushes and limit merge permission to the reviewer. In Settings > CI/CD > Variables add protected variables WIF_PROVIDER, WIF_AUDIENCE, DEPLOY_SA, STATE_BUCKET, TF_VAR_project, TF_VAR_region, TF_VAR_image and TF_VAR_runtime_sa from the shell values. TF_VAR_image is RUN_IMAGE; TF_VAR_runtime_sa is RUNTIME_SA. None is a private key.",
+            "Each job receives a fresh id_token, writes it under restrictive permissions and creates an external-account credential configuration. gcloud validates exchange without printing the access token. Terraform reads the same credential through ADC. after_script deletes the two temporary credential files.",
+            "The protected-main rule and cloud-side claim condition both restrict execution. resource_group serializes jobs touching this environment. The plan artifact expires in one hour and is restricted to maintainers; it contains no token file.",
+            "The manual apply consumes the saved plan from the same pipeline. Review its resource diff and digest before clicking apply. If the plan expired or state changed, rerun plan rather than applying a different unreviewed change.",
+            "Open a merge request from add-gcp-platform to main in GitLab. Review the Terraform, identity condition and pipeline, then merge through the protected-branch workflow. This feature branch has no deployment job under the rules and cannot satisfy the cloud protected-main condition. The post-merge plan runs with the narrowly scoped identity; review that concrete plan before its separate manual apply."
+          ],
+          "expected": "A protected-main pipeline creates a plan for one Cloud Run service. Applying that reviewed plan yields a service URL and remote state object.",
+          "troubleshoot": "If init fails before planning, inspect federation exchange and bucket permissions separately. Do not use a downloaded service-account key as a fallback."
+        }
+      ],
+      "checkpoint": "Record pipeline ID, commit, source/target image digests, provider lock version and the reviewer’s decision."
+    },
+    {
+      "title": "Verify authenticated invocation and the identity boundary",
+      "purpose": "Test both denied anonymous access and permitted operator access.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/gcp\n. context.env\nexport HUMAN_ACCOUNT=\"$(gcloud auth list --filter=status:ACTIVE --format='value(account)')\"\ngcloud run services add-iam-policy-binding devopps-w39 --region=\"$GCP_REGION\" --project=\"$GCP_PROJECT\" --member=\"user:$HUMAN_ACCOUNT\" --role=roles/run.invoker\nexport RUN_URL=\"$(gcloud run services describe devopps-w39 --region=\"$GCP_REGION\" --project=\"$GCP_PROJECT\" --format='value(status.url)')\"\ncurl -sS -o /dev/null -w \"anonymous=%{http_code}\\n\" \"$RUN_URL/livez\"\ncurl -fsS -H \"Authorization: Bearer $(gcloud auth print-identity-token)\" \"$RUN_URL/livez\"\ngcloud run services describe devopps-w39 --region=\"$GCP_REGION\" --project=\"$GCP_PROJECT\" --format=\"yaml(status.latestReadyRevisionName,spec.template.spec.serviceAccountName,spec.template.spec.containers)\"",
+          "explain": [
+            "The human bootstrap identity grants its own account invocation on this one service; CI is not given IAM-policy administration to do that.",
+            "Anonymous curl should receive a denial. The second request uses a Google-signed identity token from the human account, not a Taskboard lab token. The token is consumed by curl and should not be saved in evidence.",
+            "Describe the ready revision, runtime identity and container image to compare the deployed digest with provenance."
+          ],
+          "expected": "Anonymous request is denied, authenticated liveness returns 200, and the ready revision uses the recorded digest.",
+          "troubleshoot": "If authenticated access fails, separate missing run.invoker from wrong token audience/type. Never grant allUsers to make a smoke test pass."
+        }
+      ],
+      "checkpoint": "Explain why a successful /livez request does not prove task durability or stage07 authorization."
+    }
+  ],
+  "failure": {
+    "title": "A token has the wrong audience",
+    "boundary": "Only change the protected GitLab WIF_AUDIENCE variable for one plan-only pipeline. Leave provider policy and service permissions intact.",
+    "inject": [
+      {
+        "code": "printf \"%s\\n\" \"In GitLab Settings > CI/CD > Variables, temporarily set WIF_AUDIENCE to https://invalid.example/devopps-audience.\" \"Run a new protected-main pipeline and do not trigger apply.\"",
+        "explain": [
+          "This local instruction records the bounded change: the job token is minted for an audience the provider does not accept. No secret is exposed."
+        ],
+        "expected": "Credential exchange fails before Terraform state is accessed.",
+        "troubleshoot": "Ensure the pipeline is new: an old job retains the token/variables from its original run."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "gcloud iam workload-identity-pools providers describe gitlab --location=global --workload-identity-pool=devopps --project=\"$GCP_PROJECT\" --format=\"yaml(oidc.issuerUri,oidc.allowedAudiences,attributeCondition)\"",
+        "explain": [
+          "Inspect nonsecret provider trust settings and compare the allowed audience with the GitLab variable."
+        ],
+        "expected": "The configured audience differs from the deliberately invalid job audience.",
+        "troubleshoot": "Read the exchange error category without printing the raw JWT or enabling credential debug output."
+      }
+    ],
+    "hints": [
+      "Did the failure occur before state initialization?",
+      "Trust validation precedes service-account resource authorization."
+    ],
+    "answer": {
+      "explanation": [
+        "The token’s recipient does not match the provider. Resource roles cannot repair that mismatch; restoring the intended audience is the narrow fix."
+      ],
+      "recover": [
+        {
+          "code": "printf \"%s\\n\" \"$WIF_AUDIENCE\"",
+          "explain": [
+            "In the original Cloud Shell, this prints the correct provider audience. Restore that exact value in the protected GitLab variable and run a new plan-only pipeline."
+          ],
+          "expected": "Exchange and state initialization succeed again.",
+          "troubleshoot": "If the shell variable was changed too, reconstruct it as https://iam.googleapis.com/$WIF_PROVIDER; do not broaden allowed audiences."
+        }
+      ],
+      "verification": {
+        "code": "gcloud run services describe devopps-w39 --region=\"$GCP_REGION\" --project=\"$GCP_PROJECT\" --format=\"value(status.latestReadyRevisionName)\"",
+        "explain": [
+          "Compare the ready revision before and after the failed plan and recovery plan."
+        ],
+        "expected": "The service was not changed by the rejected token; the recovered plan shows no unintended changes.",
+        "troubleshoot": "Do not confuse successful authentication with authorization to apply a changed plan."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why check numeric GitLab IDs and protected ref claims?",
+      "hint": "Consider renames and untrusted branches.",
+      "answer": "Names can change or be reused; numeric IDs identify the intended namespace/project, and ref conditions restrict which code can request the deployment identity."
+    },
+    {
+      "prompt": "Why create the state bucket before terraform init?",
+      "hint": "Where is backend initialization stored?",
+      "answer": "Terraform must access an existing backend before managing resources. Bootstrapping the bucket separately avoids a dependency cycle and allows explicit state ownership."
+    },
+    {
+      "prompt": "Does max_instance_count=1 make in-memory tasks durable?",
+      "hint": "What happens to one instance during replacement?",
+      "answer": "No. Even one instance can stop, restart or be replaced. Durable state belongs in an explicitly designed external database with migration and recovery procedures."
+    }
+  ],
+  "exercise": {
+    "brief": "Explain and test one additional denied federation case.",
+    "constraints": [
+      "Use a plan-only job.",
+      "Do not relax the existing protected-main condition."
+    ],
+    "deliverables": [
+      "A non-main branch or different project rejection, error stage and restored baseline."
+    ],
+    "acceptance": [
+      "No resource changes occur.",
+      "The explanation distinguishes token validation, impersonation and resource IAM."
+    ],
+    "hints": [
+      "The CI rule may skip a branch before cloud policy is exercised; label a skipped job separately from a rejected token."
+    ],
+    "solution": [
+      "A deliberate authentication-only job on a test branch can demonstrate cloud-side rejection, while normal deployment jobs remain protected. Record that the provider refused ref_path/ref_protected and never reached state access."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab/gcp-platform\nexport TF_VAR_project=\"$GCP_PROJECT\" TF_VAR_region=\"$GCP_REGION\" TF_VAR_image=\"$RUN_IMAGE\" TF_VAR_runtime_sa=\"$RUNTIME_SA\"\ngcloud auth application-default login\n./terraform init -reconfigure -backend-config=\"bucket=$STATE_BUCKET\" -backend-config=\"prefix=cloudrun/dev\"\n./terraform plan -destroy -out=cleanup.tfplan\n./terraform show cleanup.tfplan\n./terraform apply cleanup.tfplan",
+      "explain": [
+        "Use the human bootstrap ADC for cleanup, reconnect to the same GCS state and review the destroy plan before applying it. This removes only Terraform-managed resources; bootstrap resources remain."
+      ],
+      "expected": "Cloud Run service is destroyed and remote state no longer contains it.",
+      "troubleshoot": "Do not delete the backend first. Confirm the project and service name in the plan; cancel if unrelated resources appear."
+    },
+    {
+      "code": "gcloud artifacts repositories delete devopps-images --location=\"$GCP_REGION\" --project=\"$GCP_PROJECT\"\ngcloud storage ls --all-versions \"gs://$STATE_BUCKET/cloudrun/dev/**\"\ngcloud storage rm --all-versions \"gs://$STATE_BUCKET/cloudrun/dev/**\"\ngcloud storage buckets delete \"gs://$STATE_BUCKET\"\ngcloud iam workload-identity-pools delete devopps --location=global --project=\"$GCP_PROJECT\"\ngcloud iam service-accounts delete \"$DEPLOY_SA\" --project=\"$GCP_PROJECT\"\ngcloud iam service-accounts delete \"$RUNTIME_SA\" --project=\"$GCP_PROJECT\"\ngcloud run services list --region=\"$GCP_REGION\" --project=\"$GCP_PROJECT\"",
+      "explain": [
+        "After confirming destroy, remove the dedicated image repository, inspect then delete all versions only under the known state prefix, and delete its dedicated bucket. Version history can otherwise retain costs and prevent bucket deletion.",
+        "Remove the dedicated pool and service accounts, then check Cloud Run inventory. The project and budget remain for week 40."
+      ],
+      "expected": "No week-39 service, registry or state bucket remains.",
+      "troubleshoot": "If the bucket contains unexpected prefixes, stop and inspect ownership instead of broadening the wildcard. Remove the GitLab protected variables after the exercise."
+    }
+  ],
+  "references": [
+    {
+      "title": "Google federation for deployment pipelines",
+      "url": "https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines",
+      "usedFor": "GitLab SaaS issuer, claims and principalSet resource paths."
+    },
+    {
+      "title": "GitLab OIDC with GCP",
+      "url": "https://docs.gitlab.com/ci/cloud_services/google_cloud/",
+      "usedFor": "Job ID tokens and short-lived federation."
+    },
+    {
+      "title": "Terraform GCS backend",
+      "url": "https://developer.hashicorp.com/terraform/language/backend/gcs",
+      "usedFor": "Existing bucket, locking and versioning."
+    },
+    {
+      "title": "Google provider Cloud Run v2 resource",
+      "url": "https://github.com/hashicorp/terraform-provider-google/blob/main/website/docs/r/cloud_run_v2_service.html.markdown",
+      "usedFor": "Service configuration, scaling and runtime identity."
+    },
+    {
+      "title": "Cloud Run authentication",
+      "url": "https://docs.cloud.google.com/run/docs/authenticating/service-to-service",
+      "usedFor": "IAM invocation and identity tokens."
+    },
+    {
+      "title": "Terraform 1.16.0 release",
+      "url": "https://releases.hashicorp.com/terraform/1.16.0/",
+      "usedFor": "Pinned executable and checksum source."
+    },
+    {
+      "title": "Cloud Run pricing",
+      "url": "https://cloud.google.com/run/pricing",
+      "usedFor": "Regional usage cost review."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "argoproj/argo-cd",
+      "principle": "Separate artifact creation from environment approval.",
+      "application": "This Terraform path carries a tested image’s provenance into a saved infrastructure plan and a separate apply decision, while federation limits which job can cross the environment boundary.",
+      "url": "https://github.com/argoproj/argo-cd"
+    },
+    {
+      "repo": "stefanprodan/podinfo",
+      "principle": "Use a small reference workload to isolate platform mechanics.",
+      "application": "Taskboard’s earlier memory implementation serves the same diagnostic role here: it proves managed-runtime identity and delivery without pretending to solve production state management.",
+      "url": "https://github.com/stefanprodan/podinfo"
+    }
+  ],
+  "notes": [
+    "No CI/cloud execution occurred during authoring. Federation, provider schema and runtime settings were checked against primary sources; successful deployment requires learner-run evidence.",
+    "Google Cloud CLI stable is a moving bootstrap image; for a maintained pipeline resolve and pin its digest after verification. Terraform and provider dependency selections are recorded explicitly."
+  ],
+  "phase": "GCP",
+  "title": "Terraform and GitLab federation on GCP",
+  "outcome": "Deliver a small GCP workload with short-lived pipeline identity.",
+  "freeTrack": {
+    "title": "Review trust conditions before granting deployment authority",
+    "objective": "Test the logic of intended versus untrusted deployment claims, then review the exact Terraform change without contacting a cloud backend.",
+    "prerequisites": [
+      "Complete week 11 trust-boundary concepts and local Terraform weeks 17–20."
+    ],
+    "commands": [
+      {
+        "code": "python3 - <<'PY'\nfrom copy import deepcopy\nexpected = {\"issuer\": \"https://gitlab.com\", \"audience\": \"devopps-lab\", \"project\": \"my-lab\", \"branch\": \"main\", \"protected\": True}\ndef conditions_match(claims):\n    return all(claims.get(key) == value for key, value in expected.items())\ncases = [(\"intended\", deepcopy(expected), True)]\nfor key, value in ((\"issuer\", \"https://other.invalid\"), (\"audience\", \"other\"), (\"project\", \"fork\"), (\"branch\", \"feature\"), (\"protected\", False)):\n    wrong = deepcopy(expected)\n    wrong[key] = value\n    cases.append((\"wrong-\" + key, wrong, False))\nfor label, claims, wanted in cases:\n    result = conditions_match(claims)\n    if result != wanted:\n        raise SystemExit(\"FAILED: \" + label)\n    print(label + \": \" + (\"allowed\" if result else \"denied\"))\nprint(\"Condition exercise only: these dictionaries are NOT verified tokens.\")\nPY",
+        "explain": [
+          "This standard-library Python exercise compares five explicit conditions. deepcopy creates an independent candidate so one changed claim cannot mutate the baseline.",
+          "Each negative case changes exactly one condition; the explicit exception prevents a false passing result even when Python assertions are disabled.",
+          "The dictionaries are fabricated teaching data. There is no JWT parsing, signature verification, key discovery, expiry check, token exchange or real authorization here. Never use this function to authenticate an application."
+        ],
+        "expected": "One intended case is allowed; all five changed-condition cases are denied, followed by the explicit unverified-token limitation.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      },
+      {
+        "code": "cd ~/dev-opps-lab/infra/policy19\nterraform init -backend=false\nterraform validate\nterraform test",
+        "explain": [
+          "Use the existing week-19 offline policy root. init does not configure a remote backend; validate and test check the authored Terraform and mocked cases."
+        ],
+        "expected": "Offline checks pass without creating a Google project or obtaining a cloud credential.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Explain why checking the branch alone permits a malicious fork to match.",
+      "Name the signature, issuer, audience, expiry and provider mapping checks a real federation service must enforce.",
+      "Record the provider WIF exchange and Cloud Run invocation as unattempted."
+    ],
+    "limits": "This is a trust-condition exercise and offline infrastructure check. It does not verify a token, exchange credentials or prove GCP Workload Identity Federation.",
+    "cleanup": "No resource cleanup is required. Retain the positive and negative observations in evidence."
+  }
+}

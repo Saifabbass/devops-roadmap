@@ -1,0 +1,276 @@
+{
+  "week": 37,
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: Moving from AWS to Google Cloud is an identity and ownership exercise before it is a service-name exercise. An AWS account is a strong administrative boundary; a Google Cloud project groups resources, APIs, billing attribution and IAM policy, while organization and folder policies can be inherited. A service account is a workload identity, not a human login.",
+    "Optional provider lab: You will create a dedicated learning project, configure an alerts-only budget, and prove that a narrowly scoped service account can read one kind of metadata but cannot enumerate identities. No service-account key is created. Administrative setup uses your human identity; application work will use separate identities.",
+    "Optional provider lab: The preparation-only path writes the permission matrix and cost plan without a cloud account. It teaches policy design but does not prove Google IAM enforcement. Run the provider path only in your own disposable project, with a billing amount and cleanup date you deliberately choose."
+  ],
+  "prerequisites": [
+    "Use Google Cloud Shell, opened from console.cloud.google.com with the account you intend to use. It includes gcloud and a Bash terminal. Keep the same Cloud Shell home directory for weeks 37–40.",
+    "Provider path: permission to create a project, link a billing account, manage project IAM and create budgets. An organization may require a folder or organization ID; obtain that from its administrator. Do not modify a work project.",
+    "Know AWS identity policies, role assumption and resource scope from the earlier AWS level. No paid compute is created in this week."
+  ],
+  "concepts": [
+    {
+      "title": "Resource hierarchy changes the blast radius",
+      "paragraphs": [
+        "An organization can contain folders, which contain projects. A project has an immutable numeric project number and a globally unique project ID used in many commands. A project name is merely a display label. Enabling an API allows that service to be used; it does not grant every identity permission to use its resources.",
+        "IAM evaluates the principal, role permissions, resource scope and applicable conditions. A project-level grant can affect many resources; a bucket-level grant can restrict access to that bucket. Inherited policy can grant more than a local policy file shows."
+      ],
+      "example": "Grant a VM identity object-reader access on one bucket rather than Storage Admin on the project.",
+      "judgment": "An AWS role and a Google service account both support workload identity patterns, but their trust and permission mechanisms differ. Translate the required action and boundary rather than copying names."
+    },
+    {
+      "title": "Impersonation and budgets have explicit limits",
+      "paragraphs": [
+        "Service-account impersonation issues short-lived credentials after checking whether the caller may impersonate that specific identity. The service account still needs its own resource permissions. Being allowed to mint its token does not make it an administrator.",
+        "The alerts-only budget below sends threshold notifications; it does not stop resource creation or guarantee an immediate billing update. Google also documents spend-cap budgets for supported services, but support and coverage must be checked separately. Our safety controls are a disposable project, limited scope, a time limit and verified teardown."
+      ],
+      "example": "The human can impersonate a metadata reader; the resulting token can describe the project but cannot list its service accounts.",
+      "judgment": "Do not replace a permission failure with Owner or Editor. Read the denied permission, choose the smallest relevant scope and verify both allowed and denied behavior."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Prepare the identity and cost matrix without creating resources",
+      "purpose": "This step also completes the no-cloud preparation path.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-lab/gcp/evidence/w37\ncd ~/dev-opps-lab/gcp\ncat > identity-plan.md <<'EOF'\nHuman bootstrap identity: creates only the disposable learning project.\nMetadata reader: project description allowed; service-account enumeration denied.\nVM runtime identity: read objects in one future lab bucket only.\nCI deploy identity: later restricted by project, protected branch and token audience.\nRuntime identity: separate from deployment identity.\nCost plan: record billing currency, maximum planned spend, resource lifetime and cleanup owner.\nPreparation-only status: no provider enforcement or billing behavior tested.\nEOF\ncat identity-plan.md",
+          "explain": [
+            "mkdir -p creates the isolated learning folder. The quoted heredoc writes a policy plan without evaluating shell variables. cat displays it for review."
+          ],
+          "expected": "A matrix identifies actors, actions, resources and limits. Fill in your owner, spending limit and cleanup date.",
+          "troubleshoot": "If you cannot access an isolated cloud project, stop the provider steps here and retain the preparation-only label."
+        }
+      ],
+      "checkpoint": "Explain which later grant belongs on a bucket rather than the project."
+    },
+    {
+      "title": "Verify the human account and create the project",
+      "purpose": "Start every cloud session by checking context.",
+      "commands": [
+        {
+          "code": "gcloud auth list --filter=status:ACTIVE --format=\"value(account)\"\ngcloud config list\ngcloud billing accounts list\nread -r -p \"New globally unique lab project ID: \" GCP_PROJECT\nread -r -p \"Billing account ID from the list: \" BILLING_ACCOUNT\nread -r -p \"Region (for example us-central1): \" GCP_REGION\nread -r -p \"Optional organization ID; Enter for personal account: \" GCP_ORG\nexport GCP_PROJECT BILLING_ACCOUNT GCP_REGION\nif [ -n \"$GCP_ORG\" ]; then\n  gcloud projects create \"$GCP_PROJECT\" --organization=\"$GCP_ORG\" --name=\"Dev Opps disposable lab\"\nelse\n  gcloud projects create \"$GCP_PROJECT\" --name=\"Dev Opps disposable lab\"\nfi\ngcloud config set project \"$GCP_PROJECT\"\ngcloud projects describe \"$GCP_PROJECT\" --format=\"yaml(projectId,projectNumber,parent,lifecycleState)\"\ngcloud billing projects link \"$GCP_PROJECT\" --billing-account=\"$BILLING_ACCOUNT\"",
+          "explain": [
+            "auth list shows the acting account; config list reveals defaults; billing accounts list supplies a real account ID. read prompts for values rather than relying on example IDs.",
+            "The conditional adds an organization parent only when supplied. If your organization requires a folder, use --folder with the administrator-provided folder ID instead of --organization.",
+            "projects create establishes the isolated boundary; config set selects it; describe confirms it before billing link authorizes charges from future billable resources."
+          ],
+          "expected": "The project is ACTIVE with the expected parent and billing account. Record the ID and numeric project number.",
+          "troubleshoot": "If the ID is taken, choose another new ID. Permission or organization-policy errors require the appropriate administrator; do not attach this lesson to an existing production project."
+        }
+      ],
+      "checkpoint": "Project creation and billing linkage are not proof that any runtime workload has been deployed."
+    },
+    {
+      "title": "Create an alerts-only budget before paid labs",
+      "purpose": "Use a deliberately chosen amount in the billing account’s currency.",
+      "commands": [
+        {
+          "code": "read -r -p \"Monthly alerts-only budget amount in billing currency: \" LAB_BUDGET\ngcloud services enable billingbudgets.googleapis.com iam.googleapis.com iamcredentials.googleapis.com cloudresourcemanager.googleapis.com --project=\"$GCP_PROJECT\"\ngcloud billing budgets create --billing-account=\"$BILLING_ACCOUNT\" --display-name=\"Dev Opps learning alert\" --budget-amount=\"$LAB_BUDGET\" --filter-projects=\"projects/$GCP_PROJECT\" --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 --format=json > evidence/w37/budget.json\ngcloud billing projects describe \"$GCP_PROJECT\"\npython3 - <<'PY'\nimport json\nb=json.load(open(\"evidence/w37/budget.json\"))\nprint(\"Budget resource:\",b[\"name\"])\nprint(\"Check the recipients in Billing > Budgets & alerts; this is an alert, not a spending stop.\")\nPY\numask 077\nprintf \"export GCP_PROJECT=%q\\nexport BILLING_ACCOUNT=%q\\nexport GCP_REGION=%q\\n\" \"$GCP_PROJECT\" \"$BILLING_ACCOUNT\" \"$GCP_REGION\" > context.env",
+          "explain": [
+            "Enable the APIs used by this lesson. The budget filters this project and not the whole billing account; three threshold rules create notifications at 50%, 90% and 100%.",
+            "The amount has no hardcoded currency: gcloud uses the account currency. Verify Billing > Budgets & alerts in the console, including default billing-admin/user recipients; confirm that an address you monitor is included.",
+            "Python prints the budget resource name without credentials. umask 077 restricts new file permissions; printf %q saves safely quoted Bash context values."
+          ],
+          "expected": "A budget resource exists, project billing is enabled, and the recipient list is understood. No threshold notification is fabricated or sent during authoring.",
+          "troubleshoot": "If budget creation fails for permissions, do not create paid resources yet. Use the preparation path until a budget owner configures the project-specific alert."
+        }
+      ],
+      "checkpoint": "Record that billing reports can lag and an alerts-only budget does not enforce the entered limit."
+    },
+    {
+      "title": "Grant a reader only what the experiment needs",
+      "purpose": "Separate permission to impersonate from permission to act.",
+      "commands": [
+        {
+          "code": "export READER_SA=\"metadata-reader@$GCP_PROJECT.iam.gserviceaccount.com\"\nexport HUMAN_ACCOUNT=\"$(gcloud auth list --filter=status:ACTIVE --format='value(account)')\"\ngcloud iam service-accounts create metadata-reader --project=\"$GCP_PROJECT\" --display-name=\"Dev Opps metadata reader\"\ngcloud iam roles create labProjectReader --project=\"$GCP_PROJECT\" --title=\"Lab project metadata reader\" --permissions=resourcemanager.projects.get --stage=GA\ngcloud projects add-iam-policy-binding \"$GCP_PROJECT\" --member=\"serviceAccount:$READER_SA\" --role=\"projects/$GCP_PROJECT/roles/labProjectReader\" --condition=None\ngcloud iam service-accounts add-iam-policy-binding \"$READER_SA\" --member=\"user:$HUMAN_ACCOUNT\" --role=roles/iam.serviceAccountTokenCreator --condition=None\ngcloud projects describe \"$GCP_PROJECT\" --impersonate-service-account=\"$READER_SA\" --format=\"value(projectId)\"\ngcloud iam service-accounts list --project=\"$GCP_PROJECT\" --impersonate-service-account=\"$READER_SA\"",
+          "explain": [
+            "Create a dedicated identity and a custom project role with exactly resourcemanager.projects.get. The project binding grants that role to the reader.",
+            "The Token Creator binding is on the single service account, allowing the current human to impersonate it; it is not a project-wide token-creation grant. --condition=None makes the absence of a condition explicit.",
+            "Both final commands use the reader’s short-lived credentials. The first exercises an allowed action; the second intentionally requests an ungranted action."
+          ],
+          "expected": "Project description succeeds; service-account enumeration returns PERMISSION_DENIED. No key file exists.",
+          "troubleshoot": "If both succeed, inspect inherited roles or unintended grants. If impersonation itself fails, distinguish iam.serviceAccounts.getAccessToken denial from the resource permission being tested."
+        }
+      ],
+      "checkpoint": "Save the action and error permission in notes, without capturing access tokens or full credential debug logs."
+    }
+  ],
+  "failure": {
+    "title": "Remove the one allowed resource permission",
+    "boundary": "Only the dedicated metadata-reader binding is removed; retain the human bootstrap account and recovery command.",
+    "inject": [
+      {
+        "code": "gcloud projects remove-iam-policy-binding \"$GCP_PROJECT\" --member=\"serviceAccount:$READER_SA\" --role=\"projects/$GCP_PROJECT/roles/labProjectReader\" --condition=None",
+        "explain": [
+          "Remove exactly the custom-role grant from this lab identity."
+        ],
+        "expected": "The next impersonated project description is denied after IAM propagation.",
+        "troubleshoot": "If inherited policy still allows the operation, document it; do not delete broader policies to force the exercise."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "gcloud projects describe \"$GCP_PROJECT\" --impersonate-service-account=\"$READER_SA\"\ngcloud iam service-accounts get-iam-policy \"$READER_SA\" --format=json\ngcloud projects get-iam-policy \"$GCP_PROJECT\" --format=json > evidence/w37/project-policy.json",
+        "explain": [
+          "The first command tests the symptom. The other two use the human account to inspect service-account trust and project authorization separately."
+        ],
+        "expected": "Impersonation is still allowed but project read is not.",
+        "troubleshoot": "IAM changes can take time; record when each result changes. A cached token does not automatically contain every resource permission forever."
+      }
+    ],
+    "hints": [
+      "Does the human still have Token Creator on the reader?",
+      "Which policy controls the requested project action?"
+    ],
+    "answer": {
+      "explanation": [
+        "Trust and authorization are separate. The human can still mint a reader token, but that reader no longer has the project-read permission."
+      ],
+      "recover": [
+        {
+          "code": "gcloud projects add-iam-policy-binding \"$GCP_PROJECT\" --member=\"serviceAccount:$READER_SA\" --role=\"projects/$GCP_PROJECT/roles/labProjectReader\" --condition=None",
+          "explain": [
+            "Restore exactly the removed lab role binding."
+          ],
+          "expected": "Project read succeeds again after propagation.",
+          "troubleshoot": "Do not grant Editor to make the test pass."
+        }
+      ],
+      "verification": {
+        "code": "gcloud projects describe \"$GCP_PROJECT\" --impersonate-service-account=\"$READER_SA\" --format=\"value(projectId)\"\ngcloud iam service-accounts list --project=\"$GCP_PROJECT\" --impersonate-service-account=\"$READER_SA\"",
+        "explain": [
+          "Retest allowed and forbidden actions with the same identity."
+        ],
+        "expected": "Description succeeds and identity enumeration remains denied.",
+        "troubleshoot": "A recovered allowed action without a denied-action check is incomplete least-privilege evidence."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "How do project ID and project number differ?",
+      "hint": "One is chosen; one is assigned.",
+      "answer": "The globally unique ID appears in commands and names; the numeric number is assigned by Google and used in several identity resource paths, including federation."
+    },
+    {
+      "prompt": "Does Token Creator grant the target account’s resource permissions to every caller?",
+      "hint": "Distinguish the binding scope and the resulting identity.",
+      "answer": "Only bound callers may impersonate the specified identity, and resulting requests are authorized as that identity with its resource roles."
+    },
+    {
+      "prompt": "Will this budget stop a VM when it reaches 100%?",
+      "hint": "Which budget type did we create?",
+      "answer": "No. This is an alerts-only budget. Teardown and explicit resource limits remain necessary; any supported spend-cap product needs separate verification."
+    }
+  ],
+  "exercise": {
+    "brief": "Translate one AWS deployment into an identity matrix for Google Cloud.",
+    "constraints": [
+      "Do not use Owner/Editor for runtime.",
+      "Keep human bootstrap, CI deployment and application runtime separate."
+    ],
+    "deliverables": [
+      "Actors, actions, resource scopes, token sources and one denied test per actor."
+    ],
+    "acceptance": [
+      "Explain the trust boundary and resource permission independently.",
+      "Name the budget owner and teardown deadline."
+    ],
+    "hints": [
+      "Start from “read object X” or “deploy service Y”, not a list of cloud product names."
+    ],
+    "solution": [
+      "A useful design uses a human only for setup, a federated CI identity limited to the chosen environment and a runtime identity with access to one required data resource. The denial tests prove boundaries instead of only proving a happy path."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "gcloud iam service-accounts keys list --iam-account=\"$READER_SA\" --managed-by=user\ngcloud billing budgets list --billing-account=\"$BILLING_ACCOUNT\" --format=\"table(displayName,name)\"",
+      "explain": [
+        "Confirm no user-managed service-account key was created and record the budget retained for weeks 38–40."
+      ],
+      "expected": "The key list is empty; the learning budget remains.",
+      "troubleshoot": "Retain the project intentionally for the next lessons. If ending the cloud level now, use the next command."
+    },
+    {
+      "code": "gcloud projects describe \"$GCP_PROJECT\" --format=\"yaml(projectId,name)\"\nread -r -p \"To delete this disposable project, type its exact ID: \" CONFIRM_PROJECT\nif [ \"$CONFIRM_PROJECT\" = \"$GCP_PROJECT\" ]; then gcloud projects delete \"$GCP_PROJECT\"; fi",
+      "explain": [
+        "Optional early teardown: show the target, require its exact ID and request project deletion. Do not run when continuing to week 38."
+      ],
+      "expected": "The selected project enters deletion; check Billing later for lagged charges. Budget deletion is handled separately at the end of week 40.",
+      "troubleshoot": "Never substitute a shared project. Project deletion has recovery semantics and billing delay; verify status rather than assuming an immediate zero bill."
+    }
+  ],
+  "references": [
+    {
+      "title": "Google Cloud resource hierarchy",
+      "url": "https://docs.cloud.google.com/resource-manager/docs/cloud-platform-resource-hierarchy",
+      "usedFor": "Project, folder and organization boundaries."
+    },
+    {
+      "title": "Service-account impersonation",
+      "url": "https://docs.cloud.google.com/iam/docs/service-account-impersonation",
+      "usedFor": "Short-lived credentials and separate authorization."
+    },
+    {
+      "title": "Create budgets",
+      "url": "https://docs.cloud.google.com/billing/docs/how-to/budgets",
+      "usedFor": "Alerts-only budgets, recipients and current spend-cap distinction."
+    },
+    {
+      "title": "gcloud budget create",
+      "url": "https://docs.cloud.google.com/sdk/gcloud/reference/billing/budgets/create",
+      "usedFor": "Budget amount, project filter and threshold flags."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "A roadmap identifies related capabilities; evidence establishes mastery.",
+      "application": "The AWS-to-GCP matrix is tested with an allowed and denied operation, so a familiar service name does not substitute for understanding the identity boundary.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Operational ownership includes cost and access boundaries.",
+      "application": "Budget ownership, teardown deadlines and explicit denial tests are part of the lab evidence before compute is created.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    }
+  ],
+  "notes": [
+    "No Google Cloud resources were created during authoring. Commands were checked against primary documentation; permission, organization-policy and billing outcomes require a learner-owned provider run."
+  ],
+  "phase": "GCP",
+  "title": "Translate identity, not just names",
+  "outcome": "Understand Google Cloud projects, IAM, service accounts and billing.",
+  "freeTrack": {
+    "title": "Transfer the identity model across platforms",
+    "objective": "Explain human, workload and application identities, using real local denial evidence to ground the GCP comparison.",
+    "prerequisites": [
+      "Complete the local Taskboard lessons through week 8. Use Ubuntu Bash and your existing course workspace.",
+      "Use only generated lab identities and synthetic data. No cloud account or payment card is needed."
+    ],
+    "commands": [
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\npython -m pytest tests/contract -v\nmkdir -p ../../evidence/week-37\ncat > ../../evidence/week-37/identity-map.md <<'EOF'\n# Identity mapping\nScope: local tests and design review\nHuman: my Linux user; cloud comparison: interactive account\nWorkload: process/container identity; cloud comparison: service account\nApplication user: Alice/Bob ownership; independent of cloud operator IAM\nAllowed action and evidence:\nDenied action and evidence:\nCredential lifetime and rotation plan:\nProvider permissions not executed:\nEOF",
+        "explain": [
+          "Rerun the real application adapter tests, including a valid identity with the wrong owner.",
+          "Write the mapping in your evidence file. The platform service account is not the end-user identity, and cloud permissions do not automatically enforce Taskboard ownership."
+        ],
+        "expected": "Contract checks pass and the mapping distinguishes three identity boundaries.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Fill the two evidence fields with actual test assertions/results.",
+      "Explain why a valid cloud service account must not imply access to every user's tasks.",
+      "Compare one least-privilege AWS policy idea with one GCP role idea using the lesson concepts."
+    ],
+    "limits": "No GCP project, billing account, service account or IAM grant is created. Provider permission behavior remains unexecuted.",
+    "cleanup": "deactivate exits the Python environment. Retain the mapping."
+  }
+}

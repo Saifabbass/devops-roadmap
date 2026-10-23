@@ -1,0 +1,271 @@
+{
+  "week": 47,
+  "introduction": [
+    "Your next user is another developer with a clean terminal and no knowledge of your machine. A useful service template turns your working conventions into understandable defaults, clear prerequisites and recoverable errors.",
+    "The template is still Taskboard. Package its health behavior, tests, configuration, CI and runbook; do not add a second deployment platform merely to look complete. Evaluate a workflow UI only if you can name the repeated task and ownership problem it would solve."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash; learner application at ~/dev-opps-lab/app/taskboard, copied and explained in week 3.",
+    "Docker Engine with Linux containers and Compose v2; the authenticated stage 07 lab from weeks 6–8 is working. Verify docker version shows a server.",
+    "Use only synthetic tasks in the private local lab. Record prior evidence; do not mark unrun checks passed.",
+    "A tested source tree with README, reference stages, locks, Dockerfile, Compose, CI example and tools.",
+    "A clean temporary directory and time to follow your own instructions without relying on shell history."
+  ],
+  "concepts": [
+    {
+      "title": "A good default is an explicit contract",
+      "paragraphs": [
+        "The template should state which command runs which stage, where configuration lives, what data is persistent and what a successful check proves. A task runner can shorten a command, but the underlying command should remain readable.",
+        "Health endpoints, request IDs and safe errors are product capabilities for operators. They are not optional decoration when a developer has to diagnose the service at2AM."
+      ],
+      "example": "A dev command that prints a missing token name and setup action is better than an unexplained stacktrace.",
+      "judgment": "Do not hide prerequisites behind an installer that changes system settings or publishes a service unexpectedly."
+    },
+    {
+      "title": "A platform also owns its maintenance",
+      "paragraphs": [
+        "A deployment UI groups image builds, credentials, routing and persistence. Somebody still owns upgrades, backups, incident handling and the platform itself. Compare those costs to the specific usability problem.",
+        "The repository studies offer patterns without requiring another permanent tool: Task gives named commands, Semaphore centralizes reviewed automation, and release CLIs separate preparation from publication. Keep your default small and write an escape hatch to the raw commands."
+      ],
+      "example": "If a developer cannot find test output, a clearer test command may solve more than installing a workflow dashboard.",
+      "judgment": "Define application-owner, template-maintainer and infrastructure-owner responsibilities before automating their actions."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Test helpful configuration feedback",
+      "purpose": "The supplied doctor reports actionable names without revealing values.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\npython tools/doctor.py --stage 03\npython tools/doctor.py --stage 07",
+          "explain": [
+            "Stage 03 checks interpreter/dependencies. Stage 07 also validates your generated.env contains the required token/password fields and distinct tokens.",
+            "This is a preflight check, not a DB/network check. A successful result must not be described as readiness."
+          ],
+          "expected": "Named package versions and clear pass/action output.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Explain why preflight and /readyz answer different questions."
+    },
+    {
+      "title": "2 · Define the maintenance contract",
+      "purpose": "Write a small support boundary in the application repository.",
+      "commands": [
+        {
+          "code": "cat > SUPPORT.md <<'MD'\n# Taskboard template ownership\nTemplate maintainer: review dependency updates, shared CI, and reference examples.\nApplication owner: API behavior, schema compatibility, tests, SLO, and runbooks.\nInfrastructure owner: private runtime, backups, restore access, IAM, and cost review.\nDevelopment: python -m uvicorn reference.stage03:app --host 127.0.0.1 --port 8000 --no-access-log\nUnit: python -m pytest tests/unit\nHTTP adapter: python -m pytest tests/contract\nReal integration: docker compose --profile test run --build --rm integration\nReal system: docker compose --profile test run --build --rm system\nRecovery: follow README and verify data; an image rollback does not reverse schema loss.\nEscalation: record impact, request ID, last known good image and the last change; never paste credentials.\nPublic exposure: not supported with the synthetic lab identity mechanism.\nMD\ncat SUPPORT.md",
+          "explain": [
+            "The quoted heredoc writes the exact ownership/command contract. Replace role labels with actual responsible people for a real team.",
+            "cat reviews what another developer will read; every wrapper must preserve these underlying operations."
+          ],
+          "expected": "A readable support contract with raw commands.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Name one task each role owns and one it does not own."
+    },
+    {
+      "title": "3 · Prove clean onboarding",
+      "purpose": "Export source only, then create a new environment rather than copying a working one.",
+      "commands": [
+        {
+          "code": "mkdir -p ../../evidence/week-47\ntar --exclude=.venv --exclude=.tmp --exclude=.env --exclude='.env.*' --exclude=reports --exclude=__pycache__ --exclude=.pytest_cache --exclude='*.dump' -czf ../../evidence/week-47/template.tar.gz reference starter tests tools migrations ci requirements.lock requirements-dev.lock pytest.ini README.md SUPPORT.md Dockerfile compose.yaml .gitignore .dockerignore\nCHECK_DIR=$(mktemp -d \"$HOME/dev-opps-template-check.XXXXXX\")\ntar -xzf ../../evidence/week-47/template.tar.gz -C \"$CHECK_DIR\"\ncd \"$CHECK_DIR\"\npython3 -m venv .venv\nsource .venv/bin/activate\npython -m pip install --no-cache-dir -r requirements-dev.lock\npython tools/doctor.py --stage 03\npython -m pytest tests/unit tests/contract -q\npython tools/run_local_system.py",
+          "explain": [
+            "tar creates a compressed source archive with explicit inputs and excludes environments, credentials, reports and dumps. It is not a database backup.",
+            "mktemp creates a unique new directory and records it. tar-C extracts there; a fresh venv/install proves dependencies are declared rather than inherited.",
+            "Run documented checks and the actual local listener test. Record time, errors and every undocumented assumption."
+          ],
+          "expected": "A fresh environment runs the documented memory stage; identity/database onboarding remains separately tested.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Ask a developer to follow it or label your run a self-review."
+    }
+  ],
+  "failure": {
+    "title": "Invalid configuration should explain its repair",
+    "boundary": "Only a newly created private test environment file.",
+    "inject": [
+      {
+        "code": "printf 'POSTGRES_PASSWORD=local-test-only\\nLAB_ALICE_TOKEN=short\\nLAB_BOB_TOKEN=short\\n' > .env.invalid\npython tools/doctor.py --stage 07 --env-file .env.invalid",
+        "explain": [
+          "Create a disposable invalid file without touching real.env. doctor inspects that chosen file."
+        ],
+        "expected": "Nonzero exit naming token length/distinctness; no secret values printed.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "python tools/doctor.py --help",
+        "explain": [
+          "Read supported stage/file options rather than guessing hidden behavior."
+        ],
+        "expected": "Clear configurable preflight interface.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "An error should say what to change and where.",
+      "A password being present is not proof the database accepts it."
+    ],
+    "answer": {
+      "explanation": [
+        "The supplied file has two short identical tokens. Generate actual unpredictable lab credentials using init_lab.py; do not weaken the check to accept the example."
+      ],
+      "recover": [
+        {
+          "code": "python tools/init_lab.py\npython tools/doctor.py --stage 07",
+          "explain": [
+            "Generate.env once in the new clean template directory, then validate it. Existing.env is preserved if already present."
+          ],
+          "expected": "Configuration preflight passes.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "python -m pytest tests/contract -q",
+        "explain": [
+          "Confirm helpful preflight work did not weaken runtime behavior."
+        ],
+        "expected": "Adapter checks still pass.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What should a template hide?",
+      "hint": "Can the operator inspect the underlying action?",
+      "answer": "It may reduce repeated typing but must preserve understandable commands, failures, ownership and escape hatches. Hiding authority or persistence creates operational debt."
+    },
+    {
+      "prompt": "Who owns a template dependency update?",
+      "hint": "Separate shared defaults from a service release.",
+      "answer": "The maintainer reviews the default; the application owner tests compatibility and release impact. A shared update is not automatic evidence every service is safe."
+    },
+    {
+      "prompt": "When is another platform justified?",
+      "hint": "Which repeated user problem is measured?",
+      "answer": "When it measurably improves a specific workflow enough to justify its own patching, access, backup and support burden."
+    }
+  ],
+  "exercise": {
+    "brief": "Run one developer onboarding session and fix its largest repeated friction.",
+    "constraints": [
+      "Do not coach through undocumented steps during the timed run.",
+      "Retain raw commands behind any wrapper."
+    ],
+    "deliverables": [
+      "Source-only template, support contract and observed onboarding notes."
+    ],
+    "acceptance": [
+      "A new environment starts the service and runs tests using documented prerequisites.",
+      "Invalid configuration produces an actionable sanitized message.",
+      "No credentials or stateful backups enter the template."
+    ],
+    "hints": [
+      "Record every time the operator asks where a file is or which terminal to use."
+    ],
+    "solution": [
+      "Improve the smallest confusing boundary, then rerun onboarding with the revised documentation. Evaluate a platform UI only against a remaining measured problem."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "deactivate\nprintf \"Retained onboarding directory: %s\\n\" \"$CHECK_DIR\"",
+      "explain": [
+        "Leave the virtual environment and record its exact path. Retain it for inspection; no broad recursive deletion is required."
+      ],
+      "expected": "Temporary source environment identified; original repository unchanged.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "Task command runner",
+      "url": "https://taskfile.dev/docs/guide",
+      "usedFor": "Named commands and their underlying operations."
+    },
+    {
+      "title": "GitLab pipeline security",
+      "url": "https://docs.gitlab.com/ci/pipeline_security/",
+      "usedFor": "Authority of shared CI defaults."
+    },
+    {
+      "title": "Semaphore repository",
+      "url": "https://github.com/semaphoreui/semaphore",
+      "usedFor": "Evaluation of automation UI ownership."
+    },
+    {
+      "title": "Python venv",
+      "url": "https://docs.python.org/3/library/venv.html",
+      "usedFor": "Fresh environment isolation."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "kestra-io/kestra",
+      "principle": "A retry is another execution",
+      "application": "A workflow connects actions, but a green run only says the actions returned successfully. If a network reply is lost after an upload completed, retrying can duplicate it. Give the operation a stable identifier, check its recorded result before repeating a side effect, set a timeout and cap attempts. Keep the original failure and each retry in the timeline. Practice: Model source and destination backups with two local files. Run the copy twice using one backup identifier; compare checksums. Introduce a missing source and record a bounded failure.",
+      "url": "https://github.com/kestra-io/kestra"
+    },
+    {
+      "repo": "rorkai/App-Store-Connect-CLI",
+      "principle": "Release automation needs a deliberate boundary",
+      "application": "Release tools demonstrate a useful pattern outside mobile development: validate inputs, prepare an immutable artifact, authenticate with a restricted identity, publish, then verify what users receive. Separate preparation from publication. A machine-readable result helps distinguish an accepted request from a completed release. Temporary signing or access material belongs only in the job that needs it. Practice: Identify the GitLab build, test, promotion and verification jobs. Add a release record with commit, digest and approver; do not publish a mobile app.",
+      "url": "https://github.com/rorkai/App-Store-Connect-CLI"
+    },
+    {
+      "repo": "go-gitea/gitea",
+      "principle": "A repository clone is not a platform backup",
+      "application": "Code hosting stores more than commits. Issues, accounts, attachments, packages, settings and credentials can live outside repositories. Recovery must preserve relationships among those stores. Snapshots taken at unrelated moments can leave an issue pointing to a missing attachment. Define the consistency boundary and test actual user operations after restoration. Practice: Draw the GitLab service dependencies. Record each recovery owner, backup location, restoration order and a user action that proves recovery. A disposable Gitea restore is an optional extension.",
+      "url": "https://github.com/go-gitea/gitea"
+    },
+    {
+      "repo": "Dokploy/dokploy",
+      "principle": "The platform owns the work its button hides",
+      "application": "A deploy button groups image building, credentials, routing, supervision and persistence. Someone still owns patching, restoration, diagnosis and upgrades. Trace one release and one failure through the platform. A simple managed deployment may reduce operational work; a larger platform is justified by requirements it meets and evidence that the team can operate it. Practice: Compare a VM, managed container service and Dokploy using the course diagram. Give each a host-loss recovery owner and rollback procedure; select by requirements.",
+      "url": "https://github.com/Dokploy/dokploy"
+    },
+    {
+      "repo": "awesome-foss/awesome-sysadmin",
+      "principle": "Choose from an operating requirement",
+      "application": "A directory helps after the problem is precise. Write required behavior, environment, access boundary, recovery expectation and budget before comparing products. Feature lists cannot show whether a team can operate a system. Include maintenance, permissions, backup format, integration work and exit cost. Choose the smallest option that demonstrates the acceptance criteria. Practice: Compare two ways to monitor Taskboard using one requirement sheet. Reject one explicitly and prove the chosen check detects the known failure.",
+      "url": "https://github.com/awesome-foss/awesome-sysadmin"
+    },
+    {
+      "repo": "go-task/task",
+      "principle": "A command interface must preserve failure",
+      "application": "A task runner names repeatable commands. It should expose the same test logic locally and in CI while preserving nonzero exit codes. Understand the underlying command first. Dependencies and caches need care: skipping a required test can make a release look green without fresh evidence. Practice: Wrap working unit, integration and system checks with named tasks. Introduce a failing assertion and confirm both local task and GitLab job fail.",
+      "url": "https://github.com/go-task/task"
+    },
+    {
+      "repo": "theonedev/onedev",
+      "principle": "Trace requirements to deployed artifacts",
+      "application": "A platform should preserve the chain from a reported need through review, tests, artifact and deployment. A release record must answer which change was approved, which checks passed and exactly what was deployed. Evidence connected to an artifact is stronger than a screenshot of a green pipeline. Practice: Record one Taskboard issue, commit, merge request, test report, image digest and deployment result. Find and repair a missing link.",
+      "url": "https://github.com/theonedev/onedev"
+    },
+    {
+      "repo": "psviderski/uncloud",
+      "principle": "Choose orchestration by required failure behavior",
+      "application": "Multiple hosts introduce placement, networking, identity and state convergence. State what happens when a host disappears or hosts cannot communicate. A platform moves responsibilities without removing them. Compare VM, managed service and cluster against requirements and the team's operating capacity. Practice: Write a Taskboard decision with a host-loss scenario. Compare recovery ownership for three deployment models and label untested claims.",
+      "url": "https://github.com/psviderski/uncloud"
+    },
+    {
+      "repo": "semaphoreui/semaphore",
+      "principle": "Run reviewed automation with limited authority",
+      "application": "An automation UI separates selecting a predefined operation from editing its code. An operator may need to execute a deployment without altering playbooks or credentials. Record playbook version, inventory and parameters. Verify CLI idempotence first; a polished interface cannot repair unsafe automation. Practice: Document a reviewed Ansible operation, commit, fixed lab inventory and allowed inputs. Run twice at the CLI before optionally adding a UI template.",
+      "url": "https://github.com/semaphoreui/semaphore"
+    },
+    {
+      "repo": "wmariuss/awesome-devops",
+      "principle": "Make a reviewable tool decision",
+      "application": "A decision record states problem, constraints, alternatives, chosen approach and reconsideration evidence. Include permissions, cost, maintenance and recovery. Keep research bounded so it becomes a tested service improvement instead of a bookmark collection. Practice: Compare two candidates for one real course problem, perform an acceptance test with the choice and specify a reassessment trigger.",
+      "url": "https://github.com/wmariuss/awesome-devops"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

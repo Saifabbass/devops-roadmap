@@ -1,0 +1,114 @@
+[
+  {
+    "repo": "MichaelCade/90DaysOfDevOps",
+    "path": "2022.md",
+    "url": "https://github.com/MichaelCade/90DaysOfDevOps/blob/2941b895eaac2056ec9431a21f3d09a60a3752f8/2022.md",
+    "utf8_sha256": "0e4dcdfcc1210500a9abae56bd8b121db5955b81d37da4187795d5d31edcbcdd",
+    "characters": 8721
+  },
+  {
+    "repo": "MichaelCade/90DaysOfDevOps",
+    "path": "2023.md",
+    "url": "https://github.com/MichaelCade/90DaysOfDevOps/blob/2941b895eaac2056ec9431a21f3d09a60a3752f8/2023.md",
+    "utf8_sha256": "75eea6945ee45cd998c3a2ad6921fb4eb54ae2fc5c44298fd34d3ac09c404b68",
+    "characters": 10413
+  },
+  {
+    "repo": "kelseyhightower/kubernetes-the-hard-way",
+    "path": "docs/01-prerequisites.md",
+    "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/52eb26dad1a3e9e8083a899bc854421eb4842a73/docs/01-prerequisites.md",
+    "utf8_sha256": "ee02c456c98837cc8a66e3011294dcabd776029ee536abf2af5e3c456d7a1746",
+    "characters": 1280
+  },
+  {
+    "repo": "kelseyhightower/kubernetes-the-hard-way",
+    "path": "docs/12-smoke-test.md",
+    "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/52eb26dad1a3e9e8083a899bc854421eb4842a73/docs/12-smoke-test.md",
+    "utf8_sha256": "dcb68f53cdfcee52c73489728f86d090758cc4b6c8bdf5ee9938fe853a50bcce",
+    "characters": 6310
+  },
+  {
+    "repo": "ramitsurana/awesome-kubernetes",
+    "path": "docs/managed-kubernetes/managed-kubernetes.md",
+    "url": "https://github.com/ramitsurana/awesome-kubernetes/blob/485a5637cd17c4c73e55731720eb14c6c8c0702b/docs/managed-kubernetes/managed-kubernetes.md",
+    "utf8_sha256": "dd7ce431a51b974f7137c9147cfdf1f65d1e12e7cac25581fcbcd77bfd6f5147",
+    "characters": 6391
+  },
+  {
+    "repo": "stefanprodan/podinfo",
+    "path": ".github/workflows/test.yml",
+    "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/.github/workflows/test.yml",
+    "utf8_sha256": "7c3bf8758e7a164ae4b2749621115575ed026bbc98e933f3e0abf77b866a16f7",
+    "characters": 1858
+  },
+  {
+    "repo": "stefanprodan/podinfo",
+    "path": ".github/workflows/e2e.yml",
+    "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/.github/workflows/e2e.yml",
+    "utf8_sha256": "e4e977a7f23bc4bb3b04c0cdc6b02a64bd9ab8e9ef6664d44e3a2c483802c27c",
+    "characters": 2337
+  },
+  {
+    "repo": "stefanprodan/podinfo",
+    "path": "charts/podinfo/templates/deployment.yaml",
+    "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/charts/podinfo/templates/deployment.yaml",
+    "utf8_sha256": "ec13ec4b8db43f724d6b6e4160def07ac5e8d9e48e97b7b991248885526782a1",
+    "characters": 8536
+  },
+  {
+    "repo": "stefanprodan/podinfo",
+    "path": "pkg/api/http/health_test.go",
+    "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/pkg/api/http/health_test.go",
+    "utf8_sha256": "6505fb7177fea47c32be3c55f72bca496f0a54596f59576afcb7b9d919b9884b",
+    "characters": 2828
+  },
+  {
+    "repo": "The-DevOps-Daily/devops-daily",
+    "path": "content/exercises/docker-multi-stage-build.json",
+    "url": "https://github.com/The-DevOps-Daily/devops-daily/blob/4cd12767d34f51510bfd08b05536c10dbcc6958a/content/exercises/docker-multi-stage-build.json",
+    "utf8_sha256": "00fbdf1b4bfaf7f8717ce21be9234ee96df30b0db7d488e04a5bb6ae23c00e1b",
+    "characters": 6957
+  },
+  {
+    "repo": "The-DevOps-Daily/devops-daily",
+    "path": "content/exercises/terraform-aws-vpc.json",
+    "url": "https://github.com/The-DevOps-Daily/devops-daily/blob/4cd12767d34f51510bfd08b05536c10dbcc6958a/content/exercises/terraform-aws-vpc.json",
+    "utf8_sha256": "4f51b9304dcd64ffd1ada39d5e3890f0b66a5c6f8712afaeccdc45db95c86134",
+    "characters": 11395
+  },
+  {
+    "repo": "The-DevOps-Daily/devops-daily",
+    "path": "content/exercises/ansible-web-server-automation.json",
+    "url": "https://github.com/The-DevOps-Daily/devops-daily/blob/4cd12767d34f51510bfd08b05536c10dbcc6958a/content/exercises/ansible-web-server-automation.json",
+    "utf8_sha256": "7622060fe51f5df964fdacf8d741eb9fa641970b53b2c26a9034790ab52bdf23",
+    "characters": 23329
+  },
+  {
+    "repo": "bregman-arie/devops-exercises",
+    "path": "topics/aws/README.md",
+    "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/aws/README.md",
+    "utf8_sha256": "756aabf006f30d399c08d6ca6981e120031e2da8c61d1eb9f3ac2cbf58196d32",
+    "characters": 127039
+  },
+  {
+    "repo": "bregman-arie/devops-exercises",
+    "path": "topics/gcp/README.md",
+    "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/gcp/README.md",
+    "utf8_sha256": "9d9e3daee61a0049db9ed60617807b8f9f6d0f3e491e16c1f3ba779427f211d7",
+    "characters": 21122
+  },
+  {
+    "repo": "bregman-arie/devops-exercises",
+    "path": "topics/terraform/README.md",
+    "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/terraform/README.md",
+    "utf8_sha256": "e6cd369108c3e77c67f29c6af5d42507a1b054d67d80c89ba020ccbb16b7c193",
+    "characters": 73600
+  },
+  {
+    "repo": "bregman-arie/devops-exercises",
+    "path": "topics/cicd/README.md",
+    "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/cicd/README.md",
+    "utf8_sha256": "dafec97d15d7fe5b86013f7b1e6510398e934f344901531424b7105f30874a4c",
+    "characters": 35750
+  }
+]

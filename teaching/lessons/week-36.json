@@ -1,0 +1,297 @@
+{
+  "week": 36,
+  "introduction": [
+    "You have metrics, traces, request logs, a synthetic check and a recovery runbook. An incident tests whether you can use that evidence while the service is failing. Restore the user journey without losing data, then improve the system so the same failure is caught earlier.",
+    "This game day introduces a database connection misconfiguration while leaving PostgreSQL running. It resembles a dependency outage, but restarting the database cannot fix it. State a hypothesis, choose a discriminating observation and make one reversible change at a time.",
+    "A solo learner plays coordinator, operator and communicator in sequence. Write updates to a local file; no external message is sent. With a partner, the facilitator may inject the fault while the responder keeps the solution closed."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Complete weeks 33–35; the healthy Compose database contains at least one task.",
+    "Work in ~/dev-opps-lab/app/taskboard with observability.yaml, tracing.yaml, slo.yaml, .env and observability/local.env."
+  ],
+  "concepts": [
+    {
+      "title": "Restore service while preserving evidence",
+      "paragraphs": [
+        "Mitigation reduces current impact: restore a known-good configuration or stop a harmful rollout. The full causal analysis can continue after users recover. Waiting for a perfect explanation can extend an avoidable outage.",
+        "A coordinator keeps priorities and a timeline, an operator changes the system, and a communicator reports impact, facts, uncertainty and the next update time. A solo learner switches these roles deliberately."
+      ],
+      "example": "At 10:02 reads fail, at 10:04 PostgreSQL is verified healthy, and at 10:06 the endpoint is corrected. The review follows recovery.",
+      "judgment": "Keep a reversible mitigation ready. Resetting a database may remove a symptom by destroying the data you were meant to preserve."
+    },
+    {
+      "title": "Test competing explanations",
+      "paragraphs": [
+        "A hypothesis predicts an observable difference. A stopped database predicts failed pg_isready. A wrong app endpoint predicts a healthy database with connection failures from the app. A wrong token predicts 401 rather than dependency readiness failure.",
+        "A blameless review describes how configuration, automation and feedback allowed the fault. Improvements need owners, dates and a verification method. “Be more careful” is not a durable control."
+      ],
+      "example": "Tests passed against the correct URL, but deployment changed it afterward. Add a post-deployment business smoke check and a rollback decision.",
+      "judgment": "Avoid blaming a person, while retaining accountability through owned actions and measured follow-through."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Record a healthy baseline",
+      "purpose": "Make recovery measurable before injecting a fault.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nset -a; . .env; . observability/local.env; set +a\nmkdir -p evidence/w36\ncurl -fsS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" http://127.0.0.1:8000/tasks > evidence/w36/tasks-before.json\ncurl -fsS http://127.0.0.1:8000/readyz\nprintf \"%s | baseline | reads healthy\\n\" \"$(date -u +%FT%TZ)\" > evidence/w36/timeline.txt\ncat > evidence/w36/status.txt <<'EOF'\nIncident exercise only.\nImpact: affected journey and measured failures.\nFacts: observations with timestamps.\nUnknowns: separate hypotheses from facts.\nMitigation: proposed change and rollback.\nNext update: specify a time.\nEOF",
+          "explain": [
+            "Load existing credentials without printing them. mkdir creates evidence storage; curl saves task data and checks readiness.",
+            "printf writes a UTC timestamp from date. The heredoc creates a local status template to fill with actual observations."
+          ],
+          "expected": "Readiness succeeds and a nonempty task list is saved. Create a task with the week-29 POST if necessary.",
+          "troubleshoot": "Repair a failing baseline before starting the experiment."
+        }
+      ],
+      "checkpoint": "Set a 15-minute stop condition and keep recovery ready."
+    },
+    {
+      "title": "Triage before changing anything",
+      "purpose": "Observe impact, dependency health and recent changes.",
+      "commands": [
+        {
+          "code": "date -u +%FT%TZ\ncurl -sS -o /dev/null -w \"live=%{http_code}\\n\" http://127.0.0.1:8000/livez\ncurl -sS -o /dev/null -w \"ready=%{http_code}\\n\" http://127.0.0.1:8000/readyz\ndocker compose ps -a\ndocker compose exec -T db pg_isready -U taskboard -d taskboard\ndocker compose logs --since=5m app\ndocker compose logs --since=5m db",
+          "explain": [
+            "Health requests separate process survival from dependency readiness. ps -a includes stopped containers.",
+            "exec -T runs the database readiness utility without an interactive terminal; --since bounds logs. Avoid printing full container environments because they include credentials."
+          ],
+          "expected": "During the fault, db accepts connections while app readiness fails.",
+          "troubleshoot": "If the database is also unhealthy, record the second fault and restore the baseline rather than forcing the intended explanation."
+        }
+      ],
+      "checkpoint": "Write two hypotheses and the evidence that distinguishes them. Run the bounded traffic observer in another terminal."
+    },
+    {
+      "title": "Add a measurable prevention check",
+      "purpose": "Test the business journey after a deployment.",
+      "commands": [
+        {
+          "code": "cat > observability/release-smoke.py <<'PY'\nimport json,os,sys,urllib.request\nbase=os.environ.get(\"TASKBOARD_BASE_URL\",\"http://127.0.0.1:8000\")\ntry:\n    for path in (\"/readyz\",\"/tasks\"):\n        req=urllib.request.Request(base+path,headers={\"Authorization\":\"Bearer \"+os.environ[\"LAB_ALICE_TOKEN\"]})\n        with urllib.request.urlopen(req,timeout=3) as r:\n            assert r.status==200, path\n            payload=json.load(r)\n            if path==\"/tasks\": assert isinstance(payload,dict) and isinstance(payload[\"items\"],list)\n    print(\"smoke passed\")\nexcept (OSError,ValueError,KeyError,AssertionError) as e:\n    print(\"smoke failed:\",type(e).__name__,file=sys.stderr)\n    sys.exit(1)\nPY\npython3 observability/release-smoke.py",
+          "explain": [
+            "The script checks dependency readiness and an authenticated business response, validates its items array and exits nonzero on failure.",
+            "Each request has a three-second deadline. Error output contains an exception type rather than secrets."
+          ],
+          "expected": "After recovery the script exits zero; repeating the same fault must make it fail.",
+          "troubleshoot": "Do not append || true in a release job: that would remove the failure signal intended to block promotion."
+        }
+      ],
+      "checkpoint": "State where this runs after deployment and what it cannot prove, including cross-user authorization and long-term durability."
+    }
+  ],
+  "failure": {
+    "title": "The database is healthy but the app targets the wrong port",
+    "boundary": "Override only the disposable app. Keep PostgreSQL and its volume unchanged.",
+    "inject": [
+      {
+        "code": "cat > incident.yaml <<'EOF'\nservices:\n  app:\n    environment:\n      DATABASE_URL: postgresql://taskboard:${POSTGRES_PASSWORD}@db:5433/taskboard\nEOF\ndocker compose -f compose.yaml -f observability.yaml -f tracing.yaml -f slo.yaml -f incident.yaml up -d --no-deps app\nprintf \"%s | fault | app endpoint changed\\n\" \"$(date -u +%FT%TZ)\" >> evidence/w36/timeline.txt",
+        "explain": [
+          "The extra overlay changes the destination port from 5432 to unused 5433. --no-deps recreates only app.",
+          "The password remains the existing local value. >> appends the fault time without overwriting the baseline."
+        ],
+        "expected": "Liveness succeeds while readiness and valid reads fail.",
+        "troubleshoot": "If the process exits, inspect its logs and confirm the week-34 telemetry image is selected. Record actual symptoms."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "docker compose exec -T db pg_isready -U taskboard -d taskboard\ndocker compose exec -T app python - <<'PY'\nimport os,urllib.parse,socket\nu=urllib.parse.urlsplit(os.environ[\"DATABASE_URL\"])\nprint(\"configured endpoint\",u.hostname,u.port)\nfor port in (5432,5433):\n    try:\n        with socket.create_connection((u.hostname,port),timeout=2): print(port,\"reachable\")\n    except OSError: print(port,\"unreachable\")\nPY",
+        "explain": [
+          "Print only host and port, excluding password. Test both the configured port and the database listener with two-second deadlines."
+        ],
+        "expected": "5432 is reachable, 5433 is not, and PostgreSQL reports ready.",
+        "troubleshoot": "If both fail, inspect network membership and database health; do not broaden permissions to compensate for a wrong endpoint."
+      }
+    ],
+    "hints": [
+      "Compare the configured destination with the actual listener.",
+      "The most recent change is more useful than restarting every service."
+    ],
+    "answer": {
+      "explanation": [
+        "The app received a wrong connection port. Removing the extra overlay restores the intended endpoint; the database never needed resetting."
+      ],
+      "recover": [
+        {
+          "code": "docker compose -f compose.yaml -f observability.yaml -f tracing.yaml -f slo.yaml up -d --no-deps --force-recreate app\nprintf \"%s | mitigation | restored endpoint\\n\" \"$(date -u +%FT%TZ)\" >> evidence/w36/timeline.txt",
+          "explain": [
+            "Omit incident.yaml and force app recreation so its process receives the known-good environment."
+          ],
+          "expected": "Authenticated reads recover without changing the database.",
+          "troubleshoot": "If the wrong port persists, check the list and order of Compose files, then repeat the endpoint-only diagnostic."
+        }
+      ],
+      "verification": {
+        "code": "python3 observability/release-smoke.py\ncurl -fsS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" http://127.0.0.1:8000/tasks > evidence/w36/tasks-after.json\ndiff -u evidence/w36/tasks-before.json evidence/w36/tasks-after.json",
+        "explain": [
+          "Run the guard and compare saved task responses. diff -u displays changes and exits zero if identical."
+        ],
+        "expected": "Smoke passes and tasks remain unchanged when no legitimate writes occurred during the experiment.",
+        "troubleshoot": "Investigate differences before declaring data preservation; readiness alone cannot establish it."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why not restart PostgreSQL first?",
+      "hint": "What did pg_isready show?",
+      "answer": "The dependency accepted connections; the app targeted a different port. Restarting it adds disruption without changing that destination."
+    },
+    {
+      "prompt": "Can recovery precede the full causal explanation?",
+      "hint": "Separate mitigation and prevention.",
+      "answer": "Yes. Restore and verify the user journey, preserve evidence and then investigate how the bad configuration escaped checks."
+    },
+    {
+      "prompt": "When is the smoke-check action complete?",
+      "hint": "Ask for ownership and evidence.",
+      "answer": "It is integrated into the release process, fails on the repeated fault, passes after recovery, and has an owner and a defined response."
+    }
+  ],
+  "exercise": {
+    "brief": "Write a status update and two follow-up actions from your actual timestamps.",
+    "constraints": [
+      "Separate observations from guesses.",
+      "Exclude tokens and complete database URLs."
+    ],
+    "deliverables": [
+      "Impact, facts, mitigation, uncertainty, next update time and owned actions."
+    ],
+    "acceptance": [
+      "Every causal claim cites evidence.",
+      "One action improves detection and one reduces recurrence."
+    ],
+    "hints": [
+      "Prefer a measured failing journey to “everything was broken”."
+    ],
+    "solution": [
+      "Describe valid reads returning 503, the healthy database, configuration rollback and verification. Pair a deployment smoke check with configuration validation, including owner, date and repeat-test result."
+    ]
+  },
+  "capstone": {
+    "title": "Gate 9: operate and improve an incident",
+    "scenario": "A release breaks task reads while basic health stays green. Produce an incident dossier and a tested prevention change.",
+    "startingPoint": "Healthy instrumented Compose stack and a saved task. A partner chooses this port fault or the database stop from week 35.",
+    "requirements": [
+      "Declare roles and a 15-minute experiment limit.",
+      "Maintain UTC impact evidence, a timeline and competing hypotheses.",
+      "Mitigate reversibly and verify the saved task.",
+      "Explain which metric, log or trace changed your next decision.",
+      "Repeat the fault under the new smoke guard.",
+      "Write a blameless review with owned, dated actions and monitoring gaps."
+    ],
+    "acceptance": [
+      "Report first failure, detection, mitigation and verified recovery times.",
+      "Authenticated reads recover and the original task remains.",
+      "The guard fails during the repeated fault and passes after recovery.",
+      "No unmeasured monthly SLO claim is made."
+    ],
+    "runbook": [
+      {
+        "code": "python3 observability/slo-traffic.py | tee evidence/w36/game-day-traffic.txt",
+        "explain": [
+          "Run this bounded observer in another terminal with .env loaded while a facilitator injects one fault."
+        ],
+        "expected": "Timestamped responses cover healthy, failing and recovered states.",
+        "troubleshoot": "A 401 means the observer has the wrong token; fix that before the experiment."
+      },
+      {
+        "code": "cat > evidence/w36/review.md <<'EOF'\n# Incident review\n## Impact and evidence\n## UTC timeline\n## Hypotheses and observations\n## Mitigation and data verification\n## Contributing conditions\n## Detection gaps\n## Actions: owner, deadline, verification\n## Repeat-test results\nEOF",
+        "explain": [
+          "Create the report outline and fill every section from your own evidence."
+        ],
+        "expected": "Another learner can follow the final causal account.",
+        "troubleshoot": "Mark unknowns explicitly instead of inventing timestamps or causes."
+      }
+    ],
+    "hints": [
+      "Keep recovery commands ready before injection.",
+      "A trace supports a dependency hypothesis but does not replace inspecting the actual destination."
+    ],
+    "solution": [
+      "Observe valid reads failing; compare liveness and readiness; verify PostgreSQL; inspect the endpoint change; restore the known-good app overlay; run smoke and data comparison; record recovery. Repeat under the guard and document its limits."
+    ],
+    "rubric": [
+      {
+        "criterion": "Impact",
+        "evidence": "Timestamped requests and status update",
+        "pass": "Journey and measured interval are explicit."
+      },
+      {
+        "criterion": "Diagnosis",
+        "evidence": "Two hypotheses and discriminating observations",
+        "pass": "The explanation fits the evidence."
+      },
+      {
+        "criterion": "Recovery",
+        "evidence": "Smoke pass and task comparison",
+        "pass": "Service and data are verified."
+      },
+      {
+        "criterion": "Learning",
+        "evidence": "Repeat-test and owned actions",
+        "pass": "An implemented improvement has fail/pass evidence."
+      }
+    ],
+    "stretch": [
+      "Use a different already-taught fault chosen by a partner.",
+      "Review what happens when there is no user traffic."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker compose -f compose.yaml -f observability.yaml -f tracing.yaml -f slo.yaml up -d --no-deps app\ndocker compose start db",
+      "explain": [
+        "Restore the known-good app configuration and the database. Keep incident.yaml only as an unused exercise artifact."
+      ],
+      "expected": "No incident overlay is active.",
+      "troubleshoot": "Do not run down -v; it removes lab data."
+    },
+    {
+      "code": "docker compose -f compose.yaml -f observability.yaml -f tracing.yaml -f slo.yaml stop",
+      "explain": [
+        "Stop local services after saving evidence; named volumes remain."
+      ],
+      "expected": "Containers stop, freeing CPU and RAM while retaining task data.",
+      "troubleshoot": "Start later with the same Compose file list."
+    }
+  ],
+  "references": [
+    {
+      "title": "SRE Workbook: incident response",
+      "url": "https://sre.google/workbook/incident-response/",
+      "usedFor": "Response roles and mitigation."
+    },
+    {
+      "title": "SRE Workbook: postmortem culture",
+      "url": "https://sre.google/workbook/postmortem-culture/",
+      "usedFor": "Evidence-based reviews and owned actions."
+    },
+    {
+      "title": "Docker Compose merge",
+      "url": "https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/",
+      "usedFor": "Overlay fault and recovery."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability includes response and learning.",
+      "application": "The capstone produces measured impact, reversible recovery and an implemented guard, rather than an untested promise to improve.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    },
+    {
+      "repo": "SigNoz/signoz",
+      "principle": "Correlate signals around a user-impact question.",
+      "application": "Metrics establish prevalence, logs show request outcomes and traces reveal operation timing; the review states which evidence changed a decision.",
+      "url": "https://github.com/SigNoz/signoz"
+    }
+  ],
+  "notes": [
+    "Source-checked authored procedure; no Docker game day was executed on the authoring host. Timings and results come from the learner’s run."
+  ],
+  "phase": "Observability and SRE",
+  "title": "Gate 9 · run an incident",
+  "outcome": "Detect, mitigate, communicate and learn from a service failure."
+}

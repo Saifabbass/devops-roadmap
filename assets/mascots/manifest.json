@@ -1,0 +1,132 @@
+[
+  {
+    "level": 1,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-nuage-neutre-rouge-anime.svg",
+    "color": "#ed4942",
+    "silhouette_transform": "",
+    "animated_svg": "level-01.svg",
+    "reduced_motion_svg": "level-01-static.svg",
+    "montage": "level-01.mp4"
+  },
+  {
+    "level": 2,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-squircle-attentif-bleu-anime.svg",
+    "color": "#3b8ce5",
+    "silhouette_transform": "",
+    "animated_svg": "level-02.svg",
+    "reduced_motion_svg": "level-02-static.svg",
+    "montage": "level-02.mp4"
+  },
+  {
+    "level": 3,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-triangle-excite-orange-anime.svg",
+    "color": "#ff8b38",
+    "silhouette_transform": "",
+    "animated_svg": "level-03.svg",
+    "reduced_motion_svg": "level-03-static.svg",
+    "montage": "level-03.mp4"
+  },
+  {
+    "level": 4,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-galet-curieux-ambre-anime.svg",
+    "color": "#e8b63c",
+    "silhouette_transform": "",
+    "animated_svg": "level-04.svg",
+    "reduced_motion_svg": "level-04-static.svg",
+    "montage": "level-04.mp4"
+  },
+  {
+    "level": 5,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-hexagone-fier-violet-anime.svg",
+    "color": "#9670ce",
+    "silhouette_transform": "",
+    "animated_svg": "level-05.svg",
+    "reduced_motion_svg": "level-05-static.svg",
+    "montage": "level-05.mp4"
+  },
+  {
+    "level": 6,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-capsule-heureux-turquoise-anime.svg",
+    "color": "#33b6a3",
+    "silhouette_transform": "",
+    "animated_svg": "level-06.svg",
+    "reduced_motion_svg": "level-06-static.svg",
+    "montage": "level-06.mp4"
+  },
+  {
+    "level": 7,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-cercle-attentif-vert-anime.svg",
+    "color": "#2d975d",
+    "silhouette_transform": "",
+    "animated_svg": "level-07.svg",
+    "reduced_motion_svg": "level-07-static.svg",
+    "montage": "level-07.mp4"
+  },
+  {
+    "level": 8,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-goutte-surpris-rose-anime.svg",
+    "color": "#e77fba",
+    "silhouette_transform": "",
+    "animated_svg": "level-08.svg",
+    "reduced_motion_svg": "level-08-static.svg",
+    "montage": "level-08.mp4"
+  },
+  {
+    "level": 9,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-cercle-curieux-brun-anime.svg",
+    "color": "#a4734e",
+    "silhouette_transform": "rotate(-18) scale(1.08 .72)",
+    "animated_svg": "level-09.svg",
+    "reduced_motion_svg": "level-09-static.svg",
+    "montage": "level-09.mp4"
+  },
+  {
+    "level": 10,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-nuage-heureux-turquoise-anime.svg",
+    "color": "#4cb8cc",
+    "silhouette_transform": "rotate(24) scale(.82 1.12)",
+    "animated_svg": "level-10.svg",
+    "reduced_motion_svg": "level-10-static.svg",
+    "montage": "level-10.mp4"
+  },
+  {
+    "level": 11,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-hexagone-attentif-gris-anime.svg",
+    "color": "#8793aa",
+    "silhouette_transform": "rotate(30) scale(.8 1.08)",
+    "animated_svg": "level-11.svg",
+    "reduced_motion_svg": "level-11-static.svg",
+    "montage": "level-11.mp4"
+  },
+  {
+    "level": 12,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-capsule-surpris-encre-anime.svg",
+    "color": "#45404d",
+    "silhouette_transform": "rotate(-38) scale(.88 1.1)",
+    "animated_svg": "level-12.svg",
+    "reduced_motion_svg": "level-12-static.svg",
+    "montage": "level-12.mp4"
+  },
+  {
+    "level": 13,
+    "source": "https://bloub.vercel.app/",
+    "native_export": "bloub-galet-fier-creme-anime.svg",
+    "color": "#c3ae3e",
+    "silhouette_transform": "rotate(175) scale(1.08 .8)",
+    "animated_svg": "level-13.svg",
+    "reduced_motion_svg": "level-13-static.svg",
+    "montage": "level-13.mp4"
+  }
+]

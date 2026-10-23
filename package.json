@@ -1,0 +1,15 @@
+{
+  "name": "devoops-optional-progress-sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:worker": "node deploy/build-worker.mjs",
+    "test:worker": "node --experimental-vm-modules --test --test-isolation=none deploy/worker.test.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

@@ -1,0 +1,1400 @@
+{
+  "title": "The DevOps Engineering Fieldbook",
+  "edition": "2026-10-20",
+  "hoursPerWeek": 14,
+  "pacingNotes": [
+    "Treat each week as a 14-hour learning block, not a promise that every unfamiliar setup finishes on schedule. Use the gate weeks to consolidate existing work.",
+    "Reserve at least four hours in each gate week for remediation, evidence and handoff. Optional tool installations and public-authentication extensions replace other extensions; they are not extra mandatory work.",
+    "If a prerequisite gate fails, repeat its weakest exercise before advancing. Extend the calendar or defer optional breadth rather than marking unproven skills complete.",
+    "Keep teaching authentication private or tunneled. A public deployment requires an established identity model, maintained verification tooling and demonstrated application authorization.",
+    "Free local practice is the required zero-cloud-bill route. Local acceptance and provider execution are distinct scopes; never claim cloud behavior from a local pass."
+  ],
+  "weeks": [
+    {
+      "week": 1,
+      "phase": "Foundations",
+      "title": "Own your Linux environment",
+      "outcome": "Find a process, its owner, listening socket, logs, configuration, and resource use without guessing.",
+      "concept": "A service is a process with dependencies, permissions, configuration, and a lifecycle. The shell is an observation tool before it is an automation tool.",
+      "read": [
+        "linux",
+        "git"
+      ],
+      "focus": "Shell navigation and pipes; users and permissions; processes and signals; Git commits, branches and safe reverts.",
+      "build": [
+        "Create a Linux lab and a Git repository with notes, app, tests and evidence directories. Record OS, available RAM and tool versions.",
+        "Run a local HTTP server bound to 127.0.0.1; identify its PID, owner and listening port using ps and ss.",
+        "Create a branch, introduce a harmless wrong configuration, commit it, then recover using git revert."
+      ],
+      "break": "Start a second server on the same port. Explain the address-in-use error using socket and process evidence; stop only your lab process.",
+      "prove": [
+        "Locate the correct process and port from a fresh terminal.",
+        "Recover your intentional Git mistake while preserving history.",
+        "Explain standard output, standard error, exit status and file ownership in your own words."
+      ],
+      "deliverable": "evidence/week-01.md with commands, observations, repository history and a 5-minute explanation.",
+      "question": "What would distinguish a process that never started from one that started but cannot accept traffic?",
+      "cost": "Local"
+    },
+    {
+      "week": 2,
+      "phase": "Foundations",
+      "title": "Follow one request through the network",
+      "outcome": "Separate DNS, transport, TLS, HTTP and application failures.",
+      "concept": "A successful name lookup does not prove a connection works; a connection does not prove the application is correct.",
+      "read": [
+        "http",
+        "linux"
+      ],
+      "focus": "IP, ports, CIDR, routes, DNS records and TTL; TCP; TLS identity; HTTP methods and status codes.",
+      "build": [
+        "Draw browser → DNS → connection → TLS → reverse proxy → service → database, marking trust boundaries.",
+        "Use curl -v and a DNS lookup tool to observe an HTTPS request to a public documentation site.",
+        "Run the lab server on loopback, then compare connection refused, a wrong path and a deliberate application error."
+      ],
+      "break": "Use an incorrect hostname or local port in a client configuration without modifying your machine's global DNS. Diagnose the failing layer.",
+      "prove": [
+        "Predict the difference between timeout, connection refused, TLS verification error and HTTP 500.",
+        "Explain why 0.0.0.0, localhost and a container service name are different.",
+        "Explain /24 addressing and a default route using a small example."
+      ],
+      "deliverable": "An annotated request diagram and four short diagnosis records.",
+      "question": "If curl works on the server but fails from your laptop, what would you inspect next and why?",
+      "cost": "Local"
+    },
+    {
+      "week": 3,
+      "phase": "Foundations",
+      "title": "Build a small service you understand",
+      "outcome": "Create Taskboard, a deliberately small API that will grow with your operational skills.",
+      "concept": "Keep the application understandable so failures reveal infrastructure and delivery lessons rather than unfamiliar business logic.",
+      "read": [
+        "fastapi",
+        "pytest"
+      ],
+      "focus": "HTTP contracts, input validation, configuration through environment variables, structured errors and unit testing.",
+      "build": [
+        "Implement create/list/get/complete task endpoints, initially using in-memory storage. Reject blank titles and unknown task IDs.",
+        "Keep task validation in a pure function. Write tests for valid, blank, oversized and malformed inputs.",
+        "Add /livez and /version; log a request ID, method, status and duration without logging secrets."
+      ],
+      "break": "Change a boundary condition so a blank title is accepted. Confirm a test detects it before fixing it.",
+      "prove": [
+        "A fresh checkout runs with documented commands and a recorded dependency lock.",
+        "At least one meaningful test fails on an intentional defect and passes after the fix.",
+        "API errors are intentional and do not expose stack traces or secret configuration."
+      ],
+      "deliverable": "Taskboard v0.1 with README, API examples, tests and limitations.",
+      "question": "Which tests can run without an HTTP server, and why should they?",
+      "cost": "Local"
+    },
+    {
+      "week": 4,
+      "phase": "Foundations",
+      "title": "Gate 1 · operate a Linux service",
+      "outcome": "Start, stop, diagnose and recover your service on a disposable Linux VM.",
+      "concept": "Process supervision is a reliability mechanism; repeated restarts are evidence of a problem, not a diagnosis.",
+      "read": [
+        "systemd",
+        "git"
+      ],
+      "focus": "Service users, environment files, systemd units, logs, graceful termination and operational documentation.",
+      "build": [
+        "Run Taskboard as an unprivileged service account in a disposable VM with a documented systemd unit.",
+        "Document start, status, journal, stop and restart commands, including where configuration is stored.",
+        "Write a small runbook and a clean-machine setup checklist."
+      ],
+      "break": "Give the lab service a wrong configuration path or an occupied port. Use logs to isolate the cause and recover.",
+      "prove": [
+        "Rebuild from your notes in 60–90 minutes without copying a working VM.",
+        "Diagnose the injected fault and explain why the evidence supports your fix.",
+        "Show the process does not need root and shuts down cleanly."
+      ],
+      "deliverable": "Gate 1 evidence, service unit and a reproducible Linux-service runbook.",
+      "question": "What happens to in-memory task data after a restart, and what requirement would justify a database?",
+      "cost": "Local VM; use a VM if WSL service behavior differs"
+    },
+    {
+      "week": 5,
+      "phase": "Containers and testing",
+      "title": "Package the service with Docker",
+      "outcome": "Build and explain an image with a small, explicit runtime surface.",
+      "concept": "An image is a packaged filesystem and metadata. A container is an isolated process using that image, not a miniature independent kernel.",
+      "read": [
+        "docker",
+        "dockerbuild"
+      ],
+      "focus": "Dockerfile layers, build context, .dockerignore, non-root users, volumes, networking and signals.",
+      "build": [
+        "Containerize Taskboard, excluding Git history, virtual environments and secret files from the build context.",
+        "Choose and record a supported base image and its digest. Pin application dependencies and run as an unprivileged user.",
+        "Inspect image history and compare build cache behavior after a code-only change versus a dependency change."
+      ],
+      "break": "Bind the app to localhost inside the container and observe why host port publishing is insufficient. Correct the binding.",
+      "prove": [
+        "The image builds from a clean checkout and runs without source-code mounts.",
+        "You can explain every Dockerfile instruction and where mutable data lives.",
+        "No credential is copied into a layer; the process handles termination."
+      ],
+      "deliverable": "Dockerfile, .dockerignore, image digest and build/run notes.",
+      "question": "Why can deleting a secret in a later image layer still leave it exposed?",
+      "cost": "Local"
+    },
+    {
+      "week": 6,
+      "phase": "Containers and testing",
+      "title": "Add PostgreSQL and real integration tests",
+      "outcome": "Test the boundary between application code and an actual database.",
+      "concept": "Mocks cannot establish SQL, transaction or schema correctness. Integration tests exercise real boundaries in an isolated environment.",
+      "read": [
+        "compose",
+        "pytest",
+        "postgres"
+      ],
+      "focus": "Compose services, database migrations, transactions, persistent volumes, isolated fixtures and readiness.",
+      "build": [
+        "Add PostgreSQL-backed task storage with a migration and a persistent local volume.",
+        "Use Compose to start the app and database; avoid publishing the database port unless needed for a local debugging session.",
+        "Write integration tests that create a disposable test database or schema and clean up deterministically."
+      ],
+      "break": "Restart the app and database separately, then use a wrong database hostname. Distinguish persistence from connection configuration.",
+      "prove": [
+        "A created task survives an app restart.",
+        "A real-database test detects a schema or transaction defect.",
+        "Tests cannot accidentally use the development or future production database."
+      ],
+      "deliverable": "Compose configuration, migration and isolated integration test suite.",
+      "question": "Why is a container being started different from a database being ready?",
+      "cost": "Local"
+    },
+    {
+      "week": 7,
+      "phase": "Containers and testing",
+      "title": "Prove whole-system behavior",
+      "outcome": "Distinguish unit, integration, system, smoke and performance checks by purpose and scope.",
+      "concept": "The test level describes what boundary is exercised; test purpose describes what risk is checked.",
+      "read": [
+        "pytest",
+        "fastapi"
+      ],
+      "focus": "Black-box HTTP tests, authentication versus authorization, task ownership, negative cases, isolation and timeouts.",
+      "build": [
+        "Write a system test against the running Compose stack: create → read → complete → read after app restart.",
+        "Add a bounded lab-only bearer-token authentication dependency using maintained framework tooling and two synthetic identities. Keep tokens outside Git, enforce task ownership server-side and do not implement a password system. Keep this learning service local or behind a private tunnel.",
+        "Add missing/invalid-token, cross-user read/update, malformed-input, missing-record and database-unavailable tests with bounded timeouts. Return no other user's task data and verify that rejected updates do not alter it."
+      ],
+      "break": "Make the service return HTTP 200 with the wrong response body. Show why checking only the status code misses the defect.",
+      "prove": [
+        "Tests assert user-visible behavior, server-enforced ownership and data consistency.",
+        "Failed tests return non-zero exit codes and useful diagnostics.",
+        "The two synthetic users cannot read or update each other's tasks; the lab identity mechanism is explicitly unsuitable for an unreviewed public deployment."
+      ],
+      "deliverable": "Test matrix, authentication/authorization boundary sketch and denied-access evidence.",
+      "question": "Can a test have high code coverage and still miss the failure users care about?",
+      "cost": "Local; never load-test other people's endpoints"
+    },
+    {
+      "week": 8,
+      "phase": "Containers and testing",
+      "title": "Gate 2 · reproducible local release",
+      "outcome": "Release and recover a complete local service from a clean checkout.",
+      "concept": "A release is code plus configuration, schema compatibility, evidence and recovery instructions.",
+      "read": [
+        "dockerbuild",
+        "postgres"
+      ],
+      "focus": "Versioning, reproducible commands, immutable artifacts, backups and release notes.",
+      "build": [
+        "Create explicit commands for unit, integration and system tests; optionally wrap them in Task after understanding the commands.",
+        "Tag a release and capture its image digest, dependency versions, migration version and test results.",
+        "Back up the lab database and restore it into a second isolated database."
+      ],
+      "break": "Ship a deliberately incorrect image tag, observe the failure, then restore the known-good artifact without rebuilding it.",
+      "prove": [
+        "A clean checkout starts the stack and all three test levels pass.",
+        "Restored data passes a task-count and task-content check.",
+        "Your release notes describe rollback limits when the database schema changes."
+      ],
+      "deliverable": "Taskboard v0.2 release dossier and restore evidence.",
+      "question": "Why is rebuilding an old commit weaker recovery evidence than redeploying the exact previous image digest?",
+      "cost": "Local"
+    },
+    {
+      "week": 9,
+      "phase": "GitLab delivery",
+      "title": "Build your first GitLab pipeline",
+      "outcome": "Make GitLab execute the same checks you trust locally.",
+      "concept": "CI is an executable team agreement about what must be true before a change is accepted.",
+      "read": [
+        "gitlab",
+        "gitlabyaml"
+      ],
+      "focus": "Runners, jobs, stages, merge requests, exit codes and JUnit reports.",
+      "build": [
+        "Create a GitLab project and a minimal .gitlab-ci.yml with lint and unit-test jobs.",
+        "Run checks on merge requests and use workflow/rules deliberately to avoid duplicate pipelines.",
+        "Publish test results with finite artifact retention and make a deliberately failing merge request."
+      ],
+      "break": "Make a test fail and confirm the pipeline blocks your documented release procedure.",
+      "prove": [
+        "The pipeline executes real commands, not placeholder echo messages.",
+        "A failed command fails the job.",
+        "You can explain where jobs run and what credentials they can see."
+      ],
+      "deliverable": "A passing and a failing pipeline linked from your evidence.",
+      "question": "Who can modify pipeline code, and what authority does that effectively grant them?",
+      "cost": "GitLab quota/runner availability varies; record limits before use"
+    },
+    {
+      "week": 10,
+      "phase": "GitLab delivery",
+      "title": "Build once, test and promote",
+      "outcome": "Deliver the same artifact through test and staging.",
+      "concept": "Caches speed up work; artifacts are declared outputs. Neither is automatically trustworthy because it came from CI.",
+      "read": [
+        "gitlabyaml",
+        "gitlabtesting",
+        "compose"
+      ],
+      "focus": "needs, artifacts, dependency caches, database services, image registries and digest-based promotion.",
+      "build": [
+        "Add real PostgreSQL integration tests with a separate test database and readiness handling.",
+        "Build an image on a suitable isolated runner, push to the registry and record its digest.",
+        "Run a system test against that digest, then promote the same digest to a local or disposable staging environment."
+      ],
+      "break": "Restore a stale dependency cache or omit an artifact dependency. Identify whether the failure is reproducibility or job ordering.",
+      "prove": [
+        "Changing a cache does not change the required correctness outcome.",
+        "The digest tested is the digest selected for deployment.",
+        "Failures retain useful sanitized logs and test reports."
+      ],
+      "deliverable": "Pipeline graph, digest trace and test artifacts.",
+      "question": "What can go wrong when the deploy job silently rebuilds instead of using the tested image?",
+      "cost": "Prefer hosted isolated runners within available quota"
+    },
+    {
+      "week": 11,
+      "phase": "GitLab delivery",
+      "title": "Design pipeline trust",
+      "outcome": "Explain and limit the credentials and execution privileges a pipeline receives.",
+      "concept": "A pipeline runs code. Masking a variable does not prevent malicious job code from using it.",
+      "read": [
+        "gitlabsecurity",
+        "gitlabaws",
+        "gitlabgcp"
+      ],
+      "focus": "Protected refs, environment controls, scoped tokens, OIDC identity claims and untrusted merge requests.",
+      "build": [
+        "Draw contributor → runner → registry → deploy-role trust boundaries.",
+        "Separate untrusted test jobs from protected deployment jobs and review runner privileges.",
+        "Draft narrow OIDC trust conditions for a specific project and protected deployment ref. Implement cloud federation in weeks 20 and 39 after learning cloud IAM."
+      ],
+      "break": "Use a harmless sentinel variable to verify that an untrusted test path cannot access the deployment secret scope.",
+      "prove": [
+        "No long-lived cloud key is needed in the intended design.",
+        "Your design denies the wrong project, audience and ref.",
+        "You identify which GitLab controls are available in your tier and document a procedural fallback for paid controls."
+      ],
+      "deliverable": "Pipeline threat model and a negative-access test record.",
+      "question": "What does the cloud verify about an OIDC token before giving the job a role?",
+      "cost": "No cloud deployment required"
+    },
+    {
+      "week": 12,
+      "phase": "GitLab delivery",
+      "title": "Gate 3 · controlled release and rollback",
+      "outcome": "Release through GitLab with observable checks and an exercised recovery path.",
+      "concept": "Continuous delivery keeps a change releasable; continuous deployment also automates the production release decision.",
+      "read": [
+        "gitlab",
+        "gitlabyaml"
+      ],
+      "focus": "Environments, manual deployment decisions, resource_group, smoke checks and rollback evidence.",
+      "build": [
+        "Add private staging and a protected release path with explicit environment ownership. Keep the core lab local or tunneled; before any public release, replace the teaching tokens with an established identity provider and maintained token-verification library, validating issuer, audience, expiry and task authorization. Treat that public-auth integration as an extension, not permission to expose the toy mechanism.",
+        "Serialize deployments to the same environment and reject outdated deployment jobs so an older queued pipeline cannot overwrite a newer approved release; keep pipeline artifacts immutable.",
+        "Add post-deploy smoke tests and write a rollback runbook that includes schema-compatibility checks."
+      ],
+      "break": "Deploy a version with a broken business endpoint but a healthy process. Let the smoke test detect it and roll back.",
+      "prove": [
+        "A failed pre-release check cannot advance through the documented release procedure.",
+        "An older queued deployment cannot overwrite a newer approved release; test this separately from simultaneous-job serialization.",
+        "You can identify and redeploy the last good digest within a measured lab recovery window."
+      ],
+      "deliverable": "Taskboard delivery v1, release recording and rollback report.",
+      "question": "When is rolling forward safer than rolling back?",
+      "cost": "Local staging or explicitly budgeted disposable VM"
+    },
+    {
+      "week": 13,
+      "phase": "AWS foundations",
+      "title": "Learn cloud identity and spending boundaries",
+      "outcome": "Understand accounts, regions, availability zones, identities, roles and billing before deploying.",
+      "concept": "Cloud APIs can create lasting resources and cost. Identity and ownership are part of the architecture.",
+      "read": [
+        "awsiam",
+        "awsbudget",
+        "awswa"
+      ],
+      "focus": "Shared responsibility, MFA, role sessions, least privilege, tagging and budgets.",
+      "build": [
+        "Read the account setup and IAM guidance. Use a dedicated learning account or isolated sandbox and protect privileged access.",
+        "Write a proposed monthly ceiling and per-lab inventory; configure budget notifications before paid experiments.",
+        "Use short-lived role-based access where available and identify your current account and region before each cloud command."
+      ],
+      "break": "Attempt a harmless read that your deliberately limited lab role should not allow. Explain the denial.",
+      "prove": [
+        "You can name the identity, account, region and allowed actions of your session.",
+        "Budget notifications are configured and you understand they are not a hard spending cap.",
+        "Your inventory contains owner, purpose, expiry and cleanup for every planned resource."
+      ],
+      "deliverable": "Cloud safety worksheet and IAM permission explanation with secrets removed.",
+      "question": "What can still cost money after you stop a VM?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 14,
+      "phase": "AWS foundations",
+      "title": "Networking and a small EC2 deployment",
+      "outcome": "Trace traffic through a VPC, subnet, route table and security group.",
+      "concept": "Cloud networking combines address space, routing and policy. A subnet name does not make it private.",
+      "read": [
+        "awsvpc",
+        "awsec2",
+        "awsiam"
+      ],
+      "focus": "CIDR, public/private reachability, security groups, instance roles, DNS and access paths.",
+      "build": [
+        "Design a minimal single-region network and explicitly mark ingress and egress.",
+        "Run Taskboard on one disposable EC2 instance only if the current price fits your lab budget; otherwise rehearse on a VM and mark cloud execution pending. Keep application access private or tunneled while using the teaching authentication mechanism; public access requires an established identity/token-validation model and demonstrated authorization checks.",
+        "Restrict administration to your chosen controlled access path and keep the database off public ingress."
+      ],
+      "break": "Change only the lab service port rule, observe the symptom and use a layered diagnosis rather than opening all ports.",
+      "prove": [
+        "Explain every route and allowed inbound connection.",
+        "The instance uses a scoped role rather than an embedded cloud key.",
+        "Inventory and remove the instance and related billable resources after the lab."
+      ],
+      "deliverable": "Network diagram, sanitized deployment record and cleanup inventory.",
+      "question": "Why can an instance have an address but still be unreachable?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 15,
+      "phase": "AWS foundations",
+      "title": "Storage, databases and recovery",
+      "outcome": "Choose among object storage, block storage and managed relational databases.",
+      "concept": "Durability, availability and recoverability answer different questions.",
+      "read": [
+        "awss3",
+        "awsrds",
+        "postgres"
+      ],
+      "focus": "S3 access controls and versioning; RDS responsibilities; encryption; backups; connection limits.",
+      "build": [
+        "Store a non-sensitive lab object in a private bucket and verify allowed and denied access.",
+        "Compare self-managed PostgreSQL with RDS: patching, backups, availability, cost and operational responsibility.",
+        "Rehearse database restore locally; execute a short RDS restore lab only if a fresh cost estimate permits it."
+      ],
+      "break": "Delete a disposable test record and restore into a separate database instead of overwriting the original.",
+      "prove": [
+        "Explain why a read replica is not a backup.",
+        "Validate restored rows and application behavior.",
+        "Record which AWS behaviors you executed and which you only designed."
+      ],
+      "deliverable": "Storage decision record and restore report with measured recovery time.",
+      "question": "What failures survive replication and therefore require an independent recovery copy?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 16,
+      "phase": "AWS foundations",
+      "title": "Gate 4 · review an AWS design",
+      "outcome": "Defend a simple AWS architecture against reliability, security and cost requirements.",
+      "concept": "Architecture quality is about meeting requirements with understood tradeoffs, not maximizing the number of services.",
+      "read": [
+        "awswa",
+        "awsbudget"
+      ],
+      "focus": "Availability zones, load balancing, health checks, blast radius, operating cost and shared responsibility.",
+      "build": [
+        "Design a learning-sized deployment and a separate multi-AZ production proposal.",
+        "Document a single-instance failure, database failure and credential leak response.",
+        "Estimate both designs using current provider pricing, including load balancers, NAT, logs, storage, backups, IP addresses and egress."
+      ],
+      "break": "Tabletop an availability-zone failure: identify every dependency that remains a single point of failure.",
+      "prove": [
+        "Your diagram distinguishes implemented from proposed components.",
+        "Every major design choice has a requirement and a cost consequence.",
+        "Cloud resources are cleaned up and billing is checked again after reporting delay."
+      ],
+      "deliverable": "AWS design review, cost model and a list of unproven assumptions.",
+      "question": "Would two web replicas help if both depend on one unavailable database?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 17,
+      "phase": "Terraform",
+      "title": "Make infrastructure changes reviewable",
+      "outcome": "Use Terraform's configuration, plan, state and apply workflow deliberately.",
+      "concept": "Terraform compares desired configuration, recorded state and provider observations. State is not just a disposable cache.",
+      "read": [
+        "terraform",
+        "tfstate"
+      ],
+      "focus": "Providers, resources, data sources, dependencies, outputs, state and replacement.",
+      "build": [
+        "Start with a local-provider exercise, then describe one small AWS resource already understood from weeks 13–16.",
+        "Run formatting and validation; inspect a saved plan and explain creates, updates and replacements.",
+        "Commit configuration and the provider lock file; keep state, plans and secrets out of public Git."
+      ],
+      "break": "Change an attribute that forces replacement in a disposable resource. Predict the consequence before applying.",
+      "prove": [
+        "You can read a plan without treating it as a yes/no prompt.",
+        "A second plan after convergence has no unexpected changes.",
+        "You explain why state can contain sensitive values even when output is marked sensitive."
+      ],
+      "deliverable": "Small Terraform root module and annotated plan review.",
+      "question": "What evidence would make you stop before applying a plan?",
+      "cost": "Local first; AWS resource only within explicit lab budget"
+    },
+    {
+      "week": 18,
+      "phase": "Terraform",
+      "title": "State, modules and environment boundaries",
+      "outcome": "Separate environments and design small modules with stable interfaces.",
+      "concept": "A reusable module hides repetition, not operational responsibility.",
+      "read": [
+        "tfstate",
+        "tfmodules",
+        "tfs3"
+      ],
+      "focus": "Remote state, locking, versioning, variable validation, outputs and state ownership.",
+      "build": [
+        "Move the cloud lab to an access-controlled remote backend with encryption, versioning and supported locking.",
+        "Create one small network or service module with documented inputs and outputs.",
+        "Separate development and staging state and credentials; document the backend bootstrap and recovery procedure."
+      ],
+      "break": "Attempt a second operation while the first holds a lab state lock; observe protection without forcibly unlocking an active writer.",
+      "prove": [
+        "State access is restricted and recoverable.",
+        "Module input validation rejects a bad value.",
+        "You explain why workspaces alone do not create a security boundary."
+      ],
+      "deliverable": "Module README, state design and lock/recovery exercise.",
+      "question": "Who can read state, and what authority or secrets could that reveal?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 19,
+      "phase": "Terraform",
+      "title": "Test drift, assumptions and changes",
+      "outcome": "Catch invalid infrastructure designs and distinguish drift from intended change.",
+      "concept": "Syntax validity does not prove network reachability, access control or recoverability.",
+      "read": [
+        "tftest",
+        "terraform"
+      ],
+      "focus": "Plan assertions, mocked providers, apply tests, drift detection, import and moved resources.",
+      "build": [
+        "Add tests for variable constraints and planned properties using terraform test.",
+        "Keep mocked/plan tests separate from apply tests that create real resources and incur cost.",
+        "Make one manual lab change, detect the drift and decide whether to restore configuration or adopt the change."
+      ],
+      "break": "Propose world-open administrative ingress in a lab configuration and make an assertion or policy fail before apply.",
+      "prove": [
+        "A deliberate unsafe change is rejected by an automated check.",
+        "Live tests clean up and are verified against the provider inventory.",
+        "You can explain a resource move without destroying it."
+      ],
+      "deliverable": "Terraform test suite, drift report and lifecycle notes.",
+      "question": "Which assertions can a mocked provider never prove?",
+      "cost": "Mocked tests local; explicitly gated live tests may cost money"
+    },
+    {
+      "week": 20,
+      "phase": "Terraform",
+      "title": "Gate 5 · deliver infrastructure through GitLab",
+      "outcome": "Plan in a merge request and apply a reviewed change with scoped cloud identity.",
+      "concept": "Infrastructure delivery needs authorization, serialization and evidence tied to the exact change.",
+      "read": [
+        "gitlabaws",
+        "gitlabyaml",
+        "tfs3"
+      ],
+      "focus": "OIDC, narrow role trust, saved plans, protected execution and state isolation.",
+      "build": [
+        "Configure GitLab ID-token federation to AWS for your exact project and intended deployment ref.",
+        "Run format, validate and tests before a protected plan/apply workflow; limit plan artifact access and retention.",
+        "Recreate the small AWS environment from configuration and produce cleanup evidence."
+      ],
+      "break": "Try the role from the wrong ref or audience and verify denial; do not print the token.",
+      "prove": [
+        "The applied change is tied to the reviewed commit and plan.",
+        "Untrusted merge requests cannot obtain deployment authority.",
+        "Concurrent writers are serialized and cloud resources can be reconstructed."
+      ],
+      "deliverable": "Cloud-IaC pipeline with positive and negative identity tests.",
+      "question": "What happens if configuration or state changes between planning and applying?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 21,
+      "phase": "Ansible and VM operations",
+      "title": "Configure machines consistently",
+      "outcome": "Use Ansible inventories, modules and roles to configure your Linux service.",
+      "concept": "Terraform owns cloud resources; Ansible configures hosts. Define ownership so two systems do not fight over the same property.",
+      "read": [
+        "ansible",
+        "ansiblecheck"
+      ],
+      "focus": "SSH, inventory, facts, modules, privilege escalation, templates and handlers.",
+      "build": [
+        "Use two disposable Linux VMs or one VM plus an explicit second-host design.",
+        "Write a role to create a service user, install prerequisites, render configuration and manage Taskboard's service.",
+        "Use handlers so a service restarts when its configuration changes, not after every task."
+      ],
+      "break": "Introduce an incorrect inventory host or service configuration value and diagnose the failing task.",
+      "prove": [
+        "Host-specific values live in inventory variables rather than duplicated playbooks.",
+        "A second normal run is unchanged unless a documented task intentionally varies.",
+        "You can explain each privileged action."
+      ],
+      "deliverable": "Ansible role, example inventory and ownership decision record.",
+      "question": "Why prefer a purpose-built package or service module over an unconditional shell command?",
+      "cost": "Local VMs"
+    },
+    {
+      "week": 22,
+      "phase": "Ansible and VM operations",
+      "title": "Idempotency, secrets and verification",
+      "outcome": "Demonstrate that configuration is repeatable and secret exposure is controlled.",
+      "concept": "Check mode predicts changes where supported; it does not substitute for executing and verifying a real configuration.",
+      "read": [
+        "ansiblecheck",
+        "ansible",
+        "sops"
+      ],
+      "focus": "Check/diff modes, linting, encrypted data, key separation and post-configuration assertions.",
+      "build": [
+        "Lint the role and compare check/diff output with an actual run on a disposable host.",
+        "Keep secret decryption keys outside Git and log output; use encrypted configuration only where its delivery model is understood.",
+        "Assert that the expected port, user, file permissions and service endpoint are correct after configuration."
+      ],
+      "break": "Apply a wrong file owner or mode in the lab and ensure a post-configuration assertion catches it.",
+      "prove": [
+        "Two consecutive runs demonstrate intended idempotency.",
+        "Secrets are absent from repository history, diffs and normal logs.",
+        "Unsupported check-mode behavior is documented rather than mistaken for success."
+      ],
+      "deliverable": "Configuration verification report and secret-access diagram.",
+      "question": "Who can decrypt this file, and how would you rotate that access?",
+      "cost": "Local"
+    },
+    {
+      "week": 23,
+      "phase": "Ansible and VM operations",
+      "title": "Harden and patch with evidence",
+      "outcome": "Improve a host baseline without breaking legitimate service behavior.",
+      "concept": "A scanner finding is a lead for investigation. Hardening needs threat context, validation and recovery.",
+      "read": [
+        "lynis",
+        "ansible",
+        "systemd"
+      ],
+      "focus": "Patch management, service permissions, SSH access, firewall policy, audit evidence and exceptions.",
+      "build": [
+        "Audit the disposable VM with Lynis and classify findings by applicability and risk.",
+        "Implement three justified changes through Ansible, with before/after evidence.",
+        "Patch a dependency or package, then run service and system tests and rehearse recovery."
+      ],
+      "break": "Introduce a restrictive lab permission that blocks the service. Restore only the needed access.",
+      "prove": [
+        "Every accepted finding has a reason and a verification step.",
+        "Hardening changes preserve required user behavior.",
+        "You retain an access and rollback path during configuration changes."
+      ],
+      "deliverable": "Hardening change record, exception register and verified patch procedure.",
+      "question": "When can a higher audit score make a real system less operable?",
+      "cost": "Local"
+    },
+    {
+      "week": 24,
+      "phase": "Ansible and VM operations",
+      "title": "Gate 6 · rebuild the VM platform",
+      "outcome": "Provision, configure, deploy, restore and explain one complete environment.",
+      "concept": "Repeatability is demonstrated by a rebuild, not by how much infrastructure code exists.",
+      "read": [
+        "terraform",
+        "ansible",
+        "postgres"
+      ],
+      "focus": "Ownership boundaries, bootstrap, external dependencies and handoff.",
+      "build": [
+        "Rebuild from Terraform plus Ansible and deploy a GitLab-tested artifact.",
+        "Restore test data and run the unit, integration and system test evidence appropriate to the release.",
+        "Have another person follow the runbook, or simulate a fresh-operator review using only the written instructions."
+      ],
+      "break": "Remove a disposable host and replace it; separately simulate a bad configuration rollout.",
+      "prove": [
+        "The replacement is created without undocumented console steps.",
+        "Recovery time is measured and remaining manual steps are explicit.",
+        "The system can be cleaned up without deleting unrelated resources."
+      ],
+      "deliverable": "First portfolio project: reproducible VM platform with recovery proof.",
+      "question": "Which part of the environment cannot yet be reconstructed, and what would close that gap?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 25,
+      "phase": "Kubernetes",
+      "title": "Learn reconciliation on a local cluster",
+      "outcome": "Explain what the API server, scheduler, controllers, kubelet and container runtime do.",
+      "concept": "Kubernetes continuously reconciles declared objects with observed reality. A running Pod is an outcome of several cooperating components.",
+      "read": [
+        "kind",
+        "k8sbasics"
+      ],
+      "focus": "Cluster architecture, namespaces, manifests, Pods, Deployments and kubectl observation.",
+      "build": [
+        "Create a local kind cluster and record compatible tool versions.",
+        "Deploy the known Taskboard image with a Deployment and inspect objects, events and logs.",
+        "Delete a disposable Pod and observe replacement through the owning Deployment and ReplicaSet."
+      ],
+      "break": "Use a nonexistent image tag and diagnose ImagePullBackOff from events.",
+      "prove": [
+        "You explain why editing a Pod manually is not a durable deployment change.",
+        "You can identify an object's owner and desired replica count.",
+        "Your manifests are versioned and reproducible."
+      ],
+      "deliverable": "Cluster architecture explanation and first Kubernetes manifests.",
+      "question": "What does Kubernetes know about your application's business correctness?",
+      "cost": "Local; a multi-node kind cluster is not multi-machine availability"
+    },
+    {
+      "week": 26,
+      "phase": "Kubernetes",
+      "title": "Traffic, probes and safe rollout",
+      "outcome": "Route requests to ready application instances and handle startup and shutdown correctly.",
+      "concept": "Readiness controls traffic eligibility; liveness can trigger restart; startup probes protect slow initialization.",
+      "read": [
+        "k8sprobes",
+        "k8sservice",
+        "k8sworkloads"
+      ],
+      "focus": "Services, selectors, EndpointSlices, DNS, probes, rollout status and graceful termination.",
+      "build": [
+        "Expose Taskboard internally through a Service and test service discovery.",
+        "Add appropriate startup/readiness/liveness checks; do not make liveness depend on a transient database outage.",
+        "Roll out a new digest while sending a small stream of local requests; record failures and termination behavior."
+      ],
+      "break": "Use a wrong Service selector, then a failing readiness check. Diagnose the two failures separately.",
+      "prove": [
+        "Unready instances stop receiving normal Service traffic.",
+        "A slow start is not mistaken for a permanently dead process.",
+        "You can explain and measure a rollout rather than only observing Running status."
+      ],
+      "deliverable": "Probe design, traffic-path diagram and rollout report.",
+      "question": "How could a poorly designed liveness probe turn a database outage into a restart storm?",
+      "cost": "Local"
+    },
+    {
+      "week": 27,
+      "phase": "Kubernetes",
+      "title": "Configuration and workload security",
+      "outcome": "Limit workload permissions and verify network isolation.",
+      "concept": "Namespaces organize objects; access control and network policy enforce specific boundaries.",
+      "read": [
+        "k8ssecurity",
+        "k8snetworkpolicy",
+        "sops"
+      ],
+      "focus": "ConfigMaps, Secrets, RBAC, service accounts, security contexts, Pod Security and NetworkPolicy.",
+      "build": [
+        "Run the app without privileged mode, with minimal capabilities and an explicit service account.",
+        "Add narrowly scoped RBAC and demonstrate an allowed and denied action.",
+        "Use a NetworkPolicy-capable CNI in the lab; allow app-to-database traffic and deny an unrelated test workload."
+      ],
+      "break": "Apply a policy missing the required DNS or database egress, then use evidence to add only the necessary rule.",
+      "prove": [
+        "Network policy enforcement is tested, not inferred from the existence of YAML.",
+        "You explain that base64 encoding is not secret encryption.",
+        "The app cannot perform an unnecessary Kubernetes API action."
+      ],
+      "deliverable": "Workload threat model, RBAC checks and network-policy tests.",
+      "question": "What can a compromised app do with its mounted service-account token?",
+      "cost": "Local"
+    },
+    {
+      "week": 28,
+      "phase": "Kubernetes",
+      "title": "Gate 7 · diagnose Kubernetes failures",
+      "outcome": "Use symptoms and evidence to distinguish scheduling, startup, traffic and application failures.",
+      "concept": "Events, logs, object state and actual requests answer different questions. Read them in a hypothesis-driven order.",
+      "read": [
+        "k8stroubleshoot",
+        "k8sprobes"
+      ],
+      "focus": "Pending, CrashLoopBackOff, ImagePullBackOff, OOMKilled, selectors and dependency failures.",
+      "build": [
+        "Create a troubleshooting decision tree with commands and expected observations.",
+        "Practise image, configuration, readiness, selector and resource-request failures one at a time.",
+        "Use Headlamp or Freelens only after diagnosing the same symptom with kubectl."
+      ],
+      "break": "Have a peer choose one fault without naming it, or randomize one of your previously prepared lab faults.",
+      "prove": [
+        "You preserve evidence before changing the deployment.",
+        "The diagnosis explains the observed failure and the regression check.",
+        "You can repeat the diagnosis without relying on a dashboard or AI explanation."
+      ],
+      "deliverable": "Five incident notes and one independently diagnosed fault.",
+      "question": "Which observation would falsify your leading hypothesis?",
+      "cost": "Local"
+    },
+    {
+      "week": 29,
+      "phase": "Kubernetes operations",
+      "title": "Understand state and operators",
+      "outcome": "Explain Kubernetes storage and the operational cost of running a database in a cluster.",
+      "concept": "Scheduling a database is easier than operating its storage, replication, backups, upgrades and recovery.",
+      "read": [
+        "k8sstorage",
+        "cnpg",
+        "postgres"
+      ],
+      "focus": "PersistentVolumes, claims, StorageClasses, StatefulSets, operators and backup boundaries.",
+      "build": [
+        "Run a small disposable PostgreSQL workload with a persistent claim and observe restart behavior.",
+        "Read CloudNativePG's current backup/plugin and recovery guidance and compare it with a managed database.",
+        "Prepare a restore lab with separate source and target data; install the operator only if local resources permit."
+      ],
+      "break": "Use an unavailable StorageClass or unsatisfied claim and diagnose why the workload remains pending.",
+      "prove": [
+        "You distinguish Pod persistence from volume durability and from backups.",
+        "You can explain what the operator owns.",
+        "Your design includes a recovery route when the original cluster is unavailable."
+      ],
+      "deliverable": "Database placement decision and storage failure record.",
+      "question": "Would deleting and recreating a Pod help if the volume itself is corrupt?",
+      "cost": "Local; operator exercise can be deferred if hardware is constrained"
+    },
+    {
+      "week": 30,
+      "phase": "Kubernetes operations",
+      "title": "Measure capacity before scaling",
+      "outcome": "Set resource requests and limits from observed behavior and reason about autoscaling.",
+      "concept": "Adding replicas can move a bottleneck to the database or another dependency.",
+      "read": [
+        "k8sresources",
+        "k8shpa",
+        "k6"
+      ],
+      "focus": "CPU requests, throttling, memory limits, OOM, metrics availability and HPA behavior.",
+      "build": [
+        "Measure CPU, memory, latency and error rate under a repeatable local workload.",
+        "Choose starting requests/limits with a written rationale.",
+        "Configure an HPA with its required metrics source; observe scale-out and scale-in while tracking database connections."
+      ],
+      "break": "Set an intentionally small memory limit in the disposable lab and distinguish an OOM termination from a probe failure.",
+      "prove": [
+        "The load report includes saturation and tail latency, not only average response time.",
+        "You explain why the HPA did or did not react.",
+        "Scaling limits respect downstream capacity and budget."
+      ],
+      "deliverable": "Capacity model with measured assumptions and autoscaling evidence.",
+      "question": "How can more application replicas make database availability worse?",
+      "cost": "Local"
+    },
+    {
+      "week": 31,
+      "phase": "Kubernetes operations",
+      "title": "GitLab CI plus Argo CD",
+      "outcome": "Separate building an artifact from reconciling a cluster to approved configuration.",
+      "concept": "GitOps uses versioned desired state and a controller to reconcile it; it does not eliminate authorization or recovery design.",
+      "read": [
+        "argo",
+        "gitlab",
+        "podinfo"
+      ],
+      "focus": "Image digests, environment configuration, reconciliation, drift, sync and secret handling.",
+      "build": [
+        "Let GitLab build/test/publish; let Argo CD reconcile a separate environment configuration path or repository.",
+        "Deploy podinfo first to isolate platform learning, then Taskboard.",
+        "Use SOPS only with an explicitly understood decryption integration; otherwise keep secrets external to plaintext Git."
+      ],
+      "break": "Make an intentional manual lab change and observe drift and the configured reconciliation policy.",
+      "prove": [
+        "The source commit, image digest and deployed revision can be traced.",
+        "No two controllers compete to own the same field.",
+        "A revert restores desired state subject to schema compatibility."
+      ],
+      "deliverable": "GitOps architecture and drift/recovery recording.",
+      "question": "What prevents a malicious configuration change from being faithfully reconciled?",
+      "cost": "Local"
+    },
+    {
+      "week": 32,
+      "phase": "Kubernetes operations",
+      "title": "Gate 8 · release and recover on Kubernetes",
+      "outcome": "Operate your service through a controlled update, failure and recovery.",
+      "concept": "Availability must be measured during change; a final green dashboard does not reveal an outage during rollout.",
+      "read": [
+        "k8sworkloads",
+        "argo",
+        "k8ssecurity"
+      ],
+      "focus": "Rolling updates, disruption budgets, replica placement, rollout failure and rollback.",
+      "build": [
+        "Set rollout behavior based on measured startup and shutdown characteristics.",
+        "Run system tests and a small request stream while deploying a new version.",
+        "Document what a PodDisruptionBudget covers and what local kind cannot prove about real node or zone loss."
+      ],
+      "break": "Release an image that never becomes ready, then recover through the source of truth.",
+      "prove": [
+        "The rollout failure is detected and its impact measured.",
+        "The last working image and configuration are recoverable.",
+        "You explain database compatibility and remaining single points of failure."
+      ],
+      "deliverable": "Second portfolio project: Kubernetes delivery and recovery evidence.",
+      "question": "What failure would your disruption budget not protect you from?",
+      "cost": "Local"
+    },
+    {
+      "week": 33,
+      "phase": "Observability and SRE",
+      "title": "Measure the user experience",
+      "outcome": "Instrument useful metrics and create a small actionable dashboard.",
+      "concept": "A metric should support a decision or diagnosis; collecting more data is not automatically better observability.",
+      "read": [
+        "prometheus",
+        "sreworkbook",
+        "gatus"
+      ],
+      "focus": "Request rate, errors, duration, saturation, labels, histograms and external probes.",
+      "build": [
+        "Expose request count, error count and duration histogram metrics.",
+        "Build a Prometheus/Grafana view of request rate, error ratio, latency and resource saturation.",
+        "Add Gatus or a simple external probe that exercises a meaningful service endpoint."
+      ],
+      "break": "Cause an endpoint failure while the process remains running and compare process health with user-visible availability.",
+      "prove": [
+        "Every dashboard panel answers a named question.",
+        "Labels avoid unbounded user IDs, task IDs or raw URLs.",
+        "The external check detects a failure the process check misses."
+      ],
+      "deliverable": "Dashboard definition and a metric design note.",
+      "question": "Why can a low overall error rate hide a completely broken endpoint?",
+      "cost": "Local; choose one metrics stack"
+    },
+    {
+      "week": 34,
+      "phase": "Observability and SRE",
+      "title": "Connect logs and traces",
+      "outcome": "Follow a slow request across service and database boundaries.",
+      "concept": "Metrics describe aggregate behavior, logs capture events, and traces connect operations for a request.",
+      "read": [
+        "otel",
+        "signoz",
+        "sentry"
+      ],
+      "focus": "Trace context, spans, structured logs, sampling, sensitive data and retention.",
+      "build": [
+        "Instrument Taskboard with OpenTelemetry and carry a request/trace identifier through logs.",
+        "Choose one local trace backend; inspect SigNoz as an option rather than adding multiple stacks.",
+        "Create a controlled slow database call and correlate latency metrics, logs and a trace."
+      ],
+      "break": "Drop trace context at one boundary and show how it breaks the diagnostic story.",
+      "prove": [
+        "You identify the slow operation from a trace and confirm it independently.",
+        "Logs omit credentials and unnecessary personal data.",
+        "Retention and sampling decisions have an explicit cost and privacy rationale."
+      ],
+      "deliverable": "One end-to-end trace investigation and telemetry policy.",
+      "question": "What evidence is lost when a request is not sampled?",
+      "cost": "Local; use a lighter backend if hardware is constrained"
+    },
+    {
+      "week": 35,
+      "phase": "Observability and SRE",
+      "title": "Define SLOs and useful alerts",
+      "outcome": "Turn service expectations into measurable targets and release decisions.",
+      "concept": "An SLO is a target for a defined indicator over a window. An error budget makes the tolerance for failure explicit.",
+      "read": [
+        "slo",
+        "sreworkbook"
+      ],
+      "focus": "SLIs, SLOs, error budgets, burn rate, low-traffic caveats and alert actions.",
+      "build": [
+        "Define eligible requests, good requests, measurement location and a rolling window.",
+        "Use a lab availability target such as 99.5% and a separate latency target; label both as chosen exercises.",
+        "Write an alert with a runbook and evaluate it using synthetic fault data or a controlled outage."
+      ],
+      "break": "Create a rapid burst of errors and compare detection with a slow sustained degradation.",
+      "prove": [
+        "You can calculate the remaining request-based error budget.",
+        "An alert identifies a user-impacting symptom and a next action.",
+        "You do not infer a 30-day SLO from a ten-minute successful test."
+      ],
+      "deliverable": "SLO document, budget calculation and alert evaluation.",
+      "question": "When should reliability evidence delay a feature release?",
+      "cost": "Local"
+    },
+    {
+      "week": 36,
+      "phase": "Observability and SRE",
+      "title": "Gate 9 · run an incident",
+      "outcome": "Detect, mitigate, communicate and learn from a service failure.",
+      "concept": "During an incident, restore useful service while preserving evidence; root-cause analysis can continue after mitigation.",
+      "read": [
+        "sreworkbook",
+        "awesomesre"
+      ],
+      "focus": "Incident roles, timeline, hypotheses, mitigation, status communication and blameless follow-up.",
+      "build": [
+        "Prepare a short incident protocol and a symptom-based runbook.",
+        "Run a timed game day with one controlled dependency or deployment failure.",
+        "Write an incident report with impact, timeline, contributing conditions, detection gaps and owned follow-up actions."
+      ],
+      "break": "Choose a fault the dashboards do not immediately identify; observe whether the runbook narrows it safely.",
+      "prove": [
+        "Detection and recovery times are measured from explicit events.",
+        "Updates describe known impact and uncertainty without invented certainty.",
+        "At least one prevention or detection improvement is implemented and retested."
+      ],
+      "deliverable": "Incident dossier and improved runbook.",
+      "question": "What made this error possible or hard to detect beyond the individual who triggered it?",
+      "cost": "Local"
+    },
+    {
+      "week": 37,
+      "phase": "GCP",
+      "title": "Translate identity, not just names",
+      "outcome": "Understand Google Cloud projects, IAM, service accounts and billing.",
+      "concept": "Similar service categories do not imply identical identity, networking or organizational behavior.",
+      "read": [
+        "gcpwa",
+        "gcpiam",
+        "gcpbudget"
+      ],
+      "focus": "Organization/folder/project hierarchy, IAM bindings, service identities, quotas and budgets.",
+      "build": [
+        "Create a comparison of AWS accounts/roles and GCP projects/service accounts with the differences stated.",
+        "Design an isolated learning project and budget notifications before paid usage.",
+        "Use a limited identity and inspect permissions on a harmless resource."
+      ],
+      "break": "Test a deliberately denied read or write and locate the relevant permission boundary.",
+      "prove": [
+        "You can identify the active project and identity.",
+        "You avoid exported long-lived service-account keys in the planned delivery workflow.",
+        "You explain why budget alerts do not cap spending."
+      ],
+      "deliverable": "GCP identity map and AWS/GCP comparison table.",
+      "question": "What can go wrong if a command uses the correct account but the wrong project?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 38,
+      "phase": "GCP",
+      "title": "Networking, compute and storage on GCP",
+      "outcome": "Deploy a small familiar workload while examining cloud differences.",
+      "concept": "Portability belongs at chosen interfaces; cloud-specific capabilities still require explicit design.",
+      "read": [
+        "gcpvpc",
+        "gcpcompute",
+        "gcpstorage"
+      ],
+      "focus": "VPC scope, regional subnets, firewall policy, instance identity, storage permissions and logs.",
+      "build": [
+        "Draw a GCP traffic path and compare its resource scope with AWS.",
+        "Deploy the same Taskboard image on a short-lived Compute Engine VM if budget permits. Preserve private/tunneled access unless the established public authentication and authorization model has been implemented and verified.",
+        "Test private object access with a scoped identity and document cleanup."
+      ],
+      "break": "Use an incorrect service identity or firewall rule in the lab and diagnose without granting broad access.",
+      "prove": [
+        "The app image remains unchanged while cloud configuration differs.",
+        "Allowed and denied access are both demonstrated.",
+        "The inventory includes persistent disks, addresses and storage after VM removal."
+      ],
+      "deliverable": "GCP deployment record and portability decision.",
+      "question": "Which parts of the AWS network design cannot be copied mechanically?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 39,
+      "phase": "GCP",
+      "title": "Terraform and GitLab federation on GCP",
+      "outcome": "Deliver a small GCP workload with short-lived pipeline identity.",
+      "concept": "Workload identity federation connects an external identity to narrowly authorized cloud actions.",
+      "read": [
+        "gitlabgcp",
+        "terraform",
+        "cloudrun"
+      ],
+      "focus": "Workload identity pools/providers, attribute conditions, impersonation, remote state and serverless constraints.",
+      "build": [
+        "Create Terraform configuration for the chosen small GCP deployment and isolate its state from AWS.",
+        "Configure GitLab federation scoped to the intended project/ref and deploy without a downloaded service-account key.",
+        "Evaluate Cloud Run using podinfo or a stateless Taskboard variant; require authenticated invocation for the lab and document external state, concurrency and scaling constraints. Do not publicly expose Taskboard's teaching authentication mechanism."
+      ],
+      "break": "Change an audience or attribute condition in the lab and verify that incorrect identity is rejected.",
+      "prove": [
+        "The deploy job obtains short-lived authority only for the intended scope.",
+        "No persistent application data relies on a container's ephemeral filesystem.",
+        "The exact deployed image digest is traceable to test results."
+      ],
+      "deliverable": "GCP delivery pipeline and federation verification.",
+      "question": "Why is identity federation still dangerous if the authorized role is too broad?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 40,
+      "phase": "GCP",
+      "title": "Gate 10 · compare managed platforms",
+      "outcome": "Choose between VMs, managed containers and managed Kubernetes for stated needs.",
+      "concept": "Operational simplicity is an architectural advantage when it meets the requirements.",
+      "read": [
+        "gke",
+        "eks",
+        "cloudrun",
+        "gcpwa"
+      ],
+      "focus": "Managed control planes, workload identity, upgrades, networking, availability and total operating cost.",
+      "build": [
+        "Compare EC2/Compute Engine, a managed container service, EKS and GKE against Taskboard's requirements.",
+        "Choose one managed Kubernetes lab, EKS or GKE, for a short execution if budget permits; keep the other a documented comparison.",
+        "Deploy the known manifests, test identity and traffic, then remove the cluster and dependent resources."
+      ],
+      "break": "Tabletop loss of a node and an unavailable control plane; separate provider and customer responsibilities.",
+      "prove": [
+        "You can justify choosing a simpler platform when Kubernetes adds unnecessary work.",
+        "The comparison includes ongoing operations and cost, not only initial deployment.",
+        "Executed and design-only capabilities are clearly labeled."
+      ],
+      "deliverable": "Cloud platform decision and optional managed-cluster evidence.",
+      "question": "Which responsibilities remain yours even with a managed control plane?",
+      "cost": "Free local core practice; optional provider execution may incur charges and has separate evidence."
+    },
+    {
+      "week": 41,
+      "phase": "Security and resilience",
+      "title": "Secure the software supply chain",
+      "outcome": "Trace source, dependencies, build identity and artifact integrity.",
+      "concept": "A vulnerability scan is one signal; provenance and authorization answer different trust questions.",
+      "read": [
+        "slsa",
+        "sigstore",
+        "gitlabsecurity"
+      ],
+      "focus": "SBOMs, image scanning, signatures, provenance, dependency updates and exception expiry.",
+      "build": [
+        "Generate an SBOM and scan the application image using one selected tool.",
+        "Triage findings by exposure, exploitability, fix availability and operational context; assign time-limited exceptions.",
+        "Sign or attest the artifact and verify the expected identity and digest before a lab deployment."
+      ],
+      "break": "Try to deploy an unexpected digest or untrusted signing identity and make the release check reject it.",
+      "prove": [
+        "The signature is verified against an identity policy, not merely present.",
+        "A critical finding has a documented fix or explicit scoped exception.",
+        "You can trace a running digest back to source and build evidence."
+      ],
+      "deliverable": "Supply-chain evidence bundle and update procedure.",
+      "question": "What does a valid signature prove, and what does it leave unproven?",
+      "cost": "Local/CI; verify chosen tool and hosted service terms"
+    },
+    {
+      "week": 42,
+      "phase": "Security and resilience",
+      "title": "Migrate and recover data safely",
+      "outcome": "Change schemas compatibly and prove restoration of meaningful data.",
+      "concept": "Deployment rollback and data rollback are different operations with different risks.",
+      "read": [
+        "postgres",
+        "cnpg",
+        "databasus"
+      ],
+      "focus": "Expand/contract migrations, old/new app compatibility, backup retention, WAL and point-in-time recovery.",
+      "build": [
+        "Add an optional field using an expand/contract sequence; test old and new application versions against the expanded schema.",
+        "Schedule a local backup and restore to a separate destination using PostgreSQL tooling or one audited backup tool.",
+        "If practising PITR, verify the exact selected tool/version supports the required backup and WAL recovery path."
+      ],
+      "break": "Delete a disposable record at a known time and recover the intended data without overwriting the source environment.",
+      "prove": [
+        "A migration test catches incompatible schema changes.",
+        "The restored app passes system tests and content checks.",
+        "Measured data loss and recovery time are compared with your chosen RPO/RTO."
+      ],
+      "deliverable": "Migration compatibility matrix and restore drill report.",
+      "question": "How would you know a successful-looking backup is actually usable?",
+      "cost": "Local; backups and retention in cloud are billable"
+    },
+    {
+      "week": 43,
+      "phase": "Security and resilience",
+      "title": "Scale with bottlenecks in mind",
+      "outcome": "Improve measured performance while controlling overload and consistency.",
+      "concept": "Queues absorb bursts only while capacity and retention are sufficient; retries can multiply load.",
+      "read": [
+        "k6",
+        "sreworkbook",
+        "k8shpa"
+      ],
+      "focus": "Indexes, connection pools, bounded queues, backpressure, timeouts, retries with jitter and idempotency.",
+      "build": [
+        "Use profiling or query evidence to identify one bottleneck and improve it.",
+        "Add an optional background task with an idempotency key only if it solves a stated requirement.",
+        "Set bounded timeouts and retry behavior; compare baseline and changed throughput, p95/p99, errors and resource cost."
+      ],
+      "break": "Slow a dependency or deliver the same background message twice. Observe retry amplification or duplicate work and fix it.",
+      "prove": [
+        "The improvement is supported by comparable before/after conditions.",
+        "If a background task was added, duplicate delivery cannot silently double-apply the chosen operation; otherwise document this extension as not implemented.",
+        "The service degrades predictably when downstream capacity is exhausted."
+      ],
+      "deliverable": "Performance investigation and overload behavior report.",
+      "question": "When is rejecting work quickly safer than accepting it into an ever-growing queue?",
+      "cost": "Local controlled load"
+    },
+    {
+      "week": 44,
+      "phase": "Security and resilience",
+      "title": "Gate 11 · recovery game day",
+      "outcome": "Recover both service and data under explicit constraints.",
+      "concept": "High availability reduces some interruptions; disaster recovery prepares for loss of the normal operating environment.",
+      "read": [
+        "sreworkbook",
+        "awswa",
+        "gcpwa"
+      ],
+      "focus": "RTO, RPO, dependencies, credential recovery, backup access and communication.",
+      "build": [
+        "Set achievable lab targets, for example RTO 30 minutes and RPO 24 hours for daily logical backups.",
+        "Simulate losing a disposable environment; rebuild it and restore into a fresh target.",
+        "Audit whether backups, decryption keys, configuration and runbooks survive the same failure boundary."
+      ],
+      "break": "Make the normal cluster unavailable while preserving a separate lab backup; restore without depending on the old cluster.",
+      "prove": [
+        "Measured recovery and data loss meet your stated lab targets or produce a remediation plan.",
+        "Restoration passes meaningful system checks.",
+        "A failed drill is reported accurately rather than marked complete."
+      ],
+      "deliverable": "Disaster-recovery report and revised dependencies map.",
+      "question": "Which shared dependency could make both your primary system and recovery plan fail?",
+      "cost": "Local default; any cloud reconstruction has a fresh cost estimate"
+    },
+    {
+      "week": 45,
+      "phase": "Internals and platform practice",
+      "title": "Kubernetes internals, deliberately",
+      "outcome": "Understand certificate trust, component communication and control-plane state.",
+      "concept": "A managed cluster hides implementation work, not the need to understand its failure modes.",
+      "read": [
+        "kthw",
+        "k8sbasics"
+      ],
+      "focus": "PKI, kubeconfigs, API authorization, etcd, control-plane components and node registration.",
+      "build": [
+        "Read the current Kubernetes The Hard Way prerequisites and choose compatible disposable VMs.",
+        "Trace component-to-component trust and produce a certificate/identity map.",
+        "Complete the first bounded set of current upstream steps; annotate what every credential and configuration file permits."
+      ],
+      "break": "Inspect a deliberately wrong lab endpoint or expired test certificate without changing real cluster credentials.",
+      "prove": [
+        "You can explain why each component needs its identity.",
+        "You understand the difference between authentication and authorization.",
+        "You record upstream commit/version and mark unfinished steps explicitly."
+      ],
+      "deliverable": "Kubernetes trust map and first internals lab notes.",
+      "question": "Why is copying an administrator kubeconfig to every machine a poor design?",
+      "cost": "Local VMs; selected reading-only path if hardware cannot support the lab"
+    },
+    {
+      "week": 46,
+      "phase": "Internals and platform practice",
+      "title": "Upgrades and component failures",
+      "outcome": "Plan a cluster upgrade and diagnose a bounded component failure.",
+      "concept": "The cluster is itself a system to operate, including version compatibility, certificates, storage and recovery.",
+      "read": [
+        "kthw",
+        "k8supgrade",
+        "k8stroubleshoot"
+      ],
+      "focus": "Version skew, backup scope, certificate lifecycle, draining and upgrade validation.",
+      "build": [
+        "Complete the chosen Hard Way scope or document a component-focused alternative.",
+        "Read current version-skew guidance and plan an upgrade of a disposable cluster.",
+        "Exercise prechecks, a bounded update, postchecks and an explicit recovery decision; distinguish workload backup from etcd backup."
+      ],
+      "break": "Stop a lab worker service or misconfigure a component endpoint and trace symptoms back to the component.",
+      "prove": [
+        "The upgrade plan respects currently supported version skew.",
+        "You identify which failures stop new scheduling versus existing traffic.",
+        "You can explain what restoring etcd does and does not restore."
+      ],
+      "deliverable": "Upgrade runbook and component failure investigation.",
+      "question": "Which application data is absent from an etcd snapshot?",
+      "cost": "Local"
+    },
+    {
+      "week": 47,
+      "phase": "Internals and platform practice",
+      "title": "Make a paved path for another developer",
+      "outcome": "Turn your working conventions into a small usable service template.",
+      "concept": "Platform engineering reduces repeated cognitive work while retaining clear escape hatches and ownership.",
+      "read": [
+        "gitlab",
+        "task",
+        "ansible"
+      ],
+      "focus": "Service templates, documentation, defaults, developer feedback and support boundaries.",
+      "build": [
+        "Create a template with health endpoints, tests, CI, configuration conventions and a runbook.",
+        "Provide understandable commands for development, testing and deployment.",
+        "Evaluate Semaphore or another audited platform only against a specific usability problem; keep the default workflow small."
+      ],
+      "break": "Give the template an invalid configuration and improve the resulting error message and documentation.",
+      "prove": [
+        "A new user can start the example with documented prerequisites.",
+        "Defaults limit privilege and secret exposure.",
+        "The template describes what its maintainers own and what application owners own."
+      ],
+      "deliverable": "Service template v1 and developer onboarding notes.",
+      "question": "Does this abstraction remove work or merely hide failure modes?",
+      "cost": "Local"
+    },
+    {
+      "week": 48,
+      "phase": "Internals and platform practice",
+      "title": "Gate 12 · independent engineering review",
+      "outcome": "Demonstrate transferable judgment beyond a rehearsed tutorial.",
+      "concept": "Competence includes explaining when not to use a tool and recovering when the tutorial's assumptions fail.",
+      "read": [
+        "exercises",
+        "roadmap",
+        "awswa"
+      ],
+      "focus": "Design critique, practical diagnosis, communication and identifying gaps.",
+      "build": [
+        "Answer a selected set of unseen Linux, cloud, Kubernetes, Terraform and SRE questions without notes, then verify against current docs.",
+        "Perform two previously unseen local fault investigations.",
+        "Review a proposed overcomplicated architecture and simplify it with explicit tradeoffs."
+      ],
+      "break": "Use an unfamiliar combination of two known faults, preserving an escape route.",
+      "prove": [
+        "Each incorrect explanation becomes a concrete remedial exercise.",
+        "You separate measured facts from hypotheses.",
+        "You can explain the system to both a developer and a non-technical stakeholder."
+      ],
+      "deliverable": "Competency scorecard and capstone gap list.",
+      "question": "Which skills are demonstrated independently, and which still depend on a guide?",
+      "cost": "Local"
+    },
+    {
+      "week": 49,
+      "phase": "Final capstone",
+      "title": "Specify a service worth operating",
+      "outcome": "Translate a small product need into testable operational requirements.",
+      "concept": "Production readiness is relative to users, risk, workload and operating constraints.",
+      "read": [
+        "awswa",
+        "gcpwa",
+        "slo"
+      ],
+      "focus": "Requirements, threat model, capacity assumptions, SLO, cost ceiling and ownership.",
+      "build": [
+        "Write a Taskboard service brief with users, data sensitivity, expected traffic and failure consequences.",
+        "Choose one primary deployment platform; retain the second cloud as a tested portability exercise rather than mandatory active-active complexity.",
+        "Define acceptance tests, recovery targets, monitoring, update policy and architecture decisions before building."
+      ],
+      "break": "Challenge one assumption: tenfold traffic, loss of a zone, leaked credential or incompatible schema change.",
+      "prove": [
+        "Every major control traces to a requirement or threat.",
+        "Targets include measurement method and test conditions.",
+        "The design fits a stated operating budget."
+      ],
+      "deliverable": "Capstone service brief, threat model and acceptance contract.",
+      "question": "What would make this architecture insufficient for a real customer?",
+      "cost": "Planning; paid execution only after estimating the chosen design"
+    },
+    {
+      "week": 50,
+      "phase": "Final capstone",
+      "title": "Build and deliver the complete system",
+      "outcome": "Integrate application, infrastructure, delivery, security and observability into a reproducible release.",
+      "concept": "The final project should demonstrate a coherent operating system of practices, not a collection of tool screenshots.",
+      "read": [
+        "gitlab",
+        "terraform",
+        "k8ssecurity"
+      ],
+      "focus": "Infrastructure/configuration ownership, tested artifacts, identity, restore and documentation.",
+      "build": [
+        "Rebuild the chosen platform from code and deploy the exact tested image.",
+        "Run unit, real integration and system tests plus infrastructure and security checks.",
+        "Attach telemetry, release evidence, backup verification and current cost inventory."
+      ],
+      "break": "Attempt a release with one deliberately failed acceptance condition and verify the release decision rejects it.",
+      "prove": [
+        "No critical operational step exists only in your memory.",
+        "Source, artifact, configuration and deployment revisions are traceable.",
+        "The release can be reproduced from a clean environment."
+      ],
+      "deliverable": "Capstone release candidate and evidence index.",
+      "question": "Which part of the delivery path has the broadest authority, and how is it constrained?",
+      "cost": "Local valid; cloud claims require real cloud evidence"
+    },
+    {
+      "week": 51,
+      "phase": "Final capstone",
+      "title": "Break it under review",
+      "outcome": "Demonstrate recovery, diagnosis and communication under realistic lab pressure.",
+      "concept": "Failure drills test the system and its operating procedures together.",
+      "read": [
+        "sreworkbook",
+        "postgres",
+        "k6"
+      ],
+      "focus": "Blind incidents, restore validation, load behavior, rollback and follow-up work.",
+      "build": [
+        "Run one deployment failure, one dependency/network failure and one data-recovery scenario.",
+        "Perform a controlled load test at the declared workload and compare against latency/error targets.",
+        "Produce one incident report with a prioritized remediation backlog and retest the highest-risk improvement."
+      ],
+      "break": "Let a reviewer select the fault, or use a randomized prepared scenario and avoid inspecting the fault source before diagnosis.",
+      "prove": [
+        "Recovery and performance claims have timestamped evidence and stated limits.",
+        "No lost or duplicate user operation is hidden by a green infrastructure dashboard.",
+        "The operator can communicate impact while continuing diagnosis."
+      ],
+      "deliverable": "Final game-day and performance dossier.",
+      "question": "What failed in your process even if the service was eventually restored?",
+      "cost": "Local default; controlled budgeted cloud session if selected"
+    },
+    {
+      "week": 52,
+      "phase": "Final capstone",
+      "title": "Gate 13 · hand it to another engineer",
+      "outcome": "Present a defensible portfolio and a clear map of your next learning needs.",
+      "concept": "Strong engineering makes systems understandable and maintainable by people other than their original author.",
+      "read": [
+        "roadmap",
+        "exercises"
+      ],
+      "focus": "Handoff, architecture explanation, operational readiness, honest claims and continued practice.",
+      "build": [
+        "Have another person rebuild, deploy and recover from your documentation; if unavailable, do a fresh-environment self-review and label it accordingly.",
+        "Score the capstone using the readiness rubric, resolving critical failures.",
+        "Write a concise portfolio narrative: problem, constraints, choices, evidence, incidents, tradeoffs and remaining limitations."
+      ],
+      "break": "Remove your informal assistance from the handoff and identify every point where the documentation is insufficient.",
+      "prove": [
+        "All mandatory gates have evidence or are explicitly incomplete.",
+        "The portfolio does not claim seniority or production reliability from lab duration alone.",
+        "You have a specific next-quarter plan based on demonstrated weaknesses."
+      ],
+      "deliverable": "Portfolio, handoff package, final scorecard and next-quarter improvement plan.",
+      "question": "Would a teammate trust you to explain the risk of a change and help recover when it fails?",
+      "cost": "No additional infrastructure required"
+    }
+  ]
+}

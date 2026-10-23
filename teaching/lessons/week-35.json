@@ -1,0 +1,243 @@
+{
+  "week": 35,
+  "introduction": [
+    "A process can be alive while users cannot read their tasks. A service-level indicator (SLI) describes one user-visible result; a service-level objective (SLO) sets the acceptable proportion of good results over an explicit window. This lesson turns the measurements from weeks 33–34 into a release decision and an actionable local alert.",
+    "Use a learning target of 99.5% successful eligible GET /tasks requests over 30 days. Eligible means the caller supplied a valid lab token and the request reached the service; expected authentication failures and health probes are excluded. Our status-based proxy counts 2xx and 5xx responses and cannot detect requests lost before application instrumentation. Pair it with the external synthetic check from week 33 and record that blind spot.",
+    "The short experiment below validates rule behavior, not a month of reliability. Prometheus keeps only 24 hours in this lab, so a real 30-day objective requires a durable measurement system and retention long enough for that window. An alert appearing in the local Alerts page also does not prove that an on-call notification reached a human."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Complete weeks 33–34. Keep the local Compose stack and observability/local.env; no Kubernetes or cloud resources are needed.",
+    "Know the difference between a counter and a histogram, and keep the synthetic-check script from week 33."
+  ],
+  "concepts": [
+    {
+      "title": "Budget is an allowance of bad events",
+      "paragraphs": [
+        "For a request-based availability SLO, availability is good eligible requests divided by all eligible requests. At 99.5%, the allowed bad fraction is 0.005. One million eligible requests allow 5,000 bad ones; this is not automatically a time-based downtime allowance.",
+        "Burn rate is observed bad fraction divided by the allowed bad fraction. A 2% error fraction burns a 0.5% budget at four times its sustainable rate. At constant traffic mix, that would consume a 30-day budget in 7.5 days. Traffic changes make this an estimate, so retain event counts."
+      ],
+      "example": "10,000 eligible requests and 75 server failures gives 99.25% availability and 1.5 times burn.",
+      "judgment": "Choose targets with users and service owners. Copying another company’s number can create expensive engineering work without improving the user’s important journey."
+    },
+    {
+      "title": "Alert for an action, not a graph",
+      "paragraphs": [
+        "A page needs an owner, a symptom, an immediate investigation and a bounded mitigation. CPU above a number is only useful when someone can decide what to do. This lab alert says valid task reads are failing and points at request logs, database readiness and recent changes.",
+        "Long and short windows answer different questions: sustained consumption and whether the problem is still happening. Low traffic can make one failure dominate a ratio. We require a small minimum event count for this demonstration and separately inspect synthetic checks; that count suppresses some real sparse-traffic incidents."
+      ],
+      "example": "An elevated 30-minute ratio plus an elevated 5-minute ratio avoids paging long after a brief burst ended.",
+      "judgment": "Do not use a quiet application counter as proof of success. Total application failure can stop metric production entirely; scrape availability and an external probe cover different failure modes."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Write the objective before the rule",
+      "purpose": "Make the denominator, target, window and blind spots reviewable.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nmkdir -p observability evidence/w35\ncat > observability/slo.md <<'EOF'\nJourney: an authenticated user lists their tasks.\nEligible proxy: GET /tasks responses with status 2xx or 5xx.\nGood proxy: eligible responses with status 2xx.\nAvailability target: 99.5% over a rolling 30-day window.\nLatency target: 95% of successful eligible reads below 500 ms.\nOwner: the learner operating this disposable lab.\nExclusions: expected invalid-token requests, health checks and metrics scrapes.\nGaps: requests lost before middleware; no 30-day retention in this lab.\nRelease rule: investigate sustained budget burn; pause unrelated releases during an incident.\nLocal alert action: verify impact, inspect readiness/logs/recent changes, then restore the known-good configuration.\nEOF\npython3 - <<'PY'\ntotal, bad, target = 10000, 75, 0.995\nallowance = total * (1-target)\nprint(f\"availability={1-bad/total:.4%}; allowed_bad={allowance:.0f}; burn={(bad/total)/(1-target):.2f}\")\nPY",
+          "explain": [
+            "mkdir -p creates only these lab folders. The quoted heredoc writes a literal SLO specification; edit the owner to your own name before publishing.",
+            "Python computes the observed success fraction, allowable failures and burn from the same request population. This avoids mixing a request SLO with minutes of downtime."
+          ],
+          "expected": "The calculation reports 99.2500%, 50 allowed failures and burn 1.50. The document states what was not measured.",
+          "troubleshoot": "If your preferred SLI includes client timeouts, add an independent client measurement; application middleware cannot count a request it never received."
+        }
+      ],
+      "checkpoint": "Explain why /livez success does not belong in the denominator for a user task-list journey."
+    },
+    {
+      "title": "Install one local alert with a runbook",
+      "purpose": "Keep expressions and operational response together.",
+      "commands": [
+        {
+          "code": "cat > observability/alerts.yml <<'EOF'\ngroups:\n- name: taskboard-lab\n  interval: 5s\n  rules:\n  - alert: TaskReadsFailingLab\n    expr: |\n      (sum(rate(taskboard_http_requests_total{method=\"GET\",route=\"/tasks\",status=~\"5..\"}[1m]))\n       / sum(rate(taskboard_http_requests_total{method=\"GET\",route=\"/tasks\",status=~\"2..|5..\"}[1m])) > 0.05)\n      and\n      (sum(increase(taskboard_http_requests_total{method=\"GET\",route=\"/tasks\",status=~\"2..|5..\"}[1m])) >= 10)\n    for: 20s\n    labels:\n      severity: lab\n    annotations:\n      summary: Authenticated task reads are failing in the local lab\n      runbook: observability/task-read-runbook.md\nEOF\ncat > observability/task-read-runbook.md <<'EOF'\n1. Record UTC time, affected journey and observed errors.\n2. Run the external synthetic check and compare /livez with /readyz.\n3. Inspect the app and database service state and recent logs.\n4. Check the most recent configuration/image change before changing anything.\n5. Restore the known-good dependency/configuration. Do not reset the database volume.\n6. Verify authenticated reads, the existing task and synthetic checks.\n7. Record recovery time, lingering alert window and follow-up owner.\nEOF\npython3 - <<'PY'\nfrom pathlib import Path\np=Path(\"observability/prometheus.yml\")\ns=p.read_text()\nif \"rule_files:\" not in s: s += \"\\nrule_files:\\n  - /etc/prometheus/alerts.yml\\n\"\np.write_text(s)\nPY\ncat > slo.yaml <<'EOF'\nservices:\n  prometheus:\n    volumes:\n      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro\nEOF\nset -a; . observability/local.env; set +a\ndocker compose -f compose.yaml -f observability.yaml -f tracing.yaml -f slo.yaml run --rm --no-deps --entrypoint promtool prometheus check rules /etc/prometheus/alerts.yml\ndocker compose -f compose.yaml -f observability.yaml -f tracing.yaml -f slo.yaml up -d prometheus",
+          "explain": [
+            "cat writes the alert, runbook and an extra Compose mount. The rule requires both more than 5% server failures and at least 10 eligible events in a minute; for: 20s requires the condition to persist. These intentionally short lab windows are not the 30-day objective.",
+            "Python appends the rule-file location once to the existing scrape configuration. set -a exports values from the local secret environment file; set +a stops automatic exporting.",
+            "Compose merges the same four files in order. run --rm creates a temporary validation container; --no-deps avoids starting dependencies; --entrypoint selects promtool. up -d recreates Prometheus if the mount changed."
+          ],
+          "expected": "promtool reports SUCCESS. http://127.0.0.1:9090/rules shows TaskReadsFailingLab with no evaluation error.",
+          "troubleshoot": "If the mount file is a directory or the rule is missing, inspect docker compose ... config and the exact observability/prometheus.yml path from week 33. Do not replace the entire scrape config with the alert file."
+        }
+      ],
+      "checkpoint": "Identify both the ratio threshold and the minimum volume guard. No Alertmanager or external notification delivery is configured."
+    },
+    {
+      "title": "Generate bounded authenticated traffic",
+      "purpose": "Create enough real eligible requests to observe the rule.",
+      "commands": [
+        {
+          "code": "set -a; . .env; set +a\ncat > observability/slo-traffic.py <<'PY'\nimport os,time,urllib.request,urllib.error\nfor _ in range(120):\n    req=urllib.request.Request(\"http://127.0.0.1:8000/tasks\",headers={\"Authorization\":\"Bearer \"+os.environ[\"LAB_ALICE_TOKEN\"]})\n    try:\n        with urllib.request.urlopen(req,timeout=3) as r: print(time.strftime(\"%H:%M:%S\",time.gmtime()),r.status,flush=True)\n    except urllib.error.HTTPError as e: print(time.strftime(\"%H:%M:%S\",time.gmtime()),e.code,flush=True)\n    except (OSError,TimeoutError) as e: print(time.strftime(\"%H:%M:%S\",time.gmtime()),type(e).__name__,flush=True)\n    time.sleep(1)\nPY\npython3 observability/slo-traffic.py | tee evidence/w35/traffic.txt",
+          "explain": [
+            "The environment file supplies the existing token without embedding it in the script. urllib sends one authenticated read per second, at most 120 attempts, each with a three-second timeout.",
+            "HTTPError preserves server response codes; connection failures are recorded separately because the server counter cannot see them. tee shows and saves the output without recording the token."
+          ],
+          "expected": "Healthy responses are 200. While this command runs, perform the fault below in a second terminal.",
+          "troubleshoot": "If every request is 401, check that this terminal loaded the same .env used to create the app. Invalid authentication is excluded from this SLI and is not the intended fault."
+        }
+      ],
+      "checkpoint": "Keep healthy, failing and recovered responses in one timestamped record; inspect /alerts in Prometheus during the failure."
+    },
+    {
+      "title": "Distinguish measurement from a monthly claim",
+      "purpose": "Use a longer-window expression as a design exercise and calculate an example budget.",
+      "commands": [
+        {
+          "code": "curl -fsSG http://127.0.0.1:9090/api/v1/query --data-urlencode 'query=sum(increase(taskboard_http_requests_total{method=\"GET\",route=\"/tasks\",status=~\"5..\"}[5m])) / sum(increase(taskboard_http_requests_total{method=\"GET\",route=\"/tasks\",status=~\"2..|5..\"}[5m])) / 0.005' | python3 -m json.tool\npython3 - <<'PY'\nfor fraction in (0.005,0.02,0.10):\n    burn=fraction/0.005\n    print(f\"bad={fraction:.1%}, burn={burn:g}, constant-rate days-to-exhaust={30/burn:g}\")\nPY",
+          "explain": [
+            "curl -G encodes a read-only query in the URL; --data-urlencode protects PromQL punctuation. The expression divides observed error fraction by the 0.005 allowance. python -m json.tool formats the response.",
+            "The separate calculation compares sustainable, moderate and fast budget consumption under an explicitly constant-rate assumption."
+          ],
+          "expected": "The example burns are 1, 4 and 20; estimated exhaustion is 30, 7.5 and 1.5 days. A missing query result means missing data, not zero failure.",
+          "troubleshoot": "If the query returns an empty vector before the first 5xx, generate the bounded fault; Prometheus does not invent an unobserved status series. Keep that missing-series behavior in the design review."
+        }
+      ],
+      "checkpoint": "For a production proposal, write a 30m/5m combined rule, its traffic assumptions and notification test; label it unvalidated until enough data and delivery evidence exist."
+    }
+  ],
+  "failure": {
+    "title": "The process is alive but task reads fail",
+    "boundary": "Only stop the disposable Compose database, for about 45 seconds, while the bounded traffic script runs. Do not delete its volume.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\ndocker compose stop db",
+        "explain": [
+          "stop sends a graceful termination to this named Compose database service; its volume remains."
+        ],
+        "expected": "/livez remains 200 while authenticated reads and /readyz become 503.",
+        "troubleshoot": "If no app is running, restore the full week-34 stack first; this drill assumes a healthy baseline."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "curl -sS -o /dev/null -w \"live=%{http_code}\\n\" http://127.0.0.1:8000/livez\ncurl -sS -o /dev/null -w \"ready=%{http_code}\\n\" http://127.0.0.1:8000/readyz\ndocker compose ps -a\ndocker compose logs --tail=20 app\ncurl -fsS http://127.0.0.1:9090/api/v1/alerts | python3 -m json.tool",
+        "explain": [
+          "curl discards bodies and prints status; ps -a includes the stopped dependency; logs limits output to the last 20 lines.",
+          "The API lists local alert state. Wait through several scrape/evaluation intervals and the 20-second pending duration, while traffic continues."
+        ],
+        "expected": "Live 200, ready 503, stopped db and a pending then firing local alert give distinct evidence.",
+        "troubleshoot": "If the rule remains inactive, inspect request volume, eligible labels and rules evaluation errors before weakening thresholds."
+      }
+    ],
+    "hints": [
+      "Compare a process health signal with a user request.",
+      "A firing rule can take time to clear because its one-minute window still contains failures."
+    ],
+    "answer": {
+      "explanation": [
+        "Database unavailability breaks the authenticated task-read journey while the Python process continues answering health requests. The runbook should preserve data and restore the dependency before considering a code change."
+      ],
+      "recover": [
+        {
+          "code": "docker compose start db",
+          "explain": [
+            "start restarts the existing database service and its preserved data."
+          ],
+          "expected": "Readiness and task reads recover after PostgreSQL becomes ready.",
+          "troubleshoot": "Inspect docker compose logs --tail=30 db if readiness remains false; do not erase the volume to make the signal green."
+        }
+      ],
+      "verification": {
+        "code": "curl -fsS http://127.0.0.1:8000/readyz\ncurl -fsS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" http://127.0.0.1:8000/tasks",
+        "explain": [
+          "Check the dependency-aware endpoint and a real authenticated journey after loading .env in this terminal."
+        ],
+        "expected": "Both requests return 200; existing tasks remain. The alert resolves after its data window recovers.",
+        "troubleshoot": "If a task is missing, stop and inspect which database and volume the app uses; availability and data durability are separate checks."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why exclude /livez from the task-read SLI?",
+      "hint": "Consider the injected outage.",
+      "answer": "The health handler does not need PostgreSQL. Including its successes would dilute failures of the journey users care about."
+    },
+    {
+      "prompt": "Does 99.5% request availability mean exactly 216 minutes downtime per month?",
+      "hint": "Compare event-weighted and time-weighted denominators.",
+      "answer": "No. The request SLO counts requests; traffic can vary by time. A separate time-based SLO could imply that downtime allowance under a defined 30-day window."
+    },
+    {
+      "prompt": "What does a missing counter series mean?",
+      "hint": "Distinguish no sample from a numeric zero.",
+      "answer": "It may mean no such label was observed, failed scraping, a stopped process or inadequate history. Check up, target health and the external probe before interpreting it."
+    },
+    {
+      "prompt": "Why might a local alert fail to notify anyone?",
+      "hint": "Which delivery component did we install?",
+      "answer": "We installed only a Prometheus rule. Routing, receivers, contact ownership and an end-to-end notification test are separate work."
+    }
+  ],
+  "exercise": {
+    "brief": "Design a slow-burn notification and a fast-burn page for the same task-read journey.",
+    "constraints": [
+      "Keep the same denominator and target.",
+      "Do not claim 30-day compliance from this session."
+    ],
+    "deliverables": [
+      "Two expressions with long and short windows, a low-traffic policy, a named owner and a runbook."
+    ],
+    "acceptance": [
+      "Explain one missed incident and one noisy case for each proposal.",
+      "Calculate budget consumption for 1%, 5% and 100% failures."
+    ],
+    "hints": [
+      "Start with error fraction divided by 0.005.",
+      "Use an AND between sustained and recent windows."
+    ],
+    "solution": [
+      "A defensible proposal pages on high burn in both a longer and shorter window, routes lower sustained burn to a ticket, and uses external checks for low/no traffic. Exact windows follow operational response time and business impact. Record how you will test notification delivery."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker compose start db\ndocker compose ps",
+      "explain": [
+        "Ensure the deliberately stopped dependency is restored; list the service state before finishing."
+      ],
+      "expected": "The local stack is healthy and intentionally retained for week 36.",
+      "troubleshoot": "Do not run down -v; the next incident exercise needs the existing task data."
+    }
+  ],
+  "references": [
+    {
+      "title": "Prometheus alerting rules",
+      "url": "https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/",
+      "usedFor": "Rule structure, pending/firing states and annotations."
+    },
+    {
+      "title": "SRE Workbook: alerting on SLOs",
+      "url": "https://sre.google/workbook/alerting-on-slos/",
+      "usedFor": "Budget burn, multiple windows and low-traffic limitations."
+    },
+    {
+      "title": "Prometheus query functions",
+      "url": "https://prometheus.io/docs/prometheus/latest/querying/functions/",
+      "usedFor": "Counter rate/increase semantics."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Start reliability work from the user journey and an operational response.",
+      "application": "The lesson ties an explicit event denominator to a budget, a local alert and a recovery runbook; it requires explaining missing data rather than reading a green dashboard as proof.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    },
+    {
+      "repo": "TwiN/gatus",
+      "principle": "External checks complement internal instrumentation.",
+      "application": "A task-read SLI and an external request can disagree when traffic never reaches the service. The drill records both and preserves that gap in the objective.",
+      "url": "https://github.com/TwiN/gatus"
+    }
+  ],
+  "notes": [
+    "Commands and configuration authored against primary docs; no Docker runtime was available on the authoring host. Execute the bounded lab and record observed timings.",
+    "Local alert display is demonstrated; no external message is sent or configured."
+  ],
+  "phase": "Observability and SRE",
+  "title": "Define SLOs and useful alerts",
+  "outcome": "Turn service expectations into measurable targets and release decisions."
+}

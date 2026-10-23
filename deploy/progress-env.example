@@ -1,0 +1,9 @@
+# Cloudflare Pages > Settings > Variables and Secrets (server environment only).
+# These placeholders are intentionally disabled and cannot connect to services.
+PROGRESS_SYNC_ENABLED=false
+APP_ORIGINS=https://devoops.tech
+CLERK_ISSUER=https://YOUR-CLERK-FRONTEND-API-HOST
+DATABASE_URL=postgresql://ROLE:PASSWORD@YOUR-NEON-HOST/DATABASE?sslmode=require
+# Optional: set only if your Clerk session token includes this audience.
+# Standard Clerk session tokens use azp; this server always verifies azp.
+# CLERK_AUDIENCE=devoops-progress

@@ -1,0 +1,296 @@
+{
+  "week": 18,
+  "phase": "Terraform",
+  "title": "State, modules and environment boundaries",
+  "outcome": "Separate environments and design small modules with stable interfaces.",
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: A second engineer should not have to copy your private state file to understand ownership. A remote backend stores that mapping in a controlled place and a lock prevents simultaneous writers. A module packages a small interface; it does not create a permission boundary.",
+    "Optional provider lab: You will build a two-input local module, migrate its development state into a private versioned S3 backend and give staging a different state key and identity. Local-only practice teaches module/state mechanics but leaves AWS access controls and remote locking unproven."
+  ],
+  "prerequisites": [
+    "Week 17 Terraform >=1.10, local provider and plan review. Week 13 sandbox login/budget and week 15 private S3/version concepts.",
+    "The cloud branch uses a small paid S3 backend. Estimate storage/request costs first. An administrator must create separate dev/stage permission-set assignments using the narrow policies generated below, then you configure devopps-dev and devopps-stage SSO profiles. Provisioner bootstrap rights are not used for routine applies."
+  ],
+  "concepts": [
+    {
+      "title": "A backend is an operating dependency",
+      "paragraphs": [
+        "State can contain sensitive resource data even if outputs hide it. Protect its read/write access, encryption, history and recovery credentials. The backend must exist before Terraform can store its state there, so bootstrap has a separate owner and recovery procedure.",
+        "S3 state locking is opt-in with use_lockfile=true. Current Terraform supports an S3 lock object; older DynamoDB-lock examples are deprecated. Do not disable locking to make a concurrent apply succeed."
+      ],
+      "example": "The dev role needs its own state object plus lock-object access, but no permission to read staging state.",
+      "judgment": "A state version is recovery material, not permission to blindly roll the infrastructure back. Restore only after proving no active writer and reconciling real resource state."
+    },
+    {
+      "title": "Small module, explicit environment",
+      "paragraphs": [
+        "A child module is a directory of Terraform configuration called by a root. Inputs describe what varies; outputs expose what callers need. Keep the interface understandable and validate invalid values near the input.",
+        "Separate roots and state keys reduce accidental coupling. Separate credentials establish authorization boundaries. Terraform workspace names alone do neither: an identity that can read every state still has that access."
+      ],
+      "example": "The same note module writes dev.txt or stage.txt in the calling root's output folder. It does not manage both environments from one state.",
+      "judgment": "Do not make a module so configurable that callers need to understand all its internals to use it safely."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Build the module and one local root",
+      "purpose": "Run in the continuing repository.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-lab/infra/modules/notice ~/dev-opps-lab/infra/dev18/output ~/dev-opps-lab/infra/stage18/output ~/dev-opps-lab/evidence/week-18\ncd ~/dev-opps-lab/infra\ncat > modules/notice/main.tf <<'EOF'\nterraform {\n  required_providers { local = { source = \"hashicorp/local\", version = \"~> 2.5\" } }\n}\nvariable \"environment\" {\n  type = string\n  validation {\n    condition = contains([\"dev\", \"stage\"], var.environment)\n    error_message = \"Choose dev or stage.\"\n  }\n}\nvariable \"output_dir\" { type = string }\nvariable \"message\" { type = string }\nresource \"local_file\" \"notice\" {\n  filename = \"${var.output_dir}/${var.environment}.txt\"\n  content = \"${var.message}\\n\"\n  file_permission = \"0644\"\n}\noutput \"path\" { value = local_file.notice.filename }\nEOF\ncat > dev18/main.tf <<'EOF'\nterraform { required_version = \">= 1.10, < 2.0\" }\nvariable \"message\" { default = \"A reviewed development configuration\" }\nmodule \"notice\" {\n  source = \"../modules/notice\"\n  environment = \"dev\"\n  output_dir = \"${path.root}/output\"\n  message = var.message\n}\noutput \"path\" { value = module.notice.path }\nEOF\ncp local17/.gitignore dev18/.gitignore\ncp local17/.gitignore stage18/.gitignore\ncd dev18\nterraform init\nterraform fmt -recursive\nterraform validate\nterraform plan -out=local.tfplan\nterraform show -no-color local.tfplan\nterraform apply local.tfplan",
+          "explain": [
+            "mkdir creates distinct module/root/output directories. The child validates environment and owns one local file. The root supplies environment, output directory and message, then exposes the child output.",
+            "cp reuses only ignore rules, never state. init resolves the child/provider; format and validation precede a reviewed local apply."
+          ],
+          "expected": "dev18/output/dev.txt exists and local state contains module.notice.local_file.notice.",
+          "troubleshoot": "If the file is created in the shared module directory, review output_dir: it must be the caller's path.root/output.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Explain inputs, output, root ownership and why the module has no cloud credentials."
+    },
+    {
+      "title": "Bootstrap the backend",
+      "purpose": "Run in the dev18 terminal after checking the sandbox and cost worksheet. Keep the backend bucket through week 20.",
+      "commands": [
+        {
+          "code": "export AWS_PROFILE=devopps-provisioner AWS_REGION=us-east-1 AWS_PAGER=\"\"\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\nACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)\nSTATE_BUCKET=\"devopps-state-$ACCOUNT_ID-$(date +%s)\"\naws s3api create-bucket --bucket \"$STATE_BUCKET\" --region \"$AWS_REGION\"\naws s3api put-public-access-block --bucket \"$STATE_BUCKET\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true\naws s3api put-bucket-versioning --bucket \"$STATE_BUCKET\" --versioning-configuration Status=Enabled\naws s3api put-bucket-encryption --bucket \"$STATE_BUCKET\" --server-side-encryption-configuration '{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}'\nprintf \"%s\\n\" \"$STATE_BUCKET\" > ../../evidence/week-18/backend-bucket.txt",
+          "explain": [
+            "Use provisioning access only to create the backend. The globally unique bucket stays private, keeps object versions and uses S3-managed encryption at rest.",
+            "The evidence file stores a bucket identifier, not credentials. Record its Region, owner, expiry and cleanup responsibility."
+          ],
+          "expected": "A private versioned encrypted bucket and recorded name.",
+          "troubleshoot": "Inspect each command before continuing. If versioning is newly enabled, allow its documented propagation time before writing state; verify Status=Enabled.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Separate backend lifecycle from the environments it stores; deleting it before destroy loses normal ownership evidence."
+    },
+    {
+      "title": "Generate environment access policies",
+      "purpose": "The administrator adds each generated policy to the matching Identity Center permission set and provisions it to this account. Do not grant the dev role the stage policy.",
+      "commands": [
+        {
+          "code": "export STATE_BUCKET\npython3 - <<'PY'\nimport json,os\nfrom pathlib import Path\nb=os.environ[\"STATE_BUCKET\"]\nfor env in (\"dev\",\"stage\"):\n    base=f\"arn:aws:s3:::{b}\"; key=f\"{base}/{env}/terraform.tfstate\"\n    policy={\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":base},{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\"],\"Resource\":key},{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":key+\".tflock\"}]}\n    Path(f\"../../evidence/week-18/{env}-state-policy.json\").write_text(json.dumps(policy,indent=2))\nPY\ncat ../../evidence/week-18/dev-state-policy.json\naws configure sso --profile devopps-dev\naws configure sso --profile devopps-stage",
+          "explain": [
+            "Python generates exact resource ARNs from the real bucket name. Each role can list bucket key names, read/write only its own state, and read/write/delete only its own lock. State DeleteObject is not granted.",
+            "cat lets you inspect the dev policy. Configure each profile with its own matching permission-set assignment in the SSO wizard. Listing key names is a deliberate metadata allowance; object content remains separately restricted."
+          ],
+          "expected": "Two distinct role profiles and separately provisioned object-scoped policies.",
+          "troubleshoot": "If both profiles resolve to the same broad role, no environment authorization boundary has been established. Do not claim isolation from names alone.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record permission-set identity and explain why deleting a lock needs a different action from updating state."
+    },
+    {
+      "title": "Migrate development and initialize staging",
+      "purpose": "Do not copy state between environments.",
+      "commands": [
+        {
+          "code": "cat > backend.tf <<'EOF'\nterraform { backend \"s3\" {} }\nEOF\ncat > dev.tfbackend <<EOF\nbucket = \"$STATE_BUCKET\"\nkey = \"dev/terraform.tfstate\"\nregion = \"us-east-1\"\nencrypt = true\nuse_lockfile = true\nEOF\nexport AWS_PROFILE=devopps-dev\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\nterraform init -migrate-state -backend-config=dev.tfbackend\nterraform state list\nterraform plan\ncp main.tf ../stage18/main.tf\nsed -i 's/environment = \"dev\"/environment = \"stage\"/' ../stage18/main.tf\ncp backend.tf ../stage18/backend.tf\nsed 's#dev/terraform.tfstate#stage/terraform.tfstate#' dev.tfbackend > ../stage18/stage.tfbackend\ncd ../stage18\nexport AWS_PROFILE=devopps-stage\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\nterraform init -backend-config=stage.tfbackend\nterraform plan -out=stage.tfplan\nterraform show -no-color stage.tfplan\nterraform apply stage.tfplan",
+          "explain": [
+            "The partial backend block contains no credentials. The unquoted heredoc expands only the known bucket name; the key distinguishes this environment. init -migrate-state asks to copy the existing local state into the configured backend; read its prompt before answering yes.",
+            "state list and plan verify development ownership survived migration. cp transfers configuration only. sed changes the exact environment/key in the staging copies.",
+            "The stage identity initializes a new state and creates its separate local file. Its message still uses the root default; change it explicitly later if desired."
+          ],
+          "expected": "Dev has a no-change plan; staging creates only stage18/output/stage.txt in its own state.",
+          "troubleshoot": "Do not use -reconfigure to bypass a migration question while ignoring existing state. Check backend bucket/key and caller before confirming migration.",
+          "shell": "bash"
+        },
+        {
+          "code": "cd ~/dev-opps-lab/infra/stage18\numask 077\naws sts get-caller-identity --profile devopps-dev\naws s3api get-object --profile devopps-dev --bucket \"$STATE_BUCKET\" --key stage/terraform.tfstate ../../evidence/week-18/unexpected-stage-state.json",
+          "explain": [
+            "Use the exact staging object after it exists. The dev identity must be unable to read its contents. umask077 restricts any unexpectedly downloaded file; never publish state as evidence. This command is expected to return nonzero, so inspect the actual error category."
+          ],
+          "expected": "AccessDenied for the known stage state object; the caller is the dev role.",
+          "troubleshoot": "NoSuchKey is not authorization-isolation proof. If the read succeeds, stop the exercise, keep the file private, inspect the permission-set policies and repair the scope before claiming separation.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Attempt a dev-role read of the stage object and expect AccessDenied; record it as the environment-isolation check."
+    }
+  ],
+  "failure": {
+    "title": "Two operators attempt to write one state",
+    "boundary": "Development's local file and S3 state only; never force-unlock an active operation.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-lab/infra/dev18\nexport AWS_PROFILE=devopps-dev AWS_REGION=us-east-1\nterraform apply -var=message=\"Concurrent change under review\"",
+        "explain": [
+          "In terminal A, start an interactive apply that proposes a message change and leave it waiting at approval. Do not type yes yet."
+        ],
+        "expected": "A plan and approval prompt; the operation holds its state lock.",
+        "troubleshoot": "If there is no change/prompt, choose a new message. If this Terraform version releases the lock earlier, observe actual behavior and use a real active apply window rather than asserting a fabricated conflict.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "cd ~/dev-opps-lab/infra/dev18\nexport AWS_PROFILE=devopps-dev AWS_REGION=us-east-1\nterraform plan -lock-timeout=5s",
+        "explain": [
+          "In terminal B, the second operation waits at most five seconds for this same backend lock."
+        ],
+        "expected": "A lock acquisition error identifying the conflicting operation, while A remains active.",
+        "troubleshoot": "If it succeeds, verify both terminals use the same bucket/key and that A is still active; successful observation is not lock-failure proof.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "The lock prevents simultaneous state writers, not every human mistake.",
+      "Never delete the .tflock object or use force-unlock while the owner is active."
+    ],
+    "answer": {
+      "explanation": [
+        "The backend serializes operations using a lock object. The second operator should wait or cancel, not bypass the lock. A stale-lock recovery requires proving the original writer has stopped and understanding the consequences."
+      ],
+      "recover": [
+        {
+          "code": "terraform plan -lock-timeout=5s",
+          "explain": [
+            "First type no at terminal A's prompt, allowing it to release the lock. Then rerun this command in B."
+          ],
+          "expected": "The plan now reads state normally.",
+          "troubleshoot": "If the lock persists, confirm A's actual process status and inspect lock metadata; do not assume an observation timeout means A is dead.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "terraform state list\nterraform plan -detailed-exitcode",
+        "explain": [
+          "Read the tracked resource and compare desired configuration after the canceled change."
+        ],
+        "expected": "Ownership is intact and the default configuration has no unexpected changes.",
+        "troubleshoot": "Investigate any difference rather than forcing state to match an assumed result.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why are workspaces not a security boundary?",
+      "hint": "Credentials can cross names.",
+      "answer": "A caller with broad backend/resource permissions can access other workspace state. Independent identities and scoped policies enforce authorization."
+    },
+    {
+      "prompt": "Why keep state object versions?",
+      "hint": "Human mistakes and recovery.",
+      "answer": "They preserve historical state candidates, but restoration must consider live resources and current writers. Blind rollback can misrepresent real infrastructure."
+    },
+    {
+      "prompt": "What does a module hide?",
+      "hint": "Interface, not responsibility.",
+      "answer": "It organizes reusable resources and exposes inputs/outputs. The caller still owns privileges, cost, lifecycle and recovery."
+    }
+  ],
+  "exercise": {
+    "brief": "Demonstrate a useful module interface and environment denial.",
+    "constraints": [
+      "Do not broaden policies.",
+      "No state copy between environments."
+    ],
+    "deliverables": [
+      "Module README with valid inputs/outputs.",
+      "An invalid environment validation error.",
+      "Dev-role denied read of stage state and both role identities."
+    ],
+    "acceptance": [
+      "Dev cannot read stage object contents.",
+      "Each root converges independently.",
+      "Lock behavior is observed or explicitly pending, never assumed."
+    ],
+    "hints": [
+      "Temporarily set environment=production in a copied local test root to see validation.",
+      "Use aws s3api get-object with the exact stage key and dev profile; write only to a private temporary evidence file if it unexpectedly succeeds."
+    ],
+    "solution": [
+      "Reject invalid environment values at the child variable. Test identity separation on the real objects and remove any accidentally downloaded state from public evidence."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab/infra/stage18\nexport AWS_PROFILE=devopps-stage AWS_REGION=us-east-1\nterraform plan -destroy -out=destroy.tfplan\nterraform show -no-color destroy.tfplan\nterraform apply destroy.tfplan\ncd ../dev18\nexport AWS_PROFILE=devopps-dev\nterraform plan -destroy -out=destroy.tfplan\nterraform show -no-color destroy.tfplan\nterraform apply destroy.tfplan",
+      "explain": [
+        "Destroy only each environment's local files through its own state and identity. Retain backend versions and configuration deliberately through week 20; record that small ongoing storage cost."
+      ],
+      "expected": "Both roots own no live local file; private backend remains inventoried.",
+      "troubleshoot": "Never remove the backend while live resources still need it. Week 20's closeout includes backend retirement after evidence retention decisions.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Terraform S3 backend",
+      "url": "https://developer.hashicorp.com/terraform/language/backend/s3",
+      "usedFor": "Opt-in S3 locking, object permissions, encryption and versioning."
+    },
+    {
+      "title": "State locking",
+      "url": "https://developer.hashicorp.com/terraform/language/state/locking",
+      "usedFor": "Concurrent writers and force-unlock limits."
+    },
+    {
+      "title": "Terraform modules",
+      "url": "https://developer.hashicorp.com/terraform/language/modules",
+      "usedFor": "Root and child module responsibilities."
+    },
+    {
+      "title": "terraform init",
+      "url": "https://developer.hashicorp.com/terraform/cli/commands/init",
+      "usedFor": "Migration versus reconfiguration."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "getsops/sops",
+      "principle": "Storage protection and access are distinct",
+      "application": "State encryption does not replace scoped role permissions or safe handling of decrypted content.",
+      "url": "https://github.com/getsops/sops"
+    },
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Prove the negative case",
+      "application": "The dev-to-stage denial tests the claimed environment boundary.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    }
+  ],
+  "notes": [
+    "S3 locking/access checks need an actual learner sandbox run; local-only mode cannot establish them. No cloud operations were performed during authoring."
+  ],
+  "freeTrack": {
+    "title": "Separate real Terraform environments locally",
+    "objective": "Build two independent Terraform roots and show that state and outputs belong to a specific environment.",
+    "prerequisites": [
+      "Complete week 17 using installed Terraform and the local provider. No AWS credentials or backend bucket is needed."
+    ],
+    "commands": [
+      {
+        "code": "mkdir -p ~/dev-opps-lab/infra/free18/{dev,stage}\ncd ~/dev-opps-lab/infra/free18\npython3 - <<'PY'\nfrom pathlib import Path\nfor env in (\"dev\", \"stage\"):\n    p = Path(env) / \"main.tf\"\n    if p.exists():\n        raise SystemExit(f\"{p} exists; inspect it instead of overwriting\")\n    p.write_text('''terraform {\n  required_version = \">= 1.10, < 2.0\"\n  required_providers { local = { source = \"hashicorp/local\", version = \"~> 2.5\" } }\n}\nresource \"local_file\" \"notice\" {\n  filename = \"${path.module}/notice.txt\"\n  content = \"Environment: ENV\\\\n\"\n  file_permission = \"0600\"\n}\n'''.replace(\"ENV\", env))\nPY\nfor environment in dev stage; do\n  terraform -chdir=\"$environment\" init || break\n  terraform -chdir=\"$environment\" validate || break\n  terraform -chdir=\"$environment\" plan -out=reviewed.tfplan || break\n  terraform -chdir=\"$environment\" show -no-color reviewed.tfplan || break\ndone",
+        "explain": [
+          "Create two dedicated roots. Python refuses to overwrite an existing main.tf and writes an environment-specific local_file resource.",
+          "-chdir selects the exact root before Terraform runs. init downloads the local provider; validate checks configuration; plan saves a candidate; show displays it before apply.",
+          "Each root has its own terraform.tfstate and lock file. The same resource address in two states represents two separately managed files. This is logical separation, not an operating-system permission boundary."
+        ],
+        "expected": "Both roots validate and produce saved plans containing only their own notice.txt resource. No apply has happened yet.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      },
+      {
+        "code": "cd ~/dev-opps-lab/infra/free18\nread -r -p 'After reviewing both local-only plans, type apply: ' REVIEWED\n[ \"$REVIEWED\" = apply ] || exit 1\nterraform -chdir=dev apply reviewed.tfplan || exit 1\nterraform -chdir=stage apply reviewed.tfplan || exit 1\ncat dev/notice.txt stage/notice.txt\nterraform -chdir=dev state list\nterraform -chdir=stage state list",
+        "explain": [
+          "The prompt creates a deliberate review boundary. Read each saved plan before approving these two local file changes.",
+          "Apply uses the exact saved plan in each root. cat reads the resulting files; state list shows each separately managed resource."
+        ],
+        "expected": "The two notices name their distinct environments, and each state lists local_file.notice.",
+        "troubleshoot": "If a plan is stale or a prerequisite fails, stop and generate/review a new plan for that root; do not bypass the error."
+      }
+    ],
+    "acceptance": [
+      "Show distinct root/state/output paths and explain why one shared state would mix ownership.",
+      "Change only dev content, review its plan, and verify stage remains unchanged.",
+      "Keep state and saved plans out of public Git; preserve reviewed .terraform.lock.hcl."
+    ],
+    "limits": "Local roots do not establish remote S3 permissions or distributed lock behavior. Run the optional provider branch only to prove those specific capabilities.",
+    "cleanup": "Run terraform -chdir=dev plan -destroy and terraform -chdir=stage plan -destroy from free18 to review removal. Apply destroy interactively only to these two local roots after preserving evidence."
+  }
+}

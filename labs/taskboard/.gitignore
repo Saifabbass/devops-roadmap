@@ -1,0 +1,10 @@
+.venv/
+.tmp/
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+!.env.example
+*.dump
+reports/
+evidence/*.json

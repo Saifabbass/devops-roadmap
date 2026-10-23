@@ -1,0 +1,270 @@
+{
+  "week": 51,
+  "introduction": [
+    "Run the final candidate through a deployment failure, a dependency failure and a data-recovery scenario. The system and operating procedure are both under review: a late update, unclear ownership or missing credential can make a technically recoverable service operationally unusable.",
+    "A reviewer should select the order and observe without giving the cause away. Without a reviewer, randomize the prepared scenarios and label the run a prepared self-review. Do not describe a fault you just authored as a genuinely blind incident.",
+    "Collect baseline, fault and recovery intervals separately and in total. A green process dashboard must not hide wrong task data, missing operations or duplicated creations."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash; learner application at ~/dev-opps-lab/app/taskboard, copied and explained in week 3.",
+    "Docker Engine with Linux containers and Compose v2; the authenticated stage 07 lab from weeks 6–8 is working. Verify docker version shows a server.",
+    "Use only synthetic tasks in the private local lab. Record prior evidence; do not mark unrun checks passed.",
+    "Week 50 accepted candidate identity and a tested previous artifact; week 44 independent recovery artifacts.",
+    "Declared workload, RTO/RPO and stop conditions from week 49.",
+    "Use only the disposable lab; never load-test somebody else's service or change a shared cluster."
+  ],
+  "concepts": [
+    {
+      "title": "The incident timeline includes the operator",
+      "paragraphs": [
+        "Record detection, first hypothesis, evidence, mitigation, useful recovery and communication. Keep incorrect hypotheses because they explain time spent and improve the next runbook.",
+        "A process can remain alive while its business routes fail. A restart can remove symptoms without fixing the underlying dependency. Validate the user operation and stored data after mitigation."
+      ],
+      "example": "A server returning 200 for a directory listing is not a working Taskboard task endpoint.",
+      "judgment": "Do not hide failure intervals from the final latency/error report; publish separate and total measurements."
+    },
+    {
+      "title": "Load testing needs a declared interpretation",
+      "paragraphs": [
+        "The bundled sampler is closed-loop: each client waits for its response before issuing another request. When latency rises, offered load can fall. This measures behavior at fixed clients, not maximum sustainable arrival rate.",
+        "Its 60 second warmup and 300 second measurement use 1000 tasks,10 clients and a 90/10 read/completion mix. Already completed tasks make many writes repeats; report changed and repeated counts rather than implying all writes did new work."
+      ],
+      "example": "A lower error rate at half the achieved throughput may reflect backpressure, not improved capacity.",
+      "judgment": "A single short sample does not prove availability over a month or resilience to an untested regional fault."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Prepare an observation timeline and randomized order",
+      "purpose": "Write recovery decisions before injecting anything.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nmkdir -p ../../evidence/week-51\npython - <<'PY'\nimport random\nfrom pathlib import Path\nscenarios=[\"deployment\",\"dependency\",\"data-recovery\"];random.shuffle(scenarios)\nPath(\"../../evidence/week-51/scenario-order.txt\").write_text(\" / \".join(scenarios))\nprint(\"Prepared scenario order recorded. A reviewer should read it and operate the selected faults.\")\nPY\ndate -u +%FT%TZ > ../../evidence/week-51/start.txt\ndocker compose ps",
+          "explain": [
+            "random.shuffle changes the order, not the nature of the prepared faults. The reviewer can keep the record hidden until diagnosis.",
+            "Record UTC and current process state. Confirm known-good image, backup access and stop condition before continuing."
+          ],
+          "expected": "A prepared review plan and baseline.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "State whether this is peer review or prepared self-review."
+    },
+    {
+      "title": "2 · Measure before the faults",
+      "purpose": "Record the declared workload and preserve failures.",
+      "commands": [
+        {
+          "code": "set -a\nsource .env\nset +a\npython tools/load_sample.py --output ../../evidence/week-51/baseline.json",
+          "explain": [
+            "Export only your own lab configuration. Defaults run the exact defined workload and save errors/percentiles/throughput plus changed/repeated completions."
+          ],
+          "expected": "A full baseline report.",
+          "troubleshoot": "If a quick harness check is needed first, use --warmup3 --seconds 10 explicitly and label that shorter result a smoke sample."
+        }
+      ],
+      "checkpoint": "Record hardware, image, dataset and all timing overrides."
+    },
+    {
+      "title": "3 · Exercise each scenario through its actual boundary",
+      "purpose": "Run one fault at a time, recovering before the next.",
+      "commands": [
+        {
+          "code": "cat > reports/bad-release.yaml <<'YAML'\nservices:\n  app:\n    command: [python, -m, http.server, '8000', --bind, 0.0.0.0, --directory, /tmp]\nYAML\ndocker compose -f compose.yaml -f reports/bad-release.yaml up -d --no-deps app\ncurl --max-time 5 -i http://127.0.0.1:8000/tasks\ndocker compose ps\ndocker compose up -d --no-deps app\ncurl --retry 10 --retry-delay 1 --retry-connrefused --max-time 5 -fsS http://127.0.0.1:8000/readyz",
+          "explain": [
+            "The override changes only the disposable app command to a generic HTTP server. It is a process that can run, but it does not implement Taskboard. --no-deps avoids changing the database.",
+            "Observe the wrong business response and process state. Reapplying the originalCompose configuration restores the declared command without rebuilding the image.",
+            "After restoring the original command, the bounded read-only readiness request waits for actual startup before the next drill."
+          ],
+          "expected": "Wrong business endpoint detected; original app configuration restored.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        },
+        {
+          "code": "python tools/compose_drill.py\npython tools/restore_check.py",
+          "explain": [
+            "The first helper restarts components and injects a bounded DB outage, validating 503/readiness/liveness and unchanged committed state.",
+            "The second restores into a new database and compares all stored fields. Complete week 42's restored HTTP listener check before claiming useful recovery."
+          ],
+          "expected": "Separate dependency and meaningful data-recovery evidence.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Record affected operations, data gap, actual useful recovery time and communication."
+    },
+    {
+      "title": "4 · Retest the highest-risk improvement",
+      "purpose": "A remediation is complete only when the original failure is re-exercised.",
+      "commands": [
+        {
+          "code": "python tools/load_sample.py --output ../../evidence/week-51/retest.json\npython -m pytest tests/contract -q\ndate -u +%FT%TZ > ../../evidence/week-51/end.txt",
+          "explain": [
+            "Repeat comparable load conditions after the selected fix, then recheck contract boundaries.",
+            "Record the end UTC and write which original failure was retested; unrelated green tests are not proof of remediation."
+          ],
+          "expected": "Comparable report and a specific retest result.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Rank follow-up work by user/data/security risk, not by ease of implementation."
+    }
+  ],
+  "failure": {
+    "title": "Healthy process, wrong business endpoint",
+    "boundary": "Only the local app command override.",
+    "inject": [
+      {
+        "code": "docker compose -f compose.yaml -f reports/bad-release.yaml up -d --no-deps app",
+        "explain": [
+          "Apply the prepared invalid deployment command on the disposable service."
+        ],
+        "expected": "Process starts but Taskboard behavior fails.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "docker compose ps\ncurl --max-time 5 -i http://127.0.0.1:8000/livez\ncurl --max-time 5 -i http://127.0.0.1:8000/tasks",
+        "explain": [
+          "Compare process state, health route and business route; do not infer behavior from container running."
+        ],
+        "expected": "Business/health contract fails despite a live process.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "What command is the container actually running?",
+      "A healthy TCP connection is not an application contract."
+    ],
+    "answer": {
+      "explanation": [
+        "The release selected a generic HTTP server command. Restore the reviewed configuration with the same retained artifact and run an authenticated business smoke test. A rebuild is unnecessary and would weaken rollback traceability."
+      ],
+      "recover": [
+        {
+          "code": "docker compose up -d --no-deps app",
+          "explain": [
+            "Apply the original declared command/configuration."
+          ],
+          "expected": "Taskboard starts again.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "docker compose --profile test run --rm system",
+        "explain": [
+          "Run the real HTTP contract against the recovered app."
+        ],
+        "expected": "System suite passes.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What failed even if the service recovered?",
+      "hint": "Review the operator timeline.",
+      "answer": "Detection, communication, access or documentation can still have failed. Record those causes and retest their improvements."
+    },
+    {
+      "prompt": "Why retain fault intervals in totals?",
+      "hint": "What experience did users have?",
+      "answer": "Excluding them misrepresents reliability. Publish baseline/fault/recovery segments and an honest whole-run result."
+    },
+    {
+      "prompt": "Can completion traffic overstate new work?",
+      "hint": "How many tasks were already complete?",
+      "answer": "Yes. Report state-changing versus repeated completions; the idempotent result is useful but represents different database work."
+    }
+  ],
+  "exercise": {
+    "brief": "Produce one complete incident report and a prioritized remediation backlog.",
+    "constraints": [
+      "All three scenario classes are exercised.",
+      "No private credentials in reports.",
+      "Peer versus prepared self-review is labeled."
+    ],
+    "deliverables": [
+      "Impact/timeline/hypotheses/evidence/recovery report.",
+      "Comparable load results and one highest-risk remediation retest."
+    ],
+    "acceptance": [
+      "RTO/RPO and workload results use timestamps and real values.",
+      "Lost/duplicate operations are investigated, not hidden.",
+      "The fix is tested against its original failure."
+    ],
+    "hints": [
+      "Record a concise status update at defined intervals.",
+      "Use known task IDs to distinguish recovered data from newly created test data."
+    ],
+    "solution": [
+      "Observe, contain, recover user behavior, validate meaningful state, then investigate systemic causes and retest the most consequential change."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "rm -- reports/bad-release.yaml\ndocker compose ps",
+      "explain": [
+        "Remove only the deliberate override after recovery and confirm the original stack. Keep sanitized reports."
+      ],
+      "expected": "No stale fault configuration remains.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "SRE incident management",
+      "url": "https://sre.google/sre-book/managing-incidents/",
+      "usedFor": "Roles/timeline/communication."
+    },
+    {
+      "title": "SRE postmortems",
+      "url": "https://sre.google/sre-book/postmortem-culture/",
+      "usedFor": "Learning and concrete follow-up."
+    },
+    {
+      "title": "k6 workload models",
+      "url": "https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/",
+      "usedFor": "Closed-loop interpretation."
+    },
+    {
+      "title": "PostgreSQL recovery",
+      "url": "https://www.postgresql.org/docs/17/backup-dump.html",
+      "usedFor": "Separate-destination data checks."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "argoproj/argo-cd",
+      "principle": "Reconciliation makes desired state executable",
+      "application": "GitOps compares desired configuration in Git with cluster resources and reconciles differences. CI tests code and publishes an immutable image; a reviewed configuration change promotes that image. Drift correction, deletion and delivery are separate controls. An unrecorded emergency fix may be overwritten. Recovery should update desired state and separately account for database compatibility. Practice: In one namespace, change only replica count and compare self-heal off and on. Revert a bad image reference through Git. Keep pruning disabled until deletion effects are understood.",
+      "url": "https://github.com/argoproj/argo-cd"
+    },
+    {
+      "repo": "bytebase/bytebase",
+      "principle": "Schema changes must tolerate mixed app versions",
+      "application": "During a rolling release, old and new application versions coexist. Expand-and-contract first adds compatible schema, then backfills data, switches application use and later removes the old shape. Separate stages permit verification and forward repair. An approval process controls changes but cannot itself prove data is recoverable. Practice: Add an optional field while retaining the old field. Test both app versions against expanded schema, backfill synthetic records and document the condition required before any removal.",
+      "url": "https://github.com/bytebase/bytebase"
+    },
+    {
+      "repo": "bunkerity/bunkerweb",
+      "principle": "Edge filtering complements application correctness",
+      "application": "A WAF recognizes selected request patterns. Ownership of a user's task is business context enforced by the application. Keep authorization tests, then add edge controls and test legitimate and suspicious requests. Tune narrow false positives instead of disabling all rules. Practice: Retain two-user access tests. Run a local request corpus with valid punctuation and controlled suspicious strings, tune one false positive and rerun allowed and denied cases.",
+      "url": "https://github.com/bunkerity/bunkerweb"
+    },
+    {
+      "repo": "OneUptime/oneuptime",
+      "principle": "Incidents are a coordination loop",
+      "application": "Detection, acknowledgement, mitigation, communication and learning belong together. Alerts need user impact, evidence and a first safe diagnostic action. Record failure onset, detection, changes and verified recovery. Separate facts from hypotheses in status updates. Follow-up work needs an owner and a test proving improvement. Practice: Run a ten-minute local outage drill. Write two status updates, restore the service and deliver one tested follow-up. Installing a complete incident platform is unnecessary.",
+      "url": "https://github.com/OneUptime/oneuptime"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability is a measured promise",
+      "application": "Define a useful user action and measure success within a meaningful latency threshold. An SLO states the target over a window; an error budget describes allowed bad events. This makes release tradeoffs explicit. Alert on actionable conditions, write symptom runbooks and examine contributing conditions after incidents. Practice: Define a Taskboard SLI from success counts and latency. Calculate good/total from a sample, inject a brief failure and connect the alert to a runbook.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

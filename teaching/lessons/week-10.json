@@ -1,0 +1,248 @@
+{
+  "week": 10,
+  "introduction": [
+    "The release you test must be the release you select for deployment. Rebuilding during promotion breaks that chain because the bytes may change. This week gives the image an immutable registry identity and carries it explicitly between GitLab jobs.",
+    "The supplied full pipeline runs database integration, builds the runtime once, tests that digest through HTTP and retains a tested-digest record. Privileged image building uses a dedicated protected runner in a disposable VM, separate from ordinary untrusted MR checks."
+  ],
+  "prerequisites": [
+    "Week 9's private GitLab project and ordinary Linux Docker runner work.",
+    "Use ~/dev-opps-delivery as the CI repository; its root contains the application, Dockerfile and ci/gitlab-ci.yml.",
+    "Enable the project's container registry. Have a fresh disposable Ubuntu VM with Docker for the dedicated image-build runner; do not use a shared workstation.",
+    "Protect the default branch and review changes before merging. No cloud credentials are needed."
+  ],
+  "concepts": [
+    {
+      "title": "Artifacts express data flow; caches are optional acceleration",
+      "paragraphs": [
+        "An artifact is a declared job output needed by another job. Here image.env carries IMAGE_REF and tested-digest.txt records the successfully tested artifact. needs declares job dependencies and whether artifacts are downloaded.",
+        "A cache may be absent or stale. Correctness must not depend on it. Dependency installation still reads the reviewed lock. Do not put credentials or a required release identity only in a cache."
+      ],
+      "example": "The build job passes a registry@sha256 reference through a dotenv artifact. If the system job omits that artifact dependency, it should fail rather than silently rebuilding.",
+      "judgment": "Make required inputs explicit and fail when missing. A fallback build in the deployment job conceals broken provenance."
+    },
+    {
+      "title": "An image-building runner has substantial authority",
+      "paragraphs": [
+        "Docker-in-Docker needs a suitably configured executor. The sample uses TLS on port 2376 with a shared client-certificate volume. TLS protects the job-to-daemon connection; it does not make privileged execution harmless.",
+        "The dedicated runner accepts only its isolated-docker-tls tag and protected default-branch jobs from this learning project. Ordinary merge requests run lint/unit/integration checks elsewhere. Use a fresh VM for this exercise and retire it afterward; never give unreviewed forks this privileged runner."
+      ],
+      "example": "A protected runner does not make malicious code safe if a maintainer merges that code into the protected branch.",
+      "judgment": "Trust is a property of who can change the executed code and access the runner, not the spelling of its tag."
+    },
+    {
+      "title": "Build once, then test the actual digest",
+      "paragraphs": [
+        "The build job pushes a commit tag, resolves the registry digest, and exports that reference. The system job pulls it, starts PostgreSQL, applies migrations and runs that exact runtime. A separate test-runner image contains test tools and is never promoted as the application.",
+        "The manual promotion-record job retains approval evidence. It does not deploy to an unspecified host. Week 12 adds an actual private target, serialized deployment and stale-job rejection."
+      ],
+      "example": "Two job logs mentioning the same commit are weaker evidence than the build, test and selection records containing the same registry digest.",
+      "judgment": "Compare artifact identity directly. Version metadata is useful, but a label alone is not cryptographic content identity."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Prepare the protected image runner",
+      "purpose": "On a fresh Ubuntu VM with Docker, create a project runner in GitLab Settings → CI/CD → Runners. Set tag isolated-docker-tls, disable untagged jobs, lock it to this project and select Protected. Copy its authentication token privately. Keep your ordinary nonprivileged runner for MR jobs.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-runner-setup\ncd ~/dev-opps-runner-setup\ncurl --fail --location https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh --output repository-setup.sh\nless repository-setup.sh",
+          "explain": [
+            "Create a dedicated setup directory. curl downloads GitLab's official repository-configuration script without executing it.",
+            "less lets you inspect the script; press q to leave. It configures package sources/signing material for this distribution. Verify its origin and intended repository before running the next block."
+          ],
+          "expected": "A readable vendor repository setup script saved locally.",
+          "troubleshoot": "If download or TLS verification fails, resolve that failure; do not disable certificate verification."
+        },
+        {
+          "code": "sudo bash repository-setup.sh\nsudo apt-get install -y gitlab-runner\nsudo gitlab-runner register",
+          "explain": [
+            "Run the inspected repository setup, then install the vendor runner package.",
+            "The interactive registration asks for your GitLab instance URL, the newly created runner authentication token, description and executor. Use description devopps-image-runner, executor docker and default image docker:28-cli. Keep the token out of notes and screenshots."
+          ],
+          "expected": "Registration succeeds and the runner appears in your project's runner list.",
+          "troubleshoot": "Confirm you used the new runner authentication token, not an unrelated access token. Registration alone does not configure Docker TLS sharing."
+        },
+        {
+          "code": "sudo python3 - <<'PY' || exit 1\nfrom pathlib import Path\nimport tomllib\np = Path('/etc/gitlab-runner/config.toml')\ns = p.read_text()\nconfig = tomllib.loads(s)\nassert len(config.get('runners', [])) == 1\nassert config['runners'][0]['name'] == 'devopps-image-runner'\nassert s.count('privileged = false') == 1\nassert s.count('volumes = [\"/cache\"]') == 1\ns = s.replace('privileged = false', 'privileged = true')\ns = s.replace('volumes = [\"/cache\"]', 'volumes = [\"/certs/client\", \"/cache\"]')\nbackup = p.with_suffix('.toml.devopps-original')\nwith backup.open('x', encoding='utf-8') as saved:\n    saved.write(p.read_text(encoding='utf-8'))\np.write_text(s, encoding='utf-8')\nPY\nsudo systemctl restart gitlab-runner\nsudo gitlab-runner verify",
+          "explain": [
+            "The Python block parses the fresh runner configuration, verifies there is exactly one intended runner and asserts the expected settings before changing them.",
+            "privileged=true enables this dedicated Docker executor's privileged service execution. The certificate volume lets the job use the dind service's TLS client certificates.",
+            "Restart reloads configuration; verify checks registration connectivity. It does not prove an image pipeline yet.",
+            "Before writing, the block creates one exclusive local backup beside the private runner configuration. An existing backup stops the edit; do not publish either file because registration tokens may be present.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "The dedicated runner is online, protected, project-locked and tagged correctly.",
+          "troubleshoot": "If an assertion fails, inspect the configuration privately and compare its actual structure. Do not broadly replace settings on a host running other projects."
+        }
+      ],
+      "checkpoint": "Record the runner's scope and VM identity without copying its token or config file."
+    },
+    {
+      "title": "Install and explain the full pipeline",
+      "purpose": "Back in ~/dev-opps-delivery, use the included complete YAML. Read the graph before committing it.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-delivery\ngit switch -c delivery/build-once || exit 1\ncp ci/gitlab-ci.yml .gitlab-ci.yml\ncat .gitlab-ci.yml\ngit add .gitlab-ci.yml\ngit commit -m 'Test and promote one immutable runtime image'\ngit push -u origin delivery/build-once",
+          "explain": [
+            "The branch contains a reviewable pipeline change. cp installs the supplied full example at GitLab's recognized filename; cat shows its complete commands.",
+            "lint/unit run ordinary checks. integration starts a separate PostgreSQL service, waits with a bounded connection helper and executes real SQL tests.",
+            "The Docker jobs use the dedicated tag and protected default-branch rule. docker login reads the job registry password through stdin; build/push/pull create and resolve one runtime artifact. image inspect exports its actual RepoDigest.",
+            "system generates disposable job credentials, creates a private network and database, waits for it, migrates explicitly, and starts IMAGE_REF. A separate tests image performs real HTTP checks. after_script copies sanitized JUnit output and removes job-local containers/network.",
+            "git add/commit/push publish the review branch. Merge only after ordinary checks and human review; the protected default-branch pipeline then runs the privileged jobs.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "A graph with lint/unit/integration, build, system and manual promotion record. The protected pipeline reaches the manual approval after real system success.",
+          "troubleshoot": "A pending image job requires matching protected/tagged runner configuration. Never remove the protected boundary merely to make the job start."
+        }
+      ],
+      "checkpoint": "Explain every job's inputs, credentials, outputs and cleanup."
+    },
+    {
+      "title": "Compare the artifact identity end to end",
+      "purpose": "In GitLab, open the successful protected pipeline. Download image.env from build and tested-digest.txt from system into a new local evidence folder. They contain artifact identifiers, not deployment secrets.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-delivery\nmkdir -p reports/week10\nread -r -p 'Path to downloaded image.env: ' IMAGE_ENV_FILE\nread -r -p 'Path to downloaded tested-digest.txt: ' TESTED_FILE\npython3 - \"$IMAGE_ENV_FILE\" \"$TESTED_FILE\" <<'PY' || exit 1\nfrom pathlib import Path\nimport re,sys\nline = Path(sys.argv[1]).read_text().strip()\nassert line.startswith('IMAGE_REF=')\nbuilt = line.partition('=')[2]\ntested = Path(sys.argv[2]).read_text().strip()\nassert re.fullmatch(r'[^\\s]+@sha256:[0-9a-f]{64}', built)\nassert built == tested\nPath('reports/week10/tested-digest.txt').write_text(tested + '\\n')\nprint('Build and system test identify the same immutable artifact.')\nPY",
+          "explain": [
+            "read obtains actual download paths. The Python block reads text as data, never sources the downloaded file as shell code.",
+            "It validates the digest format and exact equality, then saves the verified reference in your evidence folder.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "The build and system records match exactly.",
+          "troubleshoot": "If artifacts expired, rerun the required pipeline and retain new evidence. Do not reconstruct a guessed digest from a tag name."
+        }
+      ],
+      "checkpoint": "Approve the promotion-record job only after inspecting the matching identity and actual system-test result."
+    }
+  ],
+  "failure": {
+    "title": "Omit the required image artifact dependency",
+    "boundary": "Use a reviewed practice change only in the private learning project. It intentionally breaks the protected pipeline's system job and has no automatic deployment target.",
+    "inject": [
+      {
+        "code": "git switch -c practice/missing-image-artifact || exit 1\npython3 - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('.gitlab-ci.yml')\ns = p.read_text()\nold = '- job: build\\n      artifacts: true'\nassert s.count(old) == 1\np.write_text(s.replace(old, '- job: build\\n      artifacts: false'))\nPY\ngit add .gitlab-ci.yml\ngit commit -m 'Practice a missing release artifact dependency'\ngit push -u origin practice/missing-image-artifact",
+        "explain": [
+          "Create a specific practice branch and change only system's build-artifact download flag.",
+          "Review and merge this deliberate test change in the private project to exercise protected image jobs. Record its actual default-branch pipeline result before repairing it.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+        ],
+        "expected": "System lacks IMAGE_REF and fails rather than rebuilding or selecting an arbitrary tag.",
+        "troubleshoot": "Ordinary MR checks cannot exercise the protected image path. Record that distinction instead of claiming the fault was observed before that pipeline ran."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "git diff HEAD~1 HEAD -- .gitlab-ci.yml",
+        "explain": [
+          "Inspect the exact dependency change and compare it with the system job's missing-input log. Do not print registry credentials."
+        ],
+        "expected": "The only intended change is artifacts:true becoming false for build → system.",
+        "troubleshoot": "If IMAGE_REF comes from an unrelated project variable, remove that hidden dependency from the lab design and repeat the test."
+      }
+    ],
+    "hints": [
+      "needs ordering and artifact transfer are related but distinct settings.",
+      "A missing release identity should stop selection."
+    ],
+    "answer": {
+      "explanation": [
+        "The build still produces an image, but its explicit data flow is broken. Restore the artifact dependency through a reviewed repair; do not add a fallback build to system or deploy."
+      ],
+      "recover": [
+        {
+          "code": "git switch -c repair/image-artifact || exit 1\npython3 - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('.gitlab-ci.yml')\ns = p.read_text()\nold = '- job: build\\n      artifacts: false'\nassert s.count(old) == 1\np.write_text(s.replace(old, '- job: build\\n      artifacts: true'))\nPY\ngit add .gitlab-ci.yml\ngit commit -m 'Restore explicit image artifact transfer'\ngit push -u origin repair/image-artifact",
+          "explain": [
+            "Create the repair branch from the current practice state, restore the exact dependency and submit it for review/merge.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "The repaired protected pipeline receives the produced IMAGE_REF.",
+          "troubleshoot": "Ensure the repair includes the actual current default-branch state before merging."
+        }
+      ],
+      "verification": {
+        "code": "git log --oneline -3",
+        "explain": [
+          "Record fault and repair commits, then compare the new build/system digest artifacts using the previous verification block."
+        ],
+        "expected": "A failed missing-input pipeline followed by a passing exact-digest system run.",
+        "troubleshoot": "Do not treat a passing unit job as proof the artifact-transfer fault is repaired."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why is a dependency cache not a release artifact?",
+      "hint": "Can it be absent without changing correctness?",
+      "answer": "A cache should only accelerate a reproducible operation. Required release identity and test evidence must use declared artifacts with explicit producer/consumer relationships and retention."
+    },
+    {
+      "prompt": "What does dind TLS not solve?",
+      "hint": "Consider code running inside the privileged job.",
+      "answer": "TLS protects the connection to the daemon. It does not remove the authority of privileged code, stop malicious merged scripts or isolate an unsafe shared host. Runner scope and trusted-code review remain necessary."
+    },
+    {
+      "prompt": "Why is a separate test-runner image acceptable?",
+      "hint": "Which image is the application under test?",
+      "answer": "Test tools can be packaged separately as long as they send requests to the exact runtime digest later selected for deployment. The test image itself must never silently replace the application artifact."
+    }
+  ],
+  "exercise": {
+    "brief": "Produce a pipeline data-flow diagram and an evidence chain from commit to tested digest to manual approval record.",
+    "constraints": [
+      "No rebuild during artifact selection.",
+      "No untrusted MR on the privileged protected runner."
+    ],
+    "deliverables": [
+      "Graph, runner trust notes, matching digest records and missing-artifact failure/recovery evidence."
+    ],
+    "acceptance": [
+      "Database integration is real and isolated.",
+      "The runtime is built once and tested by digest.",
+      "Required missing inputs fail closed.",
+      "Retention and sanitized failure reports are documented."
+    ],
+    "hints": [
+      "Label artifacts and caches differently in your diagram."
+    ],
+    "solution": [
+      "Trace the exact IMAGE_REF through build's dotenv, system's pull/start and tested-digest.txt.",
+      "Prove the missing artifact stops the workflow and the repair restores the identity chain."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "sudo gitlab-runner stop",
+      "explain": [
+        "On the dedicated disposable runner VM, stop its service when not actively running the next lesson. Pause the corresponding runner in GitLab before retiring the VM; retain only sanitized evidence."
+      ],
+      "expected": "No new privileged jobs run on the stopped lab runner.",
+      "troubleshoot": "Do not stop an unrelated shared runner. Restart only this dedicated service with sudo gitlab-runner start when continuing the private lab."
+    }
+  ],
+  "references": [
+    {
+      "title": "GitLab runner installation",
+      "url": "https://docs.gitlab.com/runner/install/linux-repository/",
+      "usedFor": "Official package repository setup."
+    },
+    {
+      "title": "Runner registration",
+      "url": "https://docs.gitlab.com/runner/register/",
+      "usedFor": "Authentication-token registration and executor selection."
+    },
+    {
+      "title": "TLS Docker image builds",
+      "url": "https://docs.gitlab.com/ci/docker/using_docker_build/",
+      "usedFor": "Dedicated dind runner requirements."
+    },
+    {
+      "title": "Job artifacts",
+      "url": "https://docs.gitlab.com/ci/jobs/job_artifacts/",
+      "usedFor": "Explicit producer/consumer transfer and retention."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "The YAML is supplied and syntax-checked; real runner/registry jobs require the learner's GitLab environment. No cloud account is needed."
+  ]
+}

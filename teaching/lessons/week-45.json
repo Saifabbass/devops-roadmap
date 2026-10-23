@@ -1,0 +1,231 @@
+{
+  "week": 45,
+  "introduction": [
+    "Kubernetes components authenticate before an authorization policy decides what they may do. A certificate identifies a node, endpoint or client; it does not grant every operation. This week makes those relationships visible.",
+    "The inspected Hard Way prerequisites specify four Debian 12 AMD64/ARM64 machines: a jumpbox with 1 CPU, 512 MB RAM and 10 GB disk, plus server/node-0/node-1 each with 1 CPU, 2 GB RAM and 20 GB disk. Its current download list includes older and prerelease components. Treat it as an isolated internals study, record the exact commit and never assume those versions are current production recommendations.",
+    "The bounded scope is machine/commit inventory and a disposable certificate trust exercise. Complete inventory and jumpbox preparation on your four VMs when available. Without that hardware, do the local certificate preparation and explicitly mark VM/bootstrap steps unfinished; certificate study is not a completed Hard Way cluster."
+  ],
+  "prerequisites": [
+    "Earlier Linux/SSH and Kubernetes lessons; Git and OpenSSL in Ubuntu Bash.",
+    "Four isolated Debian 12 VMs with your existing non-root SSH account for the VM route. Verify SSH host keys from provisioning records.",
+    "Never change real cluster credentials, system trust stores, global SSH root-login policy or your default kubeconfig."
+  ],
+  "concepts": [
+    {
+      "title": "Trust is directed",
+      "paragraphs": [
+        "The API server presents a server certificate. A client checks its issuing CA and expected hostname/IP. Some clients present their own certificate; the API server maps that identity into authorization decisions.",
+        "The scheduler observes unscheduled Pods; controllers reconcile resources; kubelet operates one node. They communicate through the API using different identities. etcd holds control-plane state and needs tightly restricted access."
+      ],
+      "example": "A node-0 kubelet identity is different from a human administrator identity.",
+      "judgment": "Authentication, TLS endpoint validation and API authorization are distinct; successful TLS can still lead to 403."
+    },
+    {
+      "title": "A lab CA is powerful",
+      "paragraphs": [
+        "A CA private key can issue new identities trusted by that CA. Keep it short-lived, private and outside real trust stores. Our local files do not change any cluster.",
+        "Certificates have names, validity periods and intended uses. A valid signature alone does not establish that a certificate is appropriate for the requested endpoint."
+      ],
+      "example": "A trusted certificate for api.lab.invalid fails verification for wrong.lab.invalid.",
+      "judgment": "Managed control planes operate these mechanisms for you; understanding them does not mean self-managing every cluster is the best product decision."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Pin the study source",
+      "purpose": "Record what you inspected without installing its component binaries.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nmkdir -p evidence/week-45\ngit clone --depth 1 https://github.com/kelseyhightower/kubernetes-the-hard-way.git evidence/week-45/upstream\ngit -C evidence/week-45/upstream rev-parse HEAD > evidence/week-45/upstream-commit.txt\nsed -n '1,100p' evidence/week-45/upstream/docs/01-prerequisites.md\ncat evidence/week-45/upstream/downloads-amd64.txt",
+          "explain": [
+            "clone --depth1 retrieves one snapshot in a new study folder. rev-parse records its actual commit.",
+            "sed prints prerequisites. cat reveals component versions; use downloads-arm64.txt on ARM. Record beta/RC/unsupported versions rather than silently replacing the source claims."
+          ],
+          "expected": "An exact commit and component inventory; no cluster installed.",
+          "troubleshoot": "If the clone exists, inspect its recorded commit rather than overwriting prior work."
+        }
+      ],
+      "checkpoint": "Write completed, chosen and unfinished upstream sections."
+    },
+    {
+      "title": "2 · Inventory compatible disposable VMs",
+      "purpose": "This route completes the first bounded resource/jumpbox preparation steps.",
+      "commands": [
+        {
+          "code": "read -r -p \"Existing non-root VM account: \" LAB_USER\nread -r -p \"Jumpbox IP: \" JUMPBOX_IP\nread -r -p \"Server IP: \" SERVER_IP\nread -r -p \"Node0 IP: \" NODE0_IP\nread -r -p \"Node1 IP: \" NODE1_IP\nfor host in \"$JUMPBOX_IP\" \"$SERVER_IP\" \"$NODE0_IP\" \"$NODE1_IP\"; do ssh \"$LAB_USER@$host\" 'hostname; cat /etc/os-release; uname -m; free -m; df -h /'; done",
+          "explain": [
+            "Read actual existing VM addresses. Verify host-key fingerprints before accepting SSH trust.",
+            "The loop reads hostname, OS, architecture, memory and disk from each VM. Compare against the stated requirements."
+          ],
+          "expected": "Four compatible inventories.",
+          "troubleshoot": "If VMs are unavailable, mark this step unexecuted. The local preparation route is a narrower proof, not full completion."
+        },
+        {
+          "code": "ssh \"$LAB_USER@$JUMPBOX_IP\" 'sudo apt-get update && sudo apt-get install -y wget curl vim openssl git'",
+          "explain": [
+            "On the disposable jumpbox only, refresh package metadata and install the bounded preparation tools. && continues only if the update succeeds."
+          ],
+          "expected": "Prepared jumpbox, no Kubernetes binaries installed.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Save inventory and the exact bootstrap boundary reached."
+    },
+    {
+      "title": "3 · Issue and verify a lab endpoint certificate",
+      "purpose": "Everything stays in one private directory.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/evidence/week-45\nmkdir pki\ncd pki\numask 077\nopenssl req -x509 -newkey rsa:3072 -nodes -keyout ca.key -out ca.crt -days 2 -subj \"/CN=DevOpps disposable CA\"\nopenssl req -newkey rsa:3072 -nodes -keyout api.key -out api.csr -subj \"/CN=api.lab.invalid\"\nprintf \"subjectAltName=DNS:api.lab.invalid\\nextendedKeyUsage=serverAuth\\n\" > api.ext\nopenssl x509 -req -in api.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out api.crt -days 1 -extfile api.ext\nopenssl verify -CAfile ca.crt -verify_hostname api.lab.invalid api.crt\nopenssl x509 -in api.crt -noout -subject -issuer -dates -ext subjectAltName",
+          "explain": [
+            "mkdir refuses an already existing lab directory, avoiding accidental key replacement. umask restricts new files.",
+            "req -x509 creates the temporary CA; the second request creates an endpoint key/CSR. -nodes leaves this disposable key unencrypted on disk, so isolation and permissions matter; this is not a production key-management prescription.",
+            "The extension file declares the endpoint name and server-auth purpose. x509 signs for one day. verify checks chain and hostname; the final command prints public metadata only."
+          ],
+          "expected": "api.crt: OK and visible issuer, name and dates.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Draw credential, CA and required authorization on each component arrow."
+    }
+  ],
+  "failure": {
+    "title": "Trusted issuer, wrong endpoint",
+    "boundary": "Only local certificate verification.",
+    "inject": [
+      {
+        "code": "openssl verify -CAfile ca.crt -verify_hostname wrong.lab.invalid api.crt",
+        "explain": [
+          "Keep the same trusted CA but change the expected endpoint identity."
+        ],
+        "expected": "Hostname mismatch and nonzero exit.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "openssl x509 -in api.crt -noout -ext subjectAltName\nopenssl verify -CAfile ca.crt api.crt",
+        "explain": [
+          "Inspect names and separately test chain-only trust."
+        ],
+        "expected": "Chain passes; requested-name check failed.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "A trusted issuer does not certify every name.",
+      "Disabling verification would remove the identity boundary."
+    ],
+    "answer": {
+      "explanation": [
+        "Use the endpoint named in the approved certificate or issue a correctly named certificate through the proper CA process. Do not bypass TLS checks."
+      ],
+      "recover": [
+        {
+          "code": "openssl verify -CAfile ca.crt -verify_hostname api.lab.invalid api.crt",
+          "explain": [
+            "Verify the intended endpoint."
+          ],
+          "expected": "api.crt: OK.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "openssl x509 -in api.crt -noout -checkend 0",
+        "explain": [
+          "Check that the certificate is not currently expired."
+        ],
+        "expected": "Certificate is still valid now.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why not copy admin kubeconfig everywhere?",
+      "hint": "What authority would a compromised node inherit?",
+      "answer": "It would inherit broad administrator access. Node-specific identities and authorization limit the blast radius."
+    },
+    {
+      "prompt": "Does TLS success allow Pod creation?",
+      "hint": "Which check decides verbs and resources?",
+      "answer": "No. TLS establishes identity/trust; API authorization decides allowed operations in a namespace or cluster."
+    },
+    {
+      "prompt": "What must your upstream evidence label?",
+      "hint": "Preparation versus completed bootstrap.",
+      "answer": "Exact commit, versions, completed steps, hardware and unfinished scope. A version in a tutorial is not proof of current supported production deployment."
+    }
+  ],
+  "exercise": {
+    "brief": "Create a component trust map and test wrong-name plus simulated-expiry failures.",
+    "constraints": [
+      "Never alter real kubeconfigs or system CA trust.",
+      "Private keys stay out of Git/public evidence."
+    ],
+    "deliverables": [
+      "API server↔etcd, kubelet→API, scheduler/controller→API and human→API trust map.",
+      "Inventory and honest upstream completion checklist."
+    ],
+    "acceptance": [
+      "Each arrow names identity, trust anchor and required authorization.",
+      "Chain, name and expiry failures are distinguished."
+    ],
+    "hints": [
+      "openssl verify -attime accepts a future Unix timestamp for the disposable expiry simulation."
+    ],
+    "solution": [
+      "Inspect certificate metadata, verify the expected name and verification time, and explain which peer rejects the connection.",
+      "Continue upstream bootstrap only on compatible isolated VMs; keep convenience shortcuts separate from your production recommendation."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab/evidence/week-45/pki\nrm -- ca.key api.key api.csr ca.srl",
+      "explain": [
+        "Remove only disposable private material after saving public metadata."
+      ],
+      "expected": "Public certificates remain; private test keys removed.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "Hard Way prerequisites",
+      "url": "https://raw.githubusercontent.com/kelseyhightower/kubernetes-the-hard-way/master/docs/01-prerequisites.md",
+      "usedFor": "Machine requirements."
+    },
+    {
+      "title": "Hard Way jumpbox",
+      "url": "https://raw.githubusercontent.com/kelseyhightower/kubernetes-the-hard-way/master/docs/02-jumpbox.md",
+      "usedFor": "Bounded preparation and version inspection."
+    },
+    {
+      "title": "Kubernetes PKI",
+      "url": "https://kubernetes.io/docs/setup/best-practices/certificates/",
+      "usedFor": "Component certificate roles."
+    },
+    {
+      "title": "OpenSSL verify",
+      "url": "https://docs.openssl.org/3.0/man1/openssl-verify/",
+      "usedFor": "Chain/name/time verification."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "psviderski/uncloud",
+      "principle": "Choose orchestration by required failure behavior",
+      "application": "Multiple hosts introduce placement, networking, identity and state convergence. State what happens when a host disappears or hosts cannot communicate. A platform moves responsibilities without removing them. Compare VM, managed service and cluster against requirements and the team's operating capacity. Practice: Write a Taskboard decision with a host-loss scenario. Compare recovery ownership for three deployment models and label untested claims.",
+      "url": "https://github.com/psviderski/uncloud"
+    },
+    {
+      "repo": "kelseyhightower/kubernetes-the-hard-way",
+      "principle": "Follow identity through the control plane",
+      "application": "The API server accepts requests; controllers reconcile; the scheduler chooses nodes; kubelet runs assigned workloads; etcd stores control-plane state. Certificates and kubeconfigs connect responsibilities to identities. Manual setup exposes these boundaries. A small single-control-plane exercise does not establish resilient production design. Practice: Draw the request and identity path for Pod creation. Explain each component credential and observe one controlled fault in the bounded internals lab.",
+      "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

@@ -1,0 +1,262 @@
+{
+  "week": 23,
+  "phase": "Ansible and VM operations",
+  "title": "Harden and patch with evidence",
+  "outcome": "Improve a host baseline without breaking legitimate service behavior.",
+  "introduction": [
+    "A security audit produces leads, not a list of commands to apply blindly. This week selects changes based on the Taskboard VM threat model: the service should not rewrite system files, read home directories or create broadly readable temporary files; SSH administration should use a verified key and retain console recovery.",
+    "You will record a baseline, apply three justified controls, patch a bounded runtime package set and run real HTTP behavior tests. The deliberate failure removes only application-directory access on a disposable host. Recovery restores the minimum needed permission instead of making everything writable."
+  ],
+  "prerequisites": [
+    "Weeks 21–22 configured app1, port 8000, with verify.yml. Re-run site.yml with its Vault identity if the synthetic fixture was removed. Restore the base service before collecting baseline evidence.",
+    "Keep a verified existing SSH session and the VM console open. Open a second new key-authenticated SSH session successfully before changing SSH policy. If you cannot access the VM console, omit the SSH mutation, document it pending and do not claim the full hardening gate.",
+    "Make a powered-off local VM snapshot if supported, or prepare the week-14 recreation runbook for the paid AWS VM. Record package versions and current data limitations. Memory data is disposable; this lesson is not a backup procedure."
+  ],
+  "concepts": [
+    {
+      "title": "A finding needs applicability and proof",
+      "paragraphs": [
+        "Lynis inspects system configuration and reports warnings and suggestions. A finding identifier makes a useful evidence reference, but a higher score can conceal a worse service if the change blocks required work or removes recovery access.",
+        "For each selected finding, write the asset, plausible failure/attack, exact control, expected behavior and rollback. Mark irrelevant items with a reason. Do not claim a setting is a benchmark certification or that every finding must be eliminated."
+      ],
+      "example": "ProtectSystem=strict fits this memory app because it needs no persistent filesystem writes. It would need deliberate writable paths for another service.",
+      "judgment": "Use least required access and test the real workload after each change; no score proves absence of vulnerabilities."
+    },
+    {
+      "title": "Patching and rollback have different evidence",
+      "paragraphs": [
+        "A package upgrade changes executable bytes. The package manager can succeed while the process still runs old code or while new code breaks an API. Record installed versions, restart deliberately and run behavior tests through the actual listener.",
+        "A previous version may no longer be available from the configured repository. A snapshot/rebuild with known packages is a different recovery path from a guaranteed in-place downgrade. Do not promise rollback without rehearsing the available mechanism."
+      ],
+      "example": "If the installed and candidate versions match, the bounded upgrade is a no-op; report no update available instead of inventing a patch event.",
+      "judgment": "Keep dependency pins under reviewed updates. Pinning forever trades reproducibility for accumulating known defects."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Audit and select changes",
+      "purpose": "Install the distribution-packaged audit tool only on the disposable target. Keep full reports private because they describe host details.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/config21\nsource .venv/bin/activate\nansible app1 -i inventory.json -b -m ansible.builtin.apt -a \"name=lynis state=present update_cache=true\"\nansible app1 -i inventory.json -b -m ansible.builtin.command -a \"lynis audit system --quick\"\nansible app1 -i inventory.json -b -m ansible.builtin.fetch -a \"src=/var/log/lynis-report.dat dest=evidence/before-lynis.dat flat=true\"",
+          "explain": [
+            "apt installs the Ubuntu package. Lynis quick mode skips interactive pauses; it does not mean a complete penetration test. fetch copies the one report to controller evidence.",
+            "Read the report locally and choose actual applicable finding IDs. Write evidence/hardening-record.md with before state, risk, change, verification, rollback and exception reason. No specific scanner finding ID is fabricated in this lesson."
+          ],
+          "expected": "A private report with concrete warnings/suggestions and a three-change record tied to observed conditions.",
+          "troubleshoot": "If the package is unavailable, inspect configured Ubuntu repositories; do not download and execute a random audit script. A scanner error is not a clean baseline.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Select filesystem write restrictions, private temporary-file defaults and SSH key-only/root-login restrictions, tying them to actual audit observations or explicitly marking them independently motivated."
+    },
+    {
+      "title": "Apply controls with an access recovery path",
+      "purpose": "First verify a new SSH session using the same key. Keep the console and old session open while applying; the service remains loopback-only.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/config21\ncat > harden.yml <<'EOF'\n---\n- name: Apply reviewed hardening to one disposable VM\n  hosts: app\n  become: true\n  serial: 1\n  tasks:\n    - name: Create a systemd drop-in directory\n      ansible.builtin.file:\n        path: /etc/systemd/system/devopps-taskboard.service.d\n        state: directory\n        owner: root\n        group: root\n        mode: '0755'\n    - name: Restrict the service filesystem and temporary directory\n      ansible.builtin.copy:\n        dest: /etc/systemd/system/devopps-taskboard.service.d/20-hardening.conf\n        owner: root\n        group: root\n        mode: '0644'\n        content: |\n          [Service]\n          ProtectSystem=strict\n          ProtectHome=true\n          PrivateTmp=true\n          UMask=0077\n      notify: Restart hardened Taskboard\n    - name: Disable password and root SSH login in this disposable VM\n      ansible.builtin.copy:\n        dest: /etc/ssh/sshd_config.d/00-devopps-lab.conf\n        owner: root\n        group: root\n        mode: '0644'\n        content: |\n          PermitRootLogin no\n          PasswordAuthentication no\n          KbdInteractiveAuthentication no\n      notify: Validate and reload SSH\n    - name: Flush handlers before functional checks\n      ansible.builtin.meta: flush_handlers\n  handlers:\n    - name: Restart hardened Taskboard\n      ansible.builtin.systemd_service:\n        name: devopps-taskboard\n        daemon_reload: true\n        state: restarted\n    - name: Validate and reload SSH\n      ansible.builtin.command:\n        argv: [/usr/sbin/sshd, -t]\n      changed_when: false\n      notify: Reload SSH after validation\n    - name: Reload SSH after validation\n      ansible.builtin.systemd_service:\n        name: ssh\n        state: reloaded\nEOF\nansible-playbook -i inventory.json harden.yml --check --diff --limit app1\nansible-playbook -i inventory.json harden.yml --limit app1\nansible-playbook -i inventory.json verify.yml --limit app1\nansible app1 -i inventory.json -b -m ansible.builtin.command -a \"/usr/sbin/sshd -T\"\n",
+          "explain": [
+            "The systemd drop-in adds a read-only filesystem view, hides home directories, gives private temporary storage and sets restrictive file-creation permissions. These do not require the app to run as root or alter the source release.",
+            "The SSH drop-in uses an early filename because OpenSSH generally uses the first obtained value. sshd -t checks syntax before reload; sshd -T shows effective configuration, which must still be inspected for includes and Match blocks. Reload keeps existing sessions but never substitutes for testing a new one.",
+            "serial:1 prevents a fleet-wide simultaneous change. The check/diff run predicts configuration edits; the real run applies them; verify.yml checks application properties afterward."
+          ],
+          "expected": "Application verification passes; effective permitrootlogin, passwordauthentication and kbdinteractiveauthentication are no. A fresh key-authenticated session succeeds.",
+          "troubleshoot": "If SSH verification fails, use the retained session or console to remove only /etc/ssh/sshd_config.d/00-devopps-lab.conf, run sudo /usr/sbin/sshd -t and sudo systemctl reload ssh. Do not close the recovery session until a new connection succeeds.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Explain the three selected controls and whether every effective setting matched the intended value."
+    },
+    {
+      "title": "Inspect the network boundary",
+      "purpose": "A loopback listener and an AWS security group or host firewall are separate controls. Inspect both rather than assuming either implies the other.",
+      "commands": [
+        {
+          "code": "ansible app1 -i inventory.json -b -m ansible.builtin.command -a \"ss -ltnp\"\nansible app1 -i inventory.json -b -m ansible.builtin.command -a \"ufw status verbose\"",
+          "explain": [
+            "ss enumerates current listeners; identify SSH and the loopback app. ufw status reads Ubuntu firewall policy without changing it. If ufw is not installed, record that fact and inspect the provider security group from week 14 instead of claiming a host firewall exists.",
+            "For the AWS lab, port 22 must remain restricted to the recorded administrator /32 and no rule publishes 8000. For a local VM, document its actual host-only/NAT network and incoming SSH rule. Keep firewall enforcement as a separately reviewed change with console rollback."
+          ],
+          "expected": "A documented path: controller -> allowed SSH -> tunnel -> loopback app; no direct public 8000 route.",
+          "troubleshoot": "If 8000 is bound to 0.0.0.0, correct the role before adding more firewall layers. If a firewall blocks SSH, recover from the console using its exact recorded policy rather than flushing all rules.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "An inactive host firewall is a visible exception with context, not silently counted as an implemented control."
+    },
+    {
+      "title": "Patch and test useful behavior",
+      "purpose": "Before the real package update, retain the snapshot/rebuild recovery route and review package-manager proposed changes. This play affects only the named Python runtime packages.",
+      "commands": [
+        {
+          "code": "cat > patch.yml <<'EOF'\n---\n- name: Patch the bounded Python runtime package set\n  hosts: app\n  become: true\n  serial: 1\n  tasks:\n    - name: Record installed runtime versions\n      ansible.builtin.command:\n        argv: [dpkg-query, -W, python3.12, python3.12-minimal, libpython3.12-stdlib]\n      register: before_versions\n      changed_when: false\n    - name: Show version metadata only\n      ansible.builtin.debug:\n        var: before_versions.stdout_lines\n    - name: Upgrade only this installed runtime package set\n      ansible.builtin.apt:\n        name: [python3.12, python3.12-minimal, libpython3.12-stdlib]\n        state: latest\n        only_upgrade: true\n        update_cache: true\n      notify: Restart patched application\n    - name: Apply restart before verification\n      ansible.builtin.meta: flush_handlers\n    - name: Observe the installed versions afterward\n      ansible.builtin.command:\n        argv: [dpkg-query, -W, python3.12, python3.12-minimal, libpython3.12-stdlib]\n      register: after_versions\n      changed_when: false\n    - name: Show resulting version metadata\n      ansible.builtin.debug:\n        var: after_versions.stdout_lines\n  handlers:\n    - name: Restart patched application\n      ansible.builtin.systemd_service:\n        name: devopps-taskboard\n        state: restarted\nEOF\nansible app1 -i inventory.json -b -m ansible.builtin.command -a \"apt-cache policy python3.12\"\nansible-playbook -i inventory.json patch.yml --check --diff --limit app1\nansible-playbook -i inventory.json patch.yml --limit app1\nansible-playbook -i inventory.json verify.yml --limit app1\n",
+          "explain": [
+            "apt-cache policy shows installed/candidate versions. The play records installed version metadata before and after, upgrades only already-installed named packages, then restarts the app only when packages changed.",
+            "state:latest deliberately accepts the candidate at execution time for this patch exercise; record the actual version and date. Do not use this as an unreviewed production policy. Related dependencies proposed by apt must be reviewed."
+          ],
+          "expected": "A real version change or an honestly recorded no-op, followed by passing host assertions.",
+          "troubleshoot": "If the new runtime fails, use the known snapshot/rebuild path. Do not assume apt can retrieve an old package version or weaken the application tests.",
+          "shell": "bash"
+        },
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\npython -m pip install --no-cache-dir -r requirements-dev.lock\nTASKBOARD_TEST_MODE=memory TASKBOARD_BASE_URL=http://127.0.0.1:18021 python -m pytest tests/system -q",
+          "explain": [
+            "Reopen the week-21 SSH tunnel to port 8000 first. Activate the application test environment, not the controller environment. The system suite sends real HTTP through the tunnel and checks create/read/complete, validation and response bodies.",
+            "memory mode intentionally skips the two-user authentication case; do not present that skip as authentication proof. This command does not exercise PostgreSQL."
+          ],
+          "expected": "Memory-mode system cases pass and the authentication case is explicitly skipped.",
+          "troubleshoot": "Connection failures first require the tunnel/listener check. A behavioral failure after patching requires the retained before/after versions and exact failing assertion.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Repeat Lynis after the changes and compare relevant findings, but use application tests and effective configuration as the acceptance evidence."
+    }
+  ],
+  "failure": {
+    "title": "An overly restrictive release permission blocks startup",
+    "boundary": "Only /opt/devopps-taskboard on disposable app1. Keep SSH/console access and the recovery command ready.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-lab/config21\nsource .venv/bin/activate\nansible app1 -i inventory.json -b -m ansible.builtin.file -a \"path=/opt/devopps-taskboard mode=0000\"\nansible app1 -i inventory.json -b -m ansible.builtin.systemd_service -a \"name=devopps-taskboard state=restarted\"",
+        "explain": [
+          "Remove directory traversal permission only from the application release. The restart should fail or enter a failure loop because its non-root user cannot reach the working directory/interpreter."
+        ],
+        "expected": "Taskboard fails startup; SSH administration remains available.",
+        "troubleshoot": "Stop the lab service if repeated restart messages obscure diagnosis. Do not apply recursive permissions to /opt or the whole filesystem.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ansible app1 -i inventory.json -b -m ansible.builtin.command -a \"journalctl -u devopps-taskboard -n 20 --no-pager\"\nansible app1 -i inventory.json -b -m ansible.builtin.stat -a \"path=/opt/devopps-taskboard\"",
+        "explain": [
+          "Inspect only this service log and directory metadata. Directory execute permission means traversal, so readable files inside are insufficient."
+        ],
+        "expected": "A permission/working-directory execution failure and mode 0000.",
+        "troubleshoot": "Distinguish this access failure from a missing dependency; installing packages cannot repair directory traversal.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "The service user must traverse every parent directory.",
+      "The original role specified root:taskboard 0750."
+    ],
+    "answer": {
+      "explanation": [
+        "Hardening removed required access. Restore the previously justified directory mode rather than granting world write or running the application as root."
+      ],
+      "recover": [
+        {
+          "code": "ansible app1 -i inventory.json -b -m ansible.builtin.file -a \"path=/opt/devopps-taskboard owner=root group=taskboard mode=0750\"\nansible app1 -i inventory.json -b -m ansible.builtin.systemd_service -a \"name=devopps-taskboard state=restarted\"",
+          "explain": [
+            "Restore only the intended directory metadata and restart the one service. Reconcile the normal role afterward if other drift exists."
+          ],
+          "expected": "The service starts under its original taskboard user.",
+          "troubleshoot": "Do not disable all systemd controls to repair a single filesystem permission.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "ansible-playbook -i inventory.json verify.yml --limit app1",
+        "explain": [
+          "Recheck metadata, process user, binding and HTTP body; then repeat the tunneled system suite."
+        ],
+        "expected": "All host assertions and memory-mode HTTP behavior pass.",
+        "troubleshoot": "If a property fails, inspect it directly and retain the failure evidence.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why can a better audit score be a worse outcome?",
+      "hint": "Required operation and recovery still matter.",
+      "answer": "A restrictive setting can break the service or lock out administrators. Accept controls only with applicable threat context, behavior checks and a recovery path."
+    },
+    {
+      "prompt": "Why test a new SSH session before closing the old one?",
+      "hint": "Reload does not authenticate the next connection.",
+      "answer": "An existing connection can survive a bad access policy. A new key-authenticated session verifies future access while the old session and console remain available for repair."
+    },
+    {
+      "prompt": "Is an unchanged apt result patch evidence?",
+      "hint": "Compare installed and candidate versions.",
+      "answer": "It proves no upgrade was applied under that package selection. Record the check and actual versions; do not label it a successful version transition."
+    }
+  ],
+  "exercise": {
+    "brief": "Produce a three-change hardening record and one justified exception, then independently rehearse one rollback.",
+    "constraints": [
+      "Preserve SSH/console access and loopback binding.",
+      "No broad permission changes or unreviewed full-system upgrades."
+    ],
+    "deliverables": [
+      "Before/after audit references, effective settings, actual package versions and system-test results.",
+      "One exception with owner, reason and review date.",
+      "A timed rollback followed by functional verification."
+    ],
+    "acceptance": [
+      "Each change has an observed risk and measurable effect.",
+      "Legitimate Taskboard behavior still works.",
+      "Rollback changes only the intended control."
+    ],
+    "hints": [
+      "A deliberate inactive host firewall can be an exception only when the actual alternate network boundary is documented.",
+      "Use the single systemd drop-in as a bounded reversible control."
+    ],
+    "solution": [
+      "Record each selected control, the effective result, application test evidence and an exact recovery procedure. Remove only the lab systemd drop-in to rehearse that rollback, reload/restart the named service, verify, then reapply harden.yml. Keep unresolved audit findings visible."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "ansible app1 -i inventory.json -b -m ansible.builtin.systemd_service -a \"name=devopps-taskboard state=stopped\"",
+      "explain": [
+        "Stop the lab service when pausing. Retain the VM only for an immediate next exercise with cost/expiry recorded; otherwise retire it with the exact VM/provider procedure."
+      ],
+      "expected": "Only the application stops.",
+      "troubleshoot": "Do not remove SSH access before completing resource cleanup and evidence retrieval.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Lynis usage guide",
+      "url": "https://cisofy.com/documentation/lynis/",
+      "usedFor": "Audit operation and report interpretation."
+    },
+    {
+      "title": "systemd execution controls",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html",
+      "usedFor": "Filesystem namespace, temporary directory and process permission controls."
+    },
+    {
+      "title": "OpenSSH server configuration",
+      "url": "https://man.openbsd.org/sshd_config",
+      "usedFor": "Effective authentication configuration and first-value semantics."
+    },
+    {
+      "title": "Ansible apt module",
+      "url": "https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/apt_module.html",
+      "usedFor": "Bounded installed-package upgrades and check behavior."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "CISOfy/lynis",
+      "principle": "Treat scanner findings as evidence leads",
+      "application": "Actual finding IDs enter a decision record with applicability, change, verification and rollback; the score is not the gate.",
+      "url": "https://github.com/CISOfy/lynis"
+    },
+    {
+      "repo": "devopshydclub/vprofile-project",
+      "principle": "Host service dependencies need operational verification",
+      "application": "A package transition is followed by process and real HTTP checks, with a rehearsed recovery path.",
+      "url": "https://github.com/devopshydclub/vprofile-project"
+    }
+  ],
+  "notes": [
+    "Lynis, Linux hardening and patch commands are authored but were not executed on a VM here. Authentication and PostgreSQL remain outside the memory-stage test claim."
+  ]
+}

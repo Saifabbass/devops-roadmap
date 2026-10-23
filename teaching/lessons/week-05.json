@@ -1,0 +1,232 @@
+{
+  "week": 5,
+  "introduction": [
+    "A working virtual environment is not yet a portable release. Another machine may have different dependencies, files or startup defaults. An image records a filesystem and runtime configuration so you can test what you intend to run.",
+    "You will package the completed stage-3 Taskboard, inspect the resulting artifact, run it without a source mount, and diagnose an incorrect bind address. Keep the host port private. This week teaches packaging; the app still stores data only in memory."
+  ],
+  "prerequisites": [
+    "Complete the foundation capstone and stop its service before reusing port 8000.",
+    "Work in ~/dev-opps-lab/app/taskboard on a disposable Ubuntu 24.04 machine with adequate disk space.",
+    "The Docker installation below is for a fresh VM. If you already have a working Docker Engine/Desktop Linux context, skip installation and verify the client/server instead."
+  ],
+  "concepts": [
+    {
+      "title": "Image, container and build context",
+      "paragraphs": [
+        "An image is immutable packaged content plus configuration. A container adds a running process and a writable layer to that image. Linux containers share the host kernel; packaging does not create an independent kernel or remove all host-security concerns.",
+        "The build context is the set of files available to COPY. .dockerignore removes unwanted files before the context is sent. Layers preserve earlier contents: copying a credential and deleting it in a later layer can still expose it in the earlier layer."
+      ],
+      "example": "Copying requirements.lock before application code lets a code-only change reuse the dependency-install layer.",
+      "judgment": "Keep credentials out of the context from the start. Inspect inputs rather than relying on a later cleanup instruction."
+    },
+    {
+      "title": "A tag names an artifact; a digest identifies content",
+      "paragraphs": [
+        "A tag such as devopps-taskboard:local is a convenient movable name. A registry digest identifies image content. The Dockerfile pins a base digest and exact runtime dependencies, but future security fixes require deliberately updating and retesting those pins.",
+        "An image ID from a local build and a registry manifest digest are related identifiers for different objects. Record which one you have. Later delivery will resolve the pushed registry digest and use that exact artifact in test and deployment."
+      ],
+      "example": "Rebuilding the same commit after a base tag moves can produce different bytes. Retagging an existing image does not rebuild its bytes.",
+      "judgment": "Reproducibility and patching need both an immutable record and a reviewed update process."
+    },
+    {
+      "title": "Container loopback is not host loopback",
+      "paragraphs": [
+        "Docker gives the container its own network context. A process bound to 127.0.0.1 inside that context accepts only that context's loopback traffic. Port publishing forwards host traffic to the container interface, not its internal loopback.",
+        "The app therefore listens on 0.0.0.0 inside the container while Docker publishes only 127.0.0.1:8000 on the host. This combination allows private host access without making the host port listen on every interface."
+      ],
+      "example": "A healthy internal loopback request can coexist with a failed host request when the bind address is wrong.",
+      "judgment": "Check both the app bind address and the host publication. They control different boundaries."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Install or verify the container engine",
+      "purpose": "For a fresh Ubuntu 24.04 VM only. Existing Docker users can skip the installation block. Do not remove a pre-existing engine or its data to follow this lesson.",
+      "commands": [
+        {
+          "code": ". /etc/os-release\ntest \"$ID:$VERSION_ID\" = ubuntu:24.04 || { printf '%s\\n' 'This installation block requires the fresh Ubuntu 24.04 VM.'; exit 1; }\nsudo apt-get update\nsudo apt-get install -y ca-certificates curl\nsudo install -m 0755 -d /etc/apt/keyrings\nsudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc\nsudo chmod a+r /etc/apt/keyrings/docker.asc\nprintf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\\n' \"$(dpkg --print-architecture)\" \"$VERSION_CODENAME\" | sudo tee /etc/apt/sources.list.d/devopps-docker.list > /dev/null\nsudo apt-get update\nsudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin\nsudo usermod -aG docker \"$USER\"",
+          "explain": [
+            "apt-get update refreshes package metadata; install supplies HTTPS prerequisites and then Docker's engine, CLI, runtime and plugins.",
+            "install creates the key directory; curl -f fails on HTTP errors, -sS suppresses progress but shows errors, -L follows redirects, and -o writes the vendor signing key. chmod makes this public key readable.",
+            "The dot command reads local OS metadata. dpkg supplies the architecture; printf writes a repository entry tied to the downloaded key; tee writes it with administrator authority.",
+            "usermod -aG appends your lab user to the docker group. Docker daemon access is effectively administrator-level control of this VM; use only your dedicated learning user. Log out and back into the VM before the next block.",
+            "The OS guard runs before package changes. Docker group membership grants control of the daemon; log out and back into this disposable VM after usermod, then run the verification block in the new login session.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Packages install and the new login can communicate with Docker.",
+          "troubleshoot": "If the VM has conflicting existing container packages, stop and inspect that environment instead of blindly removing packages. Use a fresh VM when its history is unknown."
+        },
+        {
+          "code": "docker version\ndocker compose version\ncd ~/dev-opps-lab/app/taskboard\ncat .dockerignore\ncat Dockerfile",
+          "explain": [
+            "docker version must show both client and server. docker compose version verifies the v2 plugin.",
+            "cd selects the exact build context. cat displays exclusion rules and the complete build recipe before execution."
+          ],
+          "expected": "Both engine sides respond. The ignore file excludes .env, Git metadata and .venv; the Dockerfile declares runtime and tests stages.",
+          "troubleshoot": "A socket permission error needs the intended user session/access fixed, not chmod 666 on the Docker socket."
+        }
+      ],
+      "checkpoint": "Explain which files enter the context and why the test stage is separate from runtime. After installation, use a new login session so the Docker group change takes effect before building."
+    },
+    {
+      "title": "Understand the recipe, then build",
+      "purpose": "The supplied Dockerfile is a readable reference. ARG selects the pinned Python base. FROM creates a stage. ENV sets bytecode/log behavior. WORKDIR selects /app. COPY brings in locks and then code. RUN installs dependencies and creates UID/GID 10001. USER selects that identity. EXPOSE documents the port; it does not publish it. CMD supplies the default stage-7 startup, which this week explicitly overrides to stage 3.",
+      "commands": [
+        {
+          "code": "docker build --target runtime --progress plain -t devopps-taskboard:week05 .\ndocker image inspect devopps-taskboard:week05 --format '{{.Id}} {{.Config.User}}'\ndocker history --no-trunc devopps-taskboard:week05",
+          "explain": [
+            "build --target runtime stops at the runtime stage; --progress plain keeps readable layer output; -t names the image; . is the current directory context.",
+            "image inspect prints its actual image ID and configured user. history --no-trunc shows complete build-history metadata; it is an aid, not proof that no secret exists anywhere."
+          ],
+          "expected": "A successful image build, a sha256 image ID, and user 10001:10001.",
+          "troubleshoot": "If COPY cannot find files, inspect the working directory and ignore patterns. Never copy a credential into the context to solve an unrelated build failure."
+        }
+      ],
+      "checkpoint": "Record the base digest, dependency lock and resulting local image ID with the commit."
+    },
+    {
+      "title": "Run the artifact and observe cache behavior",
+      "purpose": "Start a private container with no source-code mount. The image must contain everything needed by the service.",
+      "commands": [
+        {
+          "code": "docker run --rm -d --name devopps-memory -p 127.0.0.1:8000:8000 devopps-taskboard:week05 python -m uvicorn reference.stage03:app --host 0.0.0.0 --port 8000 --no-access-log\ncurl --fail --show-error --retry 5 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/livez\ndocker logs --tail 20 devopps-memory\ndocker build --target runtime --progress plain -t devopps-taskboard:week05 .",
+          "explain": [
+            "run creates the container; --rm removes it on stop, -d detaches, --name identifies it and -p maps only host loopback. The explicit command runs the memory reference inside the packaged runtime.",
+            "curl checks liveness with bounded connection-refusal retries; retrying this read is safe. Do not generalize retries to task creation.",
+            "logs --tail limits output. An unchanged rebuild demonstrates which layers are cached.",
+            "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+          ],
+          "expected": "A healthy response and cached layers on the unchanged rebuild. No -v or bind mount supplies application source.",
+          "troubleshoot": "Inspect docker logs if startup fails; a published port does not prove the program inside started."
+        }
+      ],
+      "checkpoint": "As independent practice, change one harmless source comment and compare cache steps; restore that edit, then compare a deliberate dependency-lock update on a branch. Do not silently carry an unreviewed dependency version forward."
+    }
+  ],
+  "failure": {
+    "title": "The process listens only inside the container",
+    "boundary": "Replace only the named week-5 container. Stage-3 tasks are ephemeral and will be lost.",
+    "inject": [
+      {
+        "code": "docker stop devopps-memory\ndocker run --rm -d --name devopps-memory -p 127.0.0.1:8000:8000 devopps-taskboard:week05 python -m uvicorn reference.stage03:app --host 127.0.0.1 --port 8000 --no-access-log\ncurl --max-time 3 http://127.0.0.1:8000/livez",
+        "explain": [
+          "stop requests termination of this exact container. The replacement intentionally binds its internal loopback.",
+          "The host request now uses a forwarded path the app is not listening on."
+        ],
+        "expected": "The host request fails despite the process running.",
+        "troubleshoot": "Wait for startup logs before interpreting the result, so you do not confuse a startup race with this bind fault."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "docker logs --tail 20 devopps-memory\ndocker exec devopps-memory python -c \"import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/livez', timeout=3).read().decode())\"\ndocker port devopps-memory",
+        "explain": [
+          "logs shows the internal bind address. exec runs a bounded HTTP read inside this container's network context.",
+          "docker port reports the host mapping, which exists independently of the app's bind choice."
+        ],
+        "expected": "The internal request succeeds while the host request fails.",
+        "troubleshoot": "If the internal read also fails, diagnose startup first; this is not yet evidence for the intended bind fault."
+      }
+    ],
+    "hints": [
+      "Compare where each 127.0.0.1 is evaluated.",
+      "Publishing a port cannot change a process's listening address."
+    ],
+    "answer": {
+      "explanation": [
+        "The process is healthy but unreachable through the container interface. Keep the host publication private and fix the internal bind address."
+      ],
+      "recover": [
+        {
+          "code": "docker stop devopps-memory\ndocker run --rm -d --name devopps-memory -p 127.0.0.1:8000:8000 devopps-taskboard:week05 python -m uvicorn reference.stage03:app --host 0.0.0.0 --port 8000 --no-access-log",
+          "explain": [
+            "Replace only the named container, keeping the same image and host publication; change the internal bind address."
+          ],
+          "expected": "Startup logs show 0.0.0.0:8000.",
+          "troubleshoot": "Do not solve this by publishing the host port on all interfaces."
+        }
+      ],
+      "verification": {
+        "code": "curl --fail --show-error --retry 5 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/livez",
+        "explain": [
+          "Repeat the bounded host read through the same published endpoint.",
+          "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+        ],
+        "expected": "Healthy response and zero exit status.",
+        "troubleshoot": "Inspect both logs and mapping if the result differs."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why can a deleted secret remain in an image?",
+      "hint": "Think about the layer where it first entered.",
+      "answer": "A later filesystem change does not erase bytes from an earlier immutable layer. Exclude credentials before the build and use appropriate build-secret mechanisms when necessary."
+    },
+    {
+      "prompt": "Does EXPOSE 8000 make the service reachable from your laptop?",
+      "hint": "Separate metadata, binding and publication.",
+      "answer": "No. EXPOSE is metadata. The process must listen on a reachable container interface, Docker must publish appropriately, and the network path must allow the connection."
+    },
+    {
+      "prompt": "What does a base digest pin fail to guarantee?",
+      "hint": "Does a fixed artifact update itself?",
+      "answer": "It identifies fixed content, but does not prove current security, correct application behavior or a compatible host. Review security updates and rerun tests rather than freezing dependencies forever."
+    }
+  ],
+  "exercise": {
+    "brief": "Produce a packaging review that explains every Dockerfile instruction and compares no-change, code-only and dependency-change build behavior.",
+    "constraints": [
+      "Use a practice branch; restore experimental dependency changes.",
+      "No source mounts or secrets in image layers."
+    ],
+    "deliverables": [
+      "Image ID, base digest, lock file, cache observations and non-root execution evidence."
+    ],
+    "acceptance": [
+      "The clean build runs the task API without host source files.",
+      "You identify the first invalidated layer for each change.",
+      "The binding fault is reproduced and repaired."
+    ],
+    "hints": [
+      "Read plain build output rather than timing alone."
+    ],
+    "solution": [
+      "Keep the dependency COPY/RUN before application COPY.",
+      "Compare actual cache decisions and verify behavior after each build.",
+      "Record why the local image ID is not yet a pushed registry digest."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker stop devopps-memory\ndocker ps --filter name=devopps-memory",
+      "explain": [
+        "Stop only this disposable memory container; --rm removes it. ps verifies no running matching container remains.",
+        "Keep the image and source for later lessons. Do not prune unrelated images or volumes."
+      ],
+      "expected": "No running devopps-memory container.",
+      "troubleshoot": "If already stopped, verify with docker ps -a rather than treating the absence as an error."
+    }
+  ],
+  "references": [
+    {
+      "title": "Docker Engine on Ubuntu",
+      "url": "https://docs.docker.com/engine/install/ubuntu/",
+      "usedFor": "Vendor repository installation and engine prerequisites."
+    },
+    {
+      "title": "Docker build practices",
+      "url": "https://docs.docker.com/build/building/best-practices/",
+      "usedFor": "Build context, layer order and reviewed digest pins."
+    },
+    {
+      "title": "Dockerfile reference",
+      "url": "https://docs.docker.com/reference/dockerfile/",
+      "usedFor": "Instruction semantics and runtime defaults."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "The authoring host has no operational Linux Docker daemon. Image and bind exercises must be executed in the learner's Docker-capable lab; no container pass is claimed here."
+  ]
+}

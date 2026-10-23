@@ -1,0 +1,295 @@
+{
+  "week": 13,
+  "phase": "AWS foundations",
+  "title": "Learn cloud identity and spending boundaries",
+  "outcome": "Understand accounts, regions, availability zones, identities, roles and billing before deploying.",
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: Until now your lab has been on a machine you control. AWS is a collection of APIs that can create resources in an account and charge that account until those resources are removed. Before creating a server, learn how to identify who is asking, which account receives the request and which Region holds the resource.",
+    "Optional provider lab: This week creates a learning account boundary, a budget notification and a read-only login. You will deliberately receive an authorization error and explain it. A budget is an alert, not a guaranteed stop switch. Account registration and email verification are human actions; the CLI commands below begin only after that setup is complete."
+  ],
+  "prerequisites": [
+    "Complete weeks 1–12: use Bash, identify an exit status, keep credentials out of Git and distinguish a failed test from a passing one.",
+    "Use Ubuntu 24.04 LTS with systemd and working snap support, in a disposable VM or a WSL2 distribution configured for systemd. This lesson uses the official Snap AWS CLI package. Check systemctl is-system-running and snap version before continuing; degraded systemd needs inspection, while missing snap requires sudo apt-get update then sudo apt-get install snapd on this Ubuntu lab. If your environment cannot run snapd, use the disposable Ubuntu VM route rather than following an absent course installer.",
+    "Use a dedicated personal learning account or an organization-provided sandbox where you are permitted to configure IAM Identity Center and a budget. Do not use an employer production account. Without an account, complete the policy/cost worksheet and label all API evidence pending."
+  ],
+  "concepts": [
+    {
+      "title": "Account, Region and availability zone",
+      "paragraphs": [
+        "The account is the ownership and billing boundary. A Region is a geographic group of infrastructure; an availability zone is an isolated placement area within a Region. Some APIs, such as IAM, are global, while an EC2 instance belongs to a Region.",
+        "A name such as dev is not a security boundary. You must check the actual account ID and identity before creating resources. Tagging aids inventory; it does not prevent an unauthorized operation."
+      ],
+      "example": "An EC2 instance in one Region will not appear in an instance listing for another. An empty listing alone is therefore weak cleanup evidence.",
+      "judgment": "Choose one learning Region and record it. Multiple zones improve some failure behavior only when all required dependencies have an appropriate design."
+    },
+    {
+      "title": "Authentication, authorization and short-lived sessions",
+      "paragraphs": [
+        "Authentication establishes the caller. Authorization evaluates what that caller may do. A role session temporarily grants the permissions assigned to a role or permission set; it avoids embedding a permanent AWS key in an application.",
+        "An explicit deny overrides a matching allow. A denied read is useful evidence when it is the action you intentionally excluded. Do not fix every denial by granting administrator access."
+      ],
+      "example": "The read-only identity can identify itself but its explicit denial of s3:ListAllMyBuckets prevents listing every bucket.",
+      "judgment": "Use a separate approved provisioning identity when a later lab needs creation. Never turn the read-only identity into an administrator just to make a command green."
+    },
+    {
+      "title": "Budget and inventory",
+      "paragraphs": [
+        "Cost depends on resource type, time, storage and traffic. Stopping a VM does not necessarily delete disks, snapshots or allocated addresses. Notifications can arrive after usage has occurred.",
+        "Write an inventory with resource ID, account, Region, owner, purpose, expiry and exact teardown action. Estimate before creation, compare observed spend afterwards and keep the budget active through the learning period."
+      ],
+      "example": "A two-hour server estimate that omits attached storage and public IPv4 is incomplete.",
+      "judgment": "The ceiling you choose is a decision limit for you; it is not a promise that AWS automatically halts all services."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Create the human access boundary",
+      "purpose": "Complete this console setup once. In the dedicated account, secure the root sign-in with MFA and stop using it for daily work. Open IAM Identity Center, enable an organization instance if this is your personal sandbox, create a user for yourself, accept its invitation and enable MFA. Under Permission sets create DevOppsReadOnly using the AWS ReadOnlyAccess managed policy; add the inline deny shown below. Assign that permission set to your user for the learning account. If an organization manages the sandbox, ask its administrator for this assignment instead of changing organization settings. Record the AWS access portal start URL and Identity Center Region from Settings.",
+      "commands": [
+        {
+          "code": "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Deny\",\"Action\":\"s3:ListAllMyBuckets\",\"Resource\":\"*\"}]}",
+          "explain": [
+            "Paste this JSON into the permission set's inline policy editor, not into Bash. Version selects IAM policy syntax. Statement contains one explicit Deny; Action identifies the exact API permission and Resource * applies that denial to every resource."
+          ],
+          "expected": "Permission set is provisioned to the learning account; portal lists DevOppsReadOnly.",
+          "troubleshoot": "If the account tile is absent, check assignment and provisioning status. Do not create a permanent access key as a workaround.",
+          "shell": "configuration"
+        }
+      ],
+      "checkpoint": "You can sign into the access portal with MFA and name the assigned account without exposing a password."
+    },
+    {
+      "title": "Install and record the client",
+      "purpose": "Run from your Linux terminal; installation changes the Linux environment, not AWS resources.",
+      "commands": [
+        {
+          "code": "sudo snap install aws-cli --classic\naws --version\nmkdir -p ~/dev-opps-lab/evidence/week-13\ncd ~/dev-opps-lab",
+          "explain": [
+            "sudo allows the package manager to install the CLI; --classic uses the package's required confinement. aws --version prints the installed client version.",
+            "mkdir -p creates only the lesson evidence directory if absent. cd sets the continuing project directory."
+          ],
+          "expected": "The version begins aws-cli/2; the evidence directory exists.",
+          "troubleshoot": "If snap reports it cannot contact snapd, confirm systemd/snapd in the Linux VM or use the included setup guide. If aws-cli is already installed, record its version instead of reinstalling.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record the client version and OS in your notes."
+    },
+    {
+      "title": "Configure the named session",
+      "purpose": "The wizard obtains browser-based temporary access; never paste tokens into notes.",
+      "commands": [
+        {
+          "code": "aws configure sso --profile devopps-readonly\naws sso login --profile devopps-readonly\nexport AWS_PROFILE=devopps-readonly\nexport AWS_REGION=us-east-1\nexport AWS_PAGER=\"\"\naws sts get-caller-identity\naws configure list",
+          "explain": [
+            "configure sso creates a named profile. Use session name devopps, your recorded portal URL and Identity Center Region, default registration scope sso:account:access, then select the learning account and DevOppsReadOnly role. Set CLI default Region to us-east-1 for these examples and output to json.",
+            "sso login opens browser authorization. export makes profile/Region available to child commands; AWS_PAGER empty avoids an interactive output pager.",
+            "get-caller-identity returns Account, Arn and UserId without printing credentials. configure list shows where profile and Region settings came from."
+          ],
+          "expected": "Account is your 12-digit learning account ID; Arn names an assumed role for the intended permission set.",
+          "troubleshoot": "If the session expired, perform sso login again. If the account differs, stop and select the correct assignment before any cloud mutation.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Copy only sanitized identity metadata into evidence; account IDs are identifiers, session tokens are secrets."
+    },
+    {
+      "title": "Configure cost notifications",
+      "purpose": "Sign in with the sandbox account's billing-authorized identity. In Billing and Cost Management → Budgets → Create budget, choose a monthly cost budget, fixed amount equal to your chosen ceiling, and alerts at 50% and 80% actual plus 100% forecast. Use an email you control and complete any subscription confirmation. The read-only CLI below checks the saved result when the role is permitted to view budgets.",
+      "commands": [
+        {
+          "code": "read -r -p \"Learning account ID from the previous output: \" LAB_ACCOUNT\n[[ \"$LAB_ACCOUNT\" =~ ^[0-9]{12}$ ]] || { echo \"Expected 12 digits\"; return 1 2>/dev/null || exit 1; }\naws budgets describe-budgets --account-id \"$LAB_ACCOUNT\" --query \"Budgets[].{Name:BudgetName,Limit:BudgetLimit,Period:TimeUnit}\"\ncat > evidence/week-13/inventory.csv <<'EOF'\nresource_id,account,region,owner,purpose,expiry,cleanup,status\nEOF",
+          "explain": [
+            "read -r stores your input literally. The double-bracket regular expression checks twelve digits; a bad value stops this block.",
+            "describe-budgets reads account budget settings; --query selects names, limits and periods. It does not create a budget.",
+            "cat with a quoted heredoc writes the CSV header exactly. > creates this lesson inventory file; add rows whenever you create a later resource."
+          ],
+          "expected": "The saved monthly budget appears, or a documented AccessDenied indicates billing metadata is restricted to the billing identity.",
+          "troubleshoot": "If denied, verify budget and notifications in the console using the billing identity; do not widen the lab role just to read billing. Record the console observation, not invented CLI success.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record the chosen ceiling, alert recipients, notification confirmation and the fact that this is not a hard spending cap."
+    }
+  ],
+  "failure": {
+    "title": "Receive the denial you designed",
+    "boundary": "Only a read request made with the deliberately limited permission set; no cloud data changes.",
+    "inject": [
+      {
+        "code": "aws s3api list-buckets",
+        "explain": [
+          "list-buckets requests the action explicitly denied in the permission set."
+        ],
+        "expected": "AccessDenied and a nonzero exit status.",
+        "troubleshoot": "If it succeeds, inspect the active profile, role and whether the deny policy has been provisioned; the intended control has not been demonstrated.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "aws sts get-caller-identity\nprintf \"Profile=%s Region=%s\\n\" \"$AWS_PROFILE\" \"$AWS_REGION\"",
+        "explain": [
+          "Identity confirms which session made the denied request. printf displays only profile and Region, not credentials."
+        ],
+        "expected": "The intended read-only role and learning Region.",
+        "troubleshoot": "A different role means this was not a valid negative test; switch to devopps-readonly and repeat.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "An explicit deny is expected here, even though a managed read-only policy might otherwise allow the action.",
+      "Compare requested action, caller identity and permission-set policy."
+    ],
+    "answer": {
+      "explanation": [
+        "The client authenticated, but the role's explicit deny blocked s3:ListAllMyBuckets. This is a successful negative authorization test, not a broken network connection.",
+        "Recovery means returning to an operation allowed for this identity, not removing the protection."
+      ],
+      "recover": [
+        {
+          "code": "export AWS_PROFILE=devopps-readonly\naws sso login --profile \"$AWS_PROFILE\"",
+          "explain": [
+            "Select the intended profile and refresh its browser session if needed; no permission is broadened."
+          ],
+          "expected": "Login succeeds for the learning role.",
+          "troubleshoot": "If the role disappeared, review its account assignment in Identity Center.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "aws sts get-caller-identity",
+        "explain": [
+          "Repeat an allowed identity read after the denied action."
+        ],
+        "expected": "Correct Account and Arn returned.",
+        "troubleshoot": "Resolve authentication errors separately from the intentionally denied S3 action.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why can get-caller-identity succeed while list-buckets fails?",
+      "hint": "Separate who from what.",
+      "answer": "Authentication identifies the role; each requested action is separately authorized. The explicit S3 denial does not mean the session is invalid."
+    },
+    {
+      "prompt": "What can charge after stopping EC2?",
+      "hint": "Think beyond the process.",
+      "answer": "Persistent EBS volumes, snapshots, allocated addresses and other separately billed services can remain. Inventory and delete only the lab-owned resources you no longer need."
+    },
+    {
+      "prompt": "What does a budget alert prove?",
+      "hint": "Notification is not enforcement.",
+      "answer": "It proves a configured spending notification path, once verified, not an upper limit on future charges or immediate detection."
+    }
+  ],
+  "exercise": {
+    "brief": "Prepare the approval packet for a two-hour VM lab without launching it.",
+    "constraints": [
+      "One account and Region; no resource creation.",
+      "Include disks, IPv4, storage and data-transfer assumptions; use current prices rather than invented free-tier guarantees."
+    ],
+    "deliverables": [
+      "Identity record, budget evidence and inventory template.",
+      "A cost worksheet with quantity × duration × rate and a cleanup row for every proposed resource."
+    ],
+    "acceptance": [
+      "A reviewer can identify the permitted caller and Region.",
+      "You predict the deliberately denied request correctly.",
+      "The worksheet distinguishes estimated cost from observed billing."
+    ],
+    "hints": [
+      "Use the same units for time and provider prices.",
+      "Show a no-cloud option if the estimate exceeds the ceiling."
+    ],
+    "solution": [
+      "List compute hours, disk GB-month prorated for the window, address hours and expected traffic. Record the rate observation date.",
+      "Keep evidence for account, Region and budget together. Leave API execution pending if no sandbox exists; do not substitute a fake success response."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "unset AWS_PROFILE AWS_REGION LAB_ACCOUNT\naws sso logout",
+      "explain": [
+        "unset clears this terminal's selected cloud context. sso logout removes cached SSO sessions; it does not delete the account or its budget."
+      ],
+      "expected": "Local cloud sessions are ended. Keep the budget for future labs.",
+      "troubleshoot": "Logging out does not remove resources; there should be no billable lab resources from this week's steps.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "AWS IAM best practices",
+      "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html",
+      "usedFor": "Federated temporary access, MFA and least privilege."
+    },
+    {
+      "title": "AWS CLI SSO configuration",
+      "url": "https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html",
+      "usedFor": "Named SSO profiles and login workflow."
+    },
+    {
+      "title": "AWS Budgets",
+      "url": "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html",
+      "usedFor": "Cost budgets and notification behavior."
+    },
+    {
+      "title": "AWS CLI install",
+      "url": "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html",
+      "usedFor": "Official snap package and version recording."
+    },
+    {
+      "title": "DevOps exercises: AWS",
+      "url": "https://github.com/bregman-arie/devops-exercises/tree/master/topics/aws",
+      "usedFor": "Use prediction and denied-access experiments as assessment."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Predict then verify authorization behavior",
+      "application": "The denied S3 read tests understanding of a particular identity and action instead of memorized IAM definitions.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    },
+    {
+      "repo": "milanm/DevOps-Roadmap",
+      "principle": "Review operational capability before adding tools",
+      "application": "The worksheet tests identity, cost and ownership readiness before creating EC2.",
+      "url": "https://github.com/milanm/DevOps-Roadmap"
+    }
+  ],
+  "notes": [
+    "Primary documentation checked 20 October 2026. Account setup, billing and AWS API operations are authored procedures, not operations executed by the course author."
+  ],
+  "freeTrack": {
+    "title": "Prove who may access a task",
+    "objective": "Separate identity, authentication and authorization using the real application boundary before mapping those responsibilities to AWS.",
+    "prerequisites": [
+      "Complete the local Taskboard lessons through week 8. Use Ubuntu Bash and your existing course workspace.",
+      "Use only generated lab identities and synthetic data. No cloud account or payment card is needed."
+    ],
+    "commands": [
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\npython -m pytest tests/contract -v\npython -m pytest tests/unit -v",
+        "explain": [
+          "cd selects the supplied app; source activates its isolated Python dependencies.",
+          "pytest tests/contract exercises the actual HTTP adapter in process, including missing credentials and cross-user access. -v prints the individual cases. tests/unit checks pure behavior separately.",
+          "Read the owner-filter test before its result. Predict why a valid Bob identity still cannot read Alice's task."
+        ],
+        "expected": "All contract and unit tests pass; you can identify the explicit denied-access assertions.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Explain authentication versus per-object authorization without reading the answer.",
+      "Identify a missing-token case and a valid-identity/wrong-owner case in the tests.",
+      "Record the result as local adapter evidence, with AWS IAM execution unattempted."
+    ],
+    "limits": "This exercises Taskboard authorization. It does not execute AWS SSO/IAM policies, cloud credential expiration or organization guardrails.",
+    "cleanup": "deactivate exits this terminal's Python environment; no cloud resource was created."
+  }
+}

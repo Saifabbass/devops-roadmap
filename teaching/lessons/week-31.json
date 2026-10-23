@@ -1,0 +1,247 @@
+{
+  "week": 31,
+  "introduction": [
+    "CI answers whether an artifact passed checks. GitOps answers which approved artifact/configuration the cluster should run. Keep those responsibilities separate so a build job does not also need broad cluster administration.",
+    "You will install Argo CD, first reconcile a small podinfo reference Deployment, then manage the existing Taskboard Deployment/Service from a configuration repository. Existing Secrets and PostgreSQL are deliberately outside this application ownership boundary."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Weeks9–12 GitLab project and passing build/system pipeline; week29 persistent Taskboard. Have an empty dedicated GitLab configuration repository. For this bounded lab it may be publicly readable only if it contains no secrets, credentials or private organizational data; otherwise configure a read-only repository credential before proceeding."
+  ],
+  "concepts": [
+    {
+      "title": "Promotion is an identity chain",
+      "paragraphs": [
+        "Record source commit → pipeline/test evidence → registry digest → configuration commit → deployed image identity. A tag can move; a digest identifies registry content. Review the environment change separately from building it.",
+        "The supplied CI pipeline exports tested-digest.txt only after system tests pass. Use that artifact, not a tag copied from a different build."
+      ],
+      "example": "GitLab publishes registry/project@sha256:...; the environment commit changes only that image reference and reviewed configuration.",
+      "judgment": "A controller faithfully applies malicious desired state too. Protected branches, review, least-privilege controller scope and credential handling remain necessary."
+    },
+    {
+      "title": "Sync, self-heal and pruning differ",
+      "paragraphs": [
+        "Sync applies desired configuration. Self-heal repairs manual drift. Pruning deletes live objects removed from source. Begin with explicit synchronization and pruning off so removal semantics are visible.",
+        "Do not let both HPA and a GitOps desired replica field continuously overwrite the same value. Week30 removed the HPA before this exercise."
+      ],
+      "example": "A manual scale to3 appears OutOfSync when Git says2; enabling self-heal can return it to2.",
+      "judgment": "An emergency change must either update source or deliberately pause the controller with a recorded reason; otherwise reconciliation can undo mitigation."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Install the reconciler",
+      "purpose": "Treat the controller as privileged platform software.",
+      "commands": [
+        {
+          "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\ncd \"$HOME/dev-opps-lab/k8s\"\nARGO_TAG=$(curl -fsSL https://api.github.com/repos/argoproj/argo-cd/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])')\ncurl -fL \"https://raw.githubusercontent.com/argoproj/argo-cd/$ARGO_TAG/manifests/install.yaml\" -o argocd-install.yaml\nkubectl create namespace argocd\nkubectl apply -n argocd -f argocd-install.yaml\nkubectl -n argocd rollout status deployment/argocd-repo-server --timeout=240s\nkubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=240s",
+          "explain": [
+            "Resolve one official release, save the exact installation manifest and review its cluster-wide privileges. Create an isolated controller namespace; wait for repository and reconciliation components. Nothing exposes the web interface publicly."
+          ],
+          "expected": "Repo server and application controller Ready.",
+          "troubleshoot": "If image pulls or resources fail, inspect argocd namespace events before adding applications."
+        }
+      ],
+      "checkpoint": "Record release tag and removal plan."
+    },
+    {
+      "title": "Create the environment repository",
+      "purpose": "Start with podinfo, then add the known Taskboard manifests without Secrets.",
+      "commands": [
+        {
+          "code": "read -r -p 'HTTPS clone URL of your empty configuration repository: ' CONFIG_REPO\nmkdir -p \"$HOME/dev-opps-lab/environments\"\ncd \"$HOME/dev-opps-lab/environments\"\ngit clone \"$CONFIG_REPO\" devopps\ncd devopps\ngit switch -c main\nmkdir -p env/devopps\nkubectl create deployment platform-reference --image=ghcr.io/stefanprodan/podinfo:6.9.2 --port=9898 --dry-run=client -o yaml > env/devopps/podinfo.yaml\ngit add env/devopps/podinfo.yaml\ngit commit -m 'Declare a reference workload for reconciliation'\ngit push -u origin main",
+          "explain": [
+            "read collects your real repository URL instead of inventing one. mkdir/cd give the clone an explicit local location; git clone retrieves repository metadata. The empty repository receives a main branch.",
+            "kubectl --dry-run=client writes a reference Deployment without creating it. git add stages only that manifest; commit records it; push publishes the configuration to your own configured remote. Use your existing GitLab authentication; never place an access token in the URL."
+          ],
+          "expected": "One reviewed reference manifest on main.",
+          "troubleshoot": "If the empty remote already has main, use git switch main instead of creating it again. If push is rejected, inspect branch permissions rather than bypassing protections."
+        },
+        {
+          "code": "cat > \"$HOME/dev-opps-lab/k8s/gitops-app.yaml\" <<YAML\napiVersion: argoproj.io/v1alpha1\nkind: AppProject\nmetadata: {name: devopps, namespace: argocd}\nspec:\n  sourceRepos: [\"$CONFIG_REPO\"]\n  destinations:\n  - {server: 'https://kubernetes.default.svc', namespace: devopps}\n  namespaceResourceWhitelist:\n  - {group: apps, kind: Deployment}\n  - {group: '', kind: Service}\n---\napiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata: {name: devopps, namespace: argocd}\nspec:\n  project: devopps\n  source: {repoURL: \"$CONFIG_REPO\", targetRevision: main, path: env/devopps}\n  destination: {server: 'https://kubernetes.default.svc', namespace: devopps}\nYAML\nkubectl apply -f \"$HOME/dev-opps-lab/k8s/gitops-app.yaml\"\nkubectl -n argocd patch application devopps --type=merge -p '{\"operation\":{\"sync\":{}}}'\nkubectl -n argocd get application devopps -w",
+          "explain": [
+            "This unquoted heredoc substitutes only the collected repository URL. The AppProject limits source repository, destination namespace and resource kinds. The Application points at the reviewed directory; no automated or prune policy is enabled.",
+            "The operation.sync request asks Argo to apply the current desired revision. get -w watches status; stop with Ctrl+C after Synced/Healthy. A reachable private repository needs a read-only credential, not a broader destination project."
+          ],
+          "expected": "Reference Deployment becomes Synced/Healthy.",
+          "troubleshoot": "ComparisonError commonly indicates repository access/path; SyncFailed can indicate a project restriction or invalid manifest. Read status.conditions and operationState.message."
+        }
+      ],
+      "checkpoint": "Confirm platform-reference /healthz via kubectl port-forward deployment/platform-reference 19898:9898 --address=127.0.0.1 and curl http://127.0.0.1:19898/healthz."
+    },
+    {
+      "title": "Promote the tested Taskboard artifact",
+      "purpose": "Add only Deployment/Service ownership; leave database and credentials separate.",
+      "commands": [
+        {
+          "code": "cd \"$HOME/dev-opps-lab/environments/devopps\"\ncp \"$HOME/dev-opps-lab/k8s/app-database.yaml\" env/devopps/taskboard.yaml\ncp \"$HOME/dev-opps-lab/k8s/service.yaml\" env/devopps/service.yaml",
+          "explain": [
+            "Copy the known Deployment and Service into the configuration repository. They contain Secret references, not credential values."
+          ],
+          "expected": "The two manifests exist before any credential reference is patched.",
+          "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+        },
+        {
+          "code": "read -r -p 'Private registry hostname (for example registry.gitlab.com): ' REGISTRY\nread -r -p 'Read-only deploy-token username: ' REGISTRY_USER\nread -r -s -p 'Read-only deploy-token value: ' REGISTRY_TOKEN\nprintf '\n'\nkubectl -n devopps create secret docker-registry registry-read --docker-server=\"$REGISTRY\" --docker-username=\"$REGISTRY_USER\" --docker-password=\"$REGISTRY_TOKEN\"\nunset REGISTRY_TOKEN\nkubectl patch --local -f env/devopps/taskboard.yaml --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"imagePullSecrets\":[{\"name\":\"registry-read\"}]}}}}' -o yaml > env/devopps/taskboard-next.yaml\nmv env/devopps/taskboard-next.yaml env/devopps/taskboard.yaml",
+          "explain": [
+            "For the private GitLab registry used by this course, create the read-only pull Secret before the first rollout. -s hides terminal input and unset removes the shell variable after use.",
+            "The local manifest patch stores only the Secret name in Git. It does not deploy yet. For a deliberately public image, omit this whole credential block.",
+            "A local administrator can inspect command arguments; use only a scoped disposable read_registry token."
+          ],
+          "expected": "A registry-read Secret exists and the local Pod template references it before image promotion.",
+          "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+        },
+        {
+          "code": "read -r -p 'Exact IMAGE_REF from successful system job tested-digest.txt: ' IMAGE_REF\ncase \"$IMAGE_REF\" in *@sha256:*) ;; *) echo 'A registry digest is required'; exit 1 ;; esac\nkubectl set image --local -f env/devopps/taskboard.yaml app=\"$IMAGE_REF\" -o yaml > env/devopps/taskboard-next.yaml\nmv env/devopps/taskboard-next.yaml env/devopps/taskboard.yaml\ngit diff -- env/devopps\ngit add env/devopps/taskboard.yaml env/devopps/service.yaml\ngit commit -m 'Promote system-tested Taskboard digest'\ngit push\nkubectl -n argocd patch application devopps --type=merge -p '{\"operation\":{\"sync\":{}}}'\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s\nkubectl -n devopps get pods -l app=taskboard -o jsonpath='{.items[*].status.containerStatuses[*].imageID}'",
+          "explain": [
+            "Select the exact tested registry digest, update the local manifest, review the diff, commit and push. Argo then reconciles both the image and its pull-secret reference together.",
+            "rollout waits only after the image pull prerequisite exists. Read imageID to connect the running artifact with the tested digest; distinguish a multi-platform index from its selected platform manifest."
+          ],
+          "expected": "The private image pulls and the new Pods become Ready.",
+          "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+        }
+      ],
+      "checkpoint": "Keep build pipeline URL, test report, artifact digest, environment commit and deployed identity in one release record."
+    }
+  ],
+  "failure": {
+    "title": "A manual change drifts from Git",
+    "boundary": "Only desired replicas; HPA must be absent.",
+    "inject": [
+      {
+        "code": "kubectl -n devopps scale deployment/taskboard --replicas=3\nkubectl -n argocd annotate application devopps argocd.argoproj.io/refresh=normal --overwrite",
+        "explain": [
+          "Scale creates intentional drift; refresh asks Argo to compare sooner."
+        ],
+        "expected": "Application becomes OutOfSync; manual sync policy leaves3replicas.",
+        "troubleshoot": "Wait for comparison; absence of immediate status change does not prove no drift."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n argocd get application devopps -o yaml\nkubectl -n devopps get deployment taskboard",
+        "explain": [
+          "Compare sync status, observed revision and live replicas to Git."
+        ],
+        "expected": "Git desires2, live has3.",
+        "troubleshoot": "Check no HPA or second reconciler owns replicas."
+      }
+    ],
+    "hints": [
+      "Which source should win?"
+    ],
+    "answer": {
+      "explanation": [
+        "The controller has detected a difference but manual sync does not automatically repair it. Explicit sync applies the reviewed source; optional self-heal changes that operating policy."
+      ],
+      "recover": [
+        {
+          "code": "kubectl -n argocd patch application devopps --type=merge -p '{\"operation\":{\"sync\":{}}}'",
+          "explain": [
+            "Reconcile from source."
+          ],
+          "expected": "Replicas return to2.",
+          "troubleshoot": "If Git itself says3, review the source commit before changing anything."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n argocd get application devopps\nkubectl -n devopps get deployment taskboard",
+        "explain": [
+          "Check both convergence and workload health."
+        ],
+        "expected": "Synced/Healthy and2/2.",
+        "troubleshoot": "Synced alone does not prove business behavior; run system checks."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What prevents malicious desired state?",
+      "hint": "Does reconciliation judge intent?",
+      "answer": "Review, protected refs, least-privilege projects and trusted credentials; the controller itself applies authorized source, including mistakes."
+    },
+    {
+      "prompt": "Why keep SOPS ciphertext out until integration is understood?",
+      "hint": "Who decrypts, with which identity?",
+      "answer": "A controller needs an explicitly configured and constrained decryption mechanism. Encrypting a file without that contract creates a failed deployment or unsafe key handling."
+    },
+    {
+      "prompt": "Does reverting Git safely reverse a migration?",
+      "hint": "Separate app and data changes.",
+      "answer": "No. A previous app may not understand the new schema/data. Use backward-compatible migrations and a separate recovery decision."
+    }
+  ],
+  "exercise": {
+    "brief": "Document and test self-heal separately from pruning.",
+    "constraints": [
+      "Keep prune disabled",
+      "No HPA competing over replicas"
+    ],
+    "deliverables": [
+      "Before/after drift evidence",
+      "Controller ownership table"
+    ],
+    "acceptance": [
+      "Manual drift is observed",
+      "Approved source restores it"
+    ],
+    "hints": [
+      "spec.syncPolicy.automated supports selfHeal and prune independently."
+    ],
+    "solution": [
+      "After recording manual behavior, enable automated:{enabled:true,selfHeal:true,prune:false} on the Application, repeat the replica change and observe repair. Restore manual policy for gate32 if you want explicit release approval."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n argocd patch application devopps --type=merge -p '{\"spec\":{\"syncPolicy\":{\"automated\":{\"enabled\":false}}}}'",
+      "explain": [
+        "Keep explicit synchronization for the next gate. Stop any local port-forward with Ctrl+C; retain Argo and repository."
+      ],
+      "expected": "Automatic sync disabled.",
+      "troubleshoot": "Do not delete the Application with a cascading finalizer unless you intentionally want its managed workloads removed."
+    }
+  ],
+  "references": [
+    {
+      "title": "Argo CD getting started",
+      "url": "https://argo-cd.readthedocs.io/en/stable/getting_started/",
+      "usedFor": "Controller installation"
+    },
+    {
+      "title": "Argo automated sync",
+      "url": "https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/",
+      "usedFor": "Sync/self-heal/prune semantics"
+    },
+    {
+      "title": "Sync with kubectl",
+      "url": "https://argo-cd.readthedocs.io/en/stable/user-guide/sync-kubectl/",
+      "usedFor": "Application operation request"
+    },
+    {
+      "title": "GitLab container registry",
+      "url": "https://docs.gitlab.com/user/packages/container_registry/authenticate_with_container_registry/",
+      "usedFor": "Read-only image credentials"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "argoproj/argo-cd",
+      "principle": "Reconciliation makes desired state executable.",
+      "application": "Compare manual drift with explicit sync, then optional self-heal; keep database/Secrets outside this ownership boundary.",
+      "url": "https://github.com/argoproj/argo-cd"
+    },
+    {
+      "repo": "stefanprodan/podinfo",
+      "principle": "Reference workloads isolate platform faults.",
+      "application": "Prove repository/controller synchronization with podinfo before adding Taskboard credentials and storage dependencies.",
+      "url": "https://github.com/stefanprodan/podinfo"
+    }
+  ],
+  "notes": [
+    "Argo/GitLab execution requires the learner cluster and repository. No repository was published or cloud resource created during authoring."
+  ],
+  "phase": "Kubernetes operations",
+  "title": "GitLab CI plus Argo CD",
+  "outcome": "Separate building an artifact from reconciling a cluster to approved configuration."
+}

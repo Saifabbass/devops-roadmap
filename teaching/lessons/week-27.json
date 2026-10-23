@@ -1,0 +1,224 @@
+{
+  "week": 27,
+  "introduction": [
+    "A namespace is an organizational boundary, not an automatic firewall. This lesson separates three questions: what the application process can do, what its Kubernetes identity can request, and which network connections it can make.",
+    "Replace the disposable kind cluster with one using Cilium so packet-policy tests have an enforcing implementation. This is an explicit add-on operating obligation: version, privileges, compatibility and removal must be understood. A NetworkPolicy object alone proves no packets were blocked."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Weeks25–26 manifests and local devopps-taskboard:w25 image. Keep lab evidence before removing the old cluster. This lesson uses a single-node Cilium cluster; no resilience claim."
+  ],
+  "concepts": [
+    {
+      "title": "Different identities, different controls",
+      "paragraphs": [
+        "runAsNonRoot and capability removal constrain the process inside the container. A ServiceAccount identifies a workload to the Kubernetes API. RBAC grants verbs on resources. These do not grant or deny SQL access.",
+        "Secrets are API objects; their base64 representation is reversible. Anyone authorized to read the Secret can recover its value. Limit RBAC, protect etcd backups and use encryption-at-rest/external secret delivery in a production design."
+      ],
+      "example": "A process can be non-root yet read every Secret if its API identity has that permission.",
+      "judgment": "Do not mount a service-account token when the app never calls the API. A dashboard such as Headlamp should use the same least-privilege reasoning."
+    },
+    {
+      "title": "Policies are additive selection rules",
+      "paragraphs": [
+        "A policy selects source or destination Pods. Once selected for a direction, only traffic allowed by the union of applicable policies is permitted. DNS is a separate dependency; allow UDP and TCP53 to the real cluster DNS Pods.",
+        "The lab tests TCP reachability to PostgreSQL independently of SQL authentication. A successful TCP connection says the route is available, not that a query is authorized."
+      ],
+      "example": "An allowed app connects to5432 while an unlabeled diagnostic Pod times out.",
+      "judgment": "A policy that allows every namespace defeats an intended same-namespace restriction. Inspect selectors and prove both allowed and denied paths."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Install an enforcing network layer",
+      "purpose": "Rebuild only the named disposable cluster, then restore known desired state.",
+      "commands": [
+        {
+          "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\ncd \"$HOME/dev-opps-lab/k8s\"\nkind delete cluster --name devopps\ncat > kind-policy.yaml <<'YAML'\nkind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n- role: control-plane\nnetworking:\n  disableDefaultCNI: true\nYAML\nkind create cluster --name devopps-policy --config kind-policy.yaml --kubeconfig \"$KUBECONFIG\"\nCLI_VERSION=$(curl -fsSL https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)\ncase \"$(uname -m)\" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) exit 1 ;; esac\ncurl -fLO \"https://github.com/cilium/cilium-cli/releases/download/$CLI_VERSION/cilium-linux-$ARCH.tar.gz\"\ncurl -fLO \"https://github.com/cilium/cilium-cli/releases/download/$CLI_VERSION/cilium-linux-$ARCH.tar.gz.sha256sum\"\nsha256sum --check \"cilium-linux-$ARCH.tar.gz.sha256sum\"\ntar -xzf \"cilium-linux-$ARCH.tar.gz\" -C \"$HOME/.local/bin\" cilium\nexport PATH=\"$HOME/.local/bin:$PATH\"\ncilium install --version 1.20.3 --set ipam.mode=kubernetes --set operator.replicas=1\ncilium status --wait\nkind load docker-image devopps-taskboard:w25 --name devopps-policy\nkubectl create namespace devopps\nkubectl apply -f app-probed.yaml -f service.yaml",
+          "explain": [
+            "delete cluster targets only the previous lab; its in-memory data was disposable. disableDefaultCNI leaves node networking unready until Cilium is installed.",
+            "Resolve the official CLI release once, download its architecture-specific archive and checksum, then verify before extracting only cilium into the user bin directory. -xzf extracts gzip; -C selects the destination.",
+            "cilium install pins the network component release; ipam.mode=kubernetes uses Kubernetes-assigned Pod ranges. One operator replica is an explicit local resource compromise. status --wait checks installation before loading/applying workloads."
+          ],
+          "expected": "Context kind-devopps-policy; Cilium ready and Taskboard returns to2/2.",
+          "troubleshoot": "If the checksum fails stop. If nodes remain NotReady inspect cilium status and kube-system events; do not proceed to policy claims until CNI health is established."
+        }
+      ],
+      "checkpoint": "Record Cilium version and why privileged networking software is needed on cluster nodes."
+    },
+    {
+      "title": "Constrain process and API identity",
+      "purpose": "Give the application no mounted API credential and demonstrate a narrow observer identity.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps create serviceaccount taskboard\nkubectl -n devopps create serviceaccount observer\nkubectl -n devopps create role pod-reader --verb=get,list,watch --resource=pods\nkubectl -n devopps create rolebinding observer-read --role=pod-reader --serviceaccount=devopps:observer\nkubectl auth can-i list pods -n devopps --as=system:serviceaccount:devopps:observer\nkubectl auth can-i get secrets -n devopps --as=system:serviceaccount:devopps:observer\ncat > hardening.json <<'JSON'\n{\"spec\":{\"template\":{\"spec\":{\"serviceAccountName\":\"taskboard\",\"automountServiceAccountToken\":false,\"securityContext\":{\"runAsNonRoot\":true,\"runAsUser\":10001,\"seccompProfile\":{\"type\":\"RuntimeDefault\"}},\"containers\":[{\"name\":\"app\",\"securityContext\":{\"allowPrivilegeEscalation\":false,\"readOnlyRootFilesystem\":true,\"capabilities\":{\"drop\":[\"ALL\"]}}}]}}}}\nJSON\nkubectl patch --local -f app-probed.yaml --type=strategic --patch-file hardening.json -o yaml > app-secure.yaml\nkubectl apply -f app-secure.yaml\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "The Role grants only Pod reads inside devopps. RoleBinding associates it with observer. can-i --as asks the authorization system about that identity; this administrator-driven test is not a token login.",
+            "The patch selects the dedicated app account and disables token mounting. UID10001 matches the image. RuntimeDefault seccomp, no privilege escalation, read-only root and drop ALL reduce available process operations. Save the complete result in app-secure.yaml."
+          ],
+          "expected": "Observer list pods=yes and get secrets=no; app remains Ready.",
+          "troubleshoot": "An unexpected yes indicates an additional binding; permissions are additive. If a read-only filesystem breaks startup, identify the exact required writable path rather than disabling the protection globally."
+        }
+      ],
+      "checkpoint": "Explain why a non-root UID and least-privilege RBAC are independent controls."
+    },
+    {
+      "title": "Prove database reachability boundaries",
+      "purpose": "Use a disposable PostgreSQL listener and positive/negative clients.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps create secret generic pg-lab --from-literal=password=\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')\"\ncat > pg-network.yaml <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata: {name: postgres, namespace: devopps}\nspec:\n  replicas: 1\n  selector: {matchLabels: {app: postgres}}\n  template:\n    metadata: {labels: {app: postgres}}\n    spec:\n      containers:\n      - name: postgres\n        image: postgres:17\n        env:\n        - name: POSTGRES_PASSWORD\n          valueFrom: {secretKeyRef: {name: pg-lab, key: password}}\n        ports: [{containerPort: 5432}]\n---\napiVersion: v1\nkind: Service\nmetadata: {name: postgres, namespace: devopps}\nspec:\n  selector: {app: postgres}\n  ports: [{port: 5432, targetPort: 5432}]\nYAML\nkubectl apply -f pg-network.yaml\nkubectl -n devopps rollout status deployment/postgres --timeout=180s\ncat > boundary.yaml <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: database-boundary, namespace: devopps}\nspec:\n  podSelector:\n    matchLabels: {app: postgres}\n  policyTypes: [Ingress]\n  ingress:\n  - from:\n    - podSelector:\n        matchLabels: {app: taskboard}\n    ports:\n    - {protocol: TCP, port: 5432}\n---\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: app-egress, namespace: devopps}\nspec:\n  podSelector:\n    matchLabels: {app: taskboard}\n  policyTypes: [Egress]\n  egress:\n  - to:\n    - podSelector:\n        matchLabels: {app: postgres}\n    ports:\n    - {protocol: TCP, port: 5432}\n  - to:\n    - namespaceSelector:\n        matchLabels: {kubernetes.io/metadata.name: kube-system}\n      podSelector:\n        matchLabels: {k8s-app: kube-dns}\n    ports:\n    - {protocol: UDP, port: 53}\n    - {protocol: TCP, port: 53}\nYAML\nkubectl apply -f boundary.yaml\nkubectl -n devopps exec deployment/taskboard -- python -c 'import socket; socket.create_connection((\"postgres\",5432),3).close(); print(\"TCP_ALLOWED\")'\nkubectl -n devopps run outsider --image=busybox:1.37 --restart=Never --command -- sleep 3600\nkubectl -n devopps wait --for=condition=Ready pod/outsider --timeout=120s\nkubectl -n devopps exec outsider -- nc -z -w 3 postgres 5432",
+          "explain": [
+            "Python secrets produces a random lab password; create secret passes it into an API Secret rather than storing it in a manifest. Do not copy Secret YAML into Git. PostgreSQL has no persistent volume in this transport-only drill.",
+            "The heredocs provide the entire Deployment, Service and policies. Database ingress selects only taskboard Pods in this namespace. App egress allows database TCP5432 and DNS53 to kube-system/kube-dns.",
+            "Python create_connection checks the allowed path with a3-second timeout. The outsider has no matching app label. nc -z checks without sending SQL; -w3 bounds the denied connection attempt. A nonzero exit is expected."
+          ],
+          "expected": "Taskboard prints TCP_ALLOWED; outsider times out/nonzero.",
+          "troubleshoot": "If both clients connect, the CNI or policy selection is wrong. If neither connects, verify PostgreSQL logs/readiness, then DNS and selectors. Do not treat denial of both as success."
+        }
+      ],
+      "checkpoint": "Record both results; label them transport evidence, not SQL authorization evidence."
+    }
+  ],
+  "failure": {
+    "title": "App egress omitted DNS",
+    "boundary": "Only the app-egress policy in the isolated namespace.",
+    "inject": [
+      {
+        "code": "kubectl -n devopps patch networkpolicy app-egress --type=json -p '[{\"op\":\"remove\",\"path\":\"/spec/egress/1\"}]'",
+        "explain": [
+          "JSON Patch removes the DNS rule by index while keeping database egress."
+        ],
+        "expected": "New hostname resolution from the app fails.",
+        "troubleshoot": "Resolve in a fresh process to avoid cached DNS."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n devopps exec deployment/taskboard -- python -c 'import socket; print(socket.getaddrinfo(\"postgres\",5432))'\nkubectl -n devopps get networkpolicy app-egress -o yaml",
+        "explain": [
+          "The first command isolates DNS; the second shows the missing permitted destination."
+        ],
+        "expected": "Resolution fails while the database rule remains.",
+        "troubleshoot": "Inspect actual DNS Pod labels if a restored rule still does not work."
+      }
+    ],
+    "hints": [
+      "Does database IP access differ from hostname access?",
+      "Which protocol is needed before TCP5432?"
+    ],
+    "answer": {
+      "explanation": [
+        "The app was allowed to contact the database but could no longer discover its IP. Restore the narrowly scoped DNS rule; allowing all egress would hide the cause."
+      ],
+      "recover": [
+        {
+          "code": "kubectl apply -f \"$HOME/dev-opps-lab/k8s/boundary.yaml\"",
+          "explain": [
+            "Restore recorded policy."
+          ],
+          "expected": "DNS allowance returns.",
+          "troubleshoot": "Check namespace/Pod selectors."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps exec deployment/taskboard -- python -c 'import socket; socket.create_connection((\"postgres\",5432),3).close(); print(\"RECOVERED\")'",
+        "explain": [
+          "Retest name resolution plus TCP connection."
+        ],
+        "expected": "RECOVERED.",
+        "troubleshoot": "Repeat the outsider test to ensure recovery did not broaden access."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What does base64 protect?",
+      "hint": "Can anyone decode it?",
+      "answer": "It transports bytes safely in text; it supplies no confidentiality. Access control and encryption address different threats."
+    },
+    {
+      "prompt": "Why test denial?",
+      "hint": "What if there is no enforcing CNI?",
+      "answer": "An allow test succeeds on an open network too. Denial proves the selected boundary affects real packets."
+    },
+    {
+      "prompt": "Can observer edit a Deployment?",
+      "hint": "Check resource and verb.",
+      "answer": "No Role rule grants it. Verify with kubectl auth can-i patch deployments -n devopps --as=system:serviceaccount:devopps:observer."
+    }
+  ],
+  "exercise": {
+    "brief": "Create an observer permission table and a three-edge network diagram.",
+    "constraints": [
+      "No cluster-admin grants",
+      "No all-egress policy"
+    ],
+    "deliverables": [
+      "Allowed/denied API commands",
+      "DNS, app→database, outsider→database results"
+    ],
+    "acceptance": [
+      "Only Pod reads are granted",
+      "Taskboard connects while outsider fails"
+    ],
+    "hints": [
+      "Inspect bindings as well as the Role."
+    ],
+    "solution": [
+      "List every granted verb/resource; test a secret read and a Deployment patch are denied. Draw DNS as its own dependency and attach command output to each network edge."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n devopps delete pod outsider\nkubectl -n devopps delete -f \"$HOME/dev-opps-lab/k8s/pg-network.yaml\"\nkubectl -n devopps delete secret pg-lab\nkubectl -n devopps delete networkpolicy database-boundary app-egress",
+      "explain": [
+        "Remove the transport-only database, random credential and drill policies; retain hardened Taskboard and the enforcing cluster. Policies are restored explicitly in later database exercises."
+      ],
+      "expected": "Temporary objects deleted; app stays available.",
+      "troubleshoot": "The database contained no meaningful data. Never reuse this deletion procedure for a persistent production database."
+    }
+  ],
+  "references": [
+    {
+      "title": "Cilium kind installation",
+      "url": "https://docs.cilium.io/en/stable/installation/kind/",
+      "usedFor": "Enforcing local CNI"
+    },
+    {
+      "title": "NetworkPolicy",
+      "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+      "usedFor": "Selectors and direction semantics"
+    },
+    {
+      "title": "RBAC",
+      "url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "usedFor": "Roles and bindings"
+    },
+    {
+      "title": "Security context",
+      "url": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+      "usedFor": "Process isolation"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "ramitsurana/awesome-kubernetes",
+      "principle": "Add-ons create maintenance obligations.",
+      "application": "Record why the network plugin is necessary, how it fails, the version used and the cluster-removal route.",
+      "url": "https://github.com/ramitsurana/awesome-kubernetes"
+    },
+    {
+      "repo": "kubernetes-sigs/headlamp",
+      "principle": "A dashboard is an API client.",
+      "application": "The observer Role is a concrete limited troubleshooting identity; a GUI must not quietly broaden it.",
+      "url": "https://github.com/kubernetes-sigs/headlamp"
+    }
+  ],
+  "notes": [
+    "Cilium1.20.3 installation docs checked2026-10-20; packet enforcement needs learner runtime verification."
+  ],
+  "phase": "Kubernetes",
+  "title": "Configuration and workload security",
+  "outcome": "Limit workload permissions and verify network isolation."
+}

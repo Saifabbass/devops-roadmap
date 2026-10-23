@@ -1,0 +1,445 @@
+{
+  "week": 24,
+  "phase": "Ansible and VM operations",
+  "title": "Gate 6 · rebuild the VM platform",
+  "outcome": "Provision, configure, deploy, restore and explain one complete environment.",
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: The platform is reproducible only if it can survive the loss of its current machine. This project builds a new Ubuntu host with Terraform, configures it with Ansible, deploys an exact GitLab-tested Taskboard image, then replaces the host and restores a known task into an isolated PostgreSQL database.",
+    "Optional provider lab: The application remains private behind an SSH tunnel. The exercise uses a single VM, so its planned replacement causes downtime; it is not high availability. Your evidence will distinguish a source test, a database integration test, an image system test and the restored service actually responding over HTTP. External dependencies and manual bootstrap steps remain visible in the handoff."
+  ],
+  "prerequisites": [
+    "Weeks 13–23, the existing private state bucket, sandbox SSO provisioning identity and a current budget/expiry. The provisioning role needs the week-14 EC2/VPC/SSM capabilities plus read/write of vm24/terraform.tfstate and get/put/delete of its .tflock in the owned backend. It needs no production resources. Verify the actual account and us-east-1 region before planning.",
+    "Use a fresh disposable VM for this gate; do not point it at the week-21 host or a production machine. Estimate one t3.small, one 20-GiB gp3 root disk, public IPv4, registry transfer and state storage using current provider pricing. Record a two-hour session target and teardown owner; these are estimates, not a free-tier promise.",
+    "Complete the supplied Taskboard GitLab pipeline first, with its real isolated runner and registry prerequisites from weeks 9–12. Download tested-digest.txt from a successful system job and record the pipeline URL, source SHA, unit/integration/system results. The local source/Compose support files must match that release. A manually typed image tag is not equivalent evidence.",
+    "The generated Taskboard .env exists at ~/dev-opps-lab/app/taskboard/.env with stage-07 tokens. If absent, activate its venv and run python tools/init_lab.py once from that directory. Keep a private backup of those credentials; recovering the database without its owner identity mapping is incomplete.",
+    "Without AWS/GitLab access, finish syntax/plan review and write the handoff locally, clearly labeling provision, federation, image deployment and restore execution pending. That preparation does not pass this provider rebuild gate."
+  ],
+  "concepts": [
+    {
+      "title": "Different owners meet at explicit interfaces",
+      "paragraphs": [
+        "Terraform creates the VPC, subnet, route, security group, key pair and VM. Its outputs pass an address into Ansible inventory. Ansible installs the host engine and deployment files. GitLab supplies a tested immutable image digest. PostgreSQL data is recovered separately from that image.",
+        "No tool recreates an external account, a revoked deploy token or a missing decryption key by magic. The runbook lists these bootstrap dependencies and who owns them. Treat a machine address as replaceable, while preserving the desired configuration, artifact identity and data recovery evidence."
+      ],
+      "example": "Replacing aws_instance.app should change the instance ID and possibly its IP but not the selected application digest.",
+      "judgment": "Do not put private SSH keys, application passwords or registry tokens into Terraform variables/state."
+    },
+    {
+      "title": "Rebuild and recovery are different checks",
+      "paragraphs": [
+        "A new empty application can return healthy while all customer data is missing. We create a known task, stop writes, take a logical dump, verify its archive structure, replace the VM and restore into a new database. Then we compare the exact known response and run authenticated behavior checks.",
+        "The root disk is deleted with the instance. The controller-held dump and credentials are therefore essential recovery inputs. A dump is a point-in-time logical copy; writes after its snapshot are outside the chosen recovery point, and this exercise does not provide continuous point-in-time recovery."
+      ],
+      "example": "A matching task ID, title and timestamps through the recovered HTTP endpoint proves more than the presence of a dump file.",
+      "judgment": "Time the entire recovery, including provisioning, configuration, image pull, restore and behavior checks. A command finishing quickly is not the service recovery time."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Declare the entire disposable infrastructure",
+      "purpose": "Use the observed account and a verified administrator IPv4. Review the cost estimate before creating anything. Stop at any failed command instead of continuing with empty variables.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-lab/platform24/{infra,config,evidence}\ncd ~/dev-opps-lab/platform24/infra\nexport AWS_PROFILE=devopps-provisioner AWS_REGION=us-east-1 AWS_PAGER=\"\"\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\nread -r -p \"Recorded week-18 backend bucket: \" STATE_BUCKET\nread -r -p \"Your current public IPv4 address (without /32): \" ADMIN_IP\nexport STATE_BUCKET ADMIN_IP\nif [ ! -f \"$HOME/.ssh/devopps24\" ]; then ssh-keygen -t ed25519 -f \"$HOME/.ssh/devopps24\" -C devopps24; fi\ncat > main.tf <<'EOF'\nterraform {\n  required_version = \">= 1.10, < 2.0\"\n  required_providers { aws = { source = \"hashicorp/aws\", version = \"~> 6.0\" } }\n  backend \"s3\" {}\n}\nprovider \"aws\" { region = \"us-east-1\" }\nvariable \"admin_cidr\" {\n  type = string\n  validation {\n    condition = can(cidrhost(var.admin_cidr, 0)) && can(regex(\"^[0-9.]+/32$\", var.admin_cidr))\n    error_message = \"Use your verified administrator IPv4 /32 only.\"\n  }\n}\nvariable \"ssh_public_key\" { type = string }\ndata \"aws_ssm_parameter\" \"ubuntu\" {\n  name = \"/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id\"\n}\nresource \"aws_vpc\" \"lab\" {\n  cidr_block = \"10.78.0.0/16\"\n  enable_dns_support = true\n  enable_dns_hostnames = true\n  tags = { Name = \"devopps24\", Course = \"DevOpps\" }\n}\nresource \"aws_subnet\" \"lab\" {\n  vpc_id = aws_vpc.lab.id\n  cidr_block = \"10.78.1.0/24\"\n  tags = { Name = \"devopps24\" }\n}\nresource \"aws_internet_gateway\" \"lab\" { vpc_id = aws_vpc.lab.id }\nresource \"aws_route_table\" \"lab\" { vpc_id = aws_vpc.lab.id }\nresource \"aws_route\" \"internet\" {\n  route_table_id = aws_route_table.lab.id\n  destination_cidr_block = \"0.0.0.0/0\"\n  gateway_id = aws_internet_gateway.lab.id\n}\nresource \"aws_route_table_association\" \"lab\" {\n  subnet_id = aws_subnet.lab.id\n  route_table_id = aws_route_table.lab.id\n}\nresource \"aws_security_group\" \"lab\" {\n  name_prefix = \"devopps24-\"\n  vpc_id = aws_vpc.lab.id\n}\nresource \"aws_vpc_security_group_ingress_rule\" \"ssh\" {\n  security_group_id = aws_security_group.lab.id\n  cidr_ipv4 = var.admin_cidr\n  ip_protocol = \"tcp\"\n  from_port = 22\n  to_port = 22\n}\nresource \"aws_vpc_security_group_egress_rule\" \"outbound\" {\n  security_group_id = aws_security_group.lab.id\n  cidr_ipv4 = \"0.0.0.0/0\"\n  ip_protocol = \"-1\"\n}\nresource \"aws_key_pair\" \"lab\" {\n  key_name_prefix = \"devopps24-\"\n  public_key = var.ssh_public_key\n}\nresource \"aws_instance\" \"app\" {\n  ami = nonsensitive(data.aws_ssm_parameter.ubuntu.value)\n  instance_type = \"t3.small\"\n  subnet_id = aws_subnet.lab.id\n  associate_public_ip_address = true\n  vpc_security_group_ids = [aws_security_group.lab.id]\n  key_name = aws_key_pair.lab.key_name\n  metadata_options { http_tokens = \"required\" }\n  root_block_device {\n    volume_size = 20\n    volume_type = \"gp3\"\n    encrypted = true\n    delete_on_termination = true\n  }\n  tags = { Name = \"devopps24\", Course = \"DevOpps\" }\n  depends_on = [aws_route.internet]\n}\noutput \"public_ip\" { value = aws_instance.app.public_ip }\noutput \"instance_id\" { value = aws_instance.app.id }\nEOF\npython3 - <<'PY'\nimport json,os,ipaddress\nfrom pathlib import Path\nip=ipaddress.IPv4Address(os.environ['ADMIN_IP'])\nPath('lab.auto.tfvars.json').write_text(json.dumps({'admin_cidr':str(ip)+'/32','ssh_public_key':(Path.home()/'.ssh/devopps24.pub').read_text()}))\nPY\nterraform init -backend-config=\"bucket=$STATE_BUCKET\" -backend-config=\"key=vm24/terraform.tfstate\" -backend-config=\"region=us-east-1\" -backend-config=\"encrypt=true\" -backend-config=\"use_lockfile=true\"\nterraform fmt\nterraform validate\nterraform plan -out=create.tfplan\nterraform show -no-color create.tfplan\n",
+          "explain": [
+            "The SSO login and caller check select the sandbox. read gathers existing backend and your actual IPv4; Python validates it and appends /32. ssh-keygen creates a dedicated key only if absent and prompts for a passphrase; keep it out of Git.",
+            "The HCL declares one network and VM. Inbound traffic permits only SSH from the administrator /32. Egress permits downloads for this bounded lab; a production egress policy needs its own dependency inventory. There is no inbound 8000 rule, NAT gateway or load balancer.",
+            "The Ubuntu image is resolved from Canonical public SSM metadata. Review and record the actual AMI in the plan; future image changes need review. IMDSv2 is required, the root disk is encrypted and deleted on termination, and no cloud credentials are attached to the app.",
+            "init uses the unique vm24 state key with locking. plan writes a private reviewed artifact; show displays the exact resources and costs to approve before apply. Commit configuration and provider lock, not tfvars/state/plans or keys."
+          ],
+          "expected": "A plan containing only the named network/key/VM and a verified /32 SSH rule.",
+          "troubleshoot": "If Terraform proposes unrelated resources, inspect the backend key and workspace before applying. A missing permission is diagnosed by exact API/action rather than granting account-wide administration.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record account, region, estimated cost, AMI, plan checksum, resource count and teardown owner."
+    },
+    {
+      "title": "Apply and produce the inventory",
+      "purpose": "After reviewing the saved create plan, apply it. Verify the VM SSH fingerprint from its console output before accepting the connection.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/platform24/infra\nterraform apply create.tfplan\nVM_HOST=$(terraform output -raw public_ip)\nINSTANCE_ID=$(terraform output -raw instance_id)\nexport VM_HOST INSTANCE_ID\naws ec2 wait instance-status-ok --instance-ids \"$INSTANCE_ID\"\naws ec2 get-console-output --instance-id \"$INSTANCE_ID\" --latest --query Output --output text\nssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\" \"cloud-init status --wait\"\npython3 - <<'PY'\nimport json,os\nfrom pathlib import Path\ninv={'all':{'children':{'app':{'hosts':{'app1':{'ansible_host':os.environ['VM_HOST'],'ansible_user':'ubuntu','ansible_ssh_private_key_file':str(Path.home()/'.ssh/devopps24'),'ansible_python_interpreter':'/usr/bin/python3'}}}}}}\nPath('../config/inventory.json').write_text(json.dumps(inv,indent=2))\nPY\n",
+          "explain": [
+            "apply consumes the reviewed plan. output reads the actual address and ID. The AWS waiter waits for instance status checks; cloud-init status --wait separately waits for Ubuntu bootstrap.",
+            "Console output commonly contains generated SSH host fingerprints; if it is unavailable, use the provider console to obtain them. Do not replace verification with StrictHostKeyChecking=no. The Python code writes only observed host metadata and the existing local key path."
+          ],
+          "expected": "One ready Ubuntu host and config/inventory.json pointing at its real IP.",
+          "troubleshoot": "SSH timeout means inspect the current administrator IP, security group, route and instance checks. A host-key mismatch after replacement must be resolved against the new console fingerprint before updating the one known_hosts entry.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "The inventory is generated from provider output, with no remembered manual server address."
+    },
+    {
+      "title": "Configure the host and select the tested release",
+      "purpose": "Use the exact downloaded successful digest artifact and matching source/support files. The configuration play installs a signed official Docker package repository on fresh Ubuntu Noble amd64.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/platform24/config\nsource ~/dev-opps-lab/config21/.venv/bin/activate\nmkdir -p files\nread -r -p \"Absolute path to downloaded successful GitLab tested-digest.txt: \" DIGEST_FILE\nexport DIGEST_FILE\npython - <<'PY'\nimport os,re\nfrom pathlib import Path\nv=Path(os.environ['DIGEST_FILE']).expanduser().read_text().strip()\nassert re.fullmatch(r'[A-Za-z0-9._:/-]+@sha256:[a-f0-9]{64}',v), 'Use the exact tested image digest artifact'\nPath('files/tested-digest.txt').write_text(v+'\\n')\nPY\ntar --exclude=.venv --exclude=.env --exclude=.git --exclude=reports --exclude=__pycache__ -czf files/taskboard.tar.gz -C ~/dev-opps-lab/app/taskboard .\ncat > configure.yml <<'EOF'\n---\n- name: Configure the clean Ubuntu platform\n  hosts: app\n  become: true\n  tasks:\n    - name: Install repository prerequisites\n      ansible.builtin.apt:\n        name: [ca-certificates, curl]\n        state: present\n        update_cache: true\n    - name: Create the apt keyring directory\n      ansible.builtin.file:\n        path: /etc/apt/keyrings\n        state: directory\n        mode: '0755'\n    - name: Fetch the official Docker repository signing key\n      ansible.builtin.get_url:\n        url: https://download.docker.com/linux/ubuntu/gpg\n        dest: /etc/apt/keyrings/docker.asc\n        mode: '0644'\n    - name: Configure the signed Ubuntu Noble amd64 repository\n      ansible.builtin.copy:\n        dest: /etc/apt/sources.list.d/docker.sources\n        mode: '0644'\n        content: |\n          Types: deb\n          URIs: https://download.docker.com/linux/ubuntu\n          Suites: noble\n          Components: stable\n          Architectures: amd64\n          Signed-By: /etc/apt/keyrings/docker.asc\n    - name: Install Docker and Compose\n      ansible.builtin.apt:\n        name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]\n        state: present\n        update_cache: true\n        cache_valid_time: 3600\n    - name: Enable the container engine\n      ansible.builtin.systemd_service:\n        name: docker\n        enabled: true\n        state: started\n    - name: Create the private deployment directory\n      ansible.builtin.file:\n        path: /opt/devopps24\n        state: directory\n        owner: root\n        group: root\n        mode: '0700'\n    - name: Install the reviewed Compose and support files\n      ansible.builtin.unarchive:\n        src: files/taskboard.tar.gz\n        dest: /opt/devopps24\n        owner: root\n        group: root\n    - name: Deliver existing lab credentials privately\n      ansible.builtin.copy:\n        src: '{{ lookup(\"env\", \"HOME\") }}/dev-opps-lab/app/taskboard/.env'\n        dest: /opt/devopps24/.env\n        owner: root\n        group: root\n        mode: '0600'\n      no_log: true\n      diff: false\n    - name: Select the exact tested image and authenticated stage\n      ansible.builtin.lineinfile:\n        path: /opt/devopps24/.env\n        regexp: '{{ item.regexp }}'\n        line: '{{ item.line }}'\n        mode: '0600'\n      loop:\n        - regexp: '^TASKBOARD_IMAGE='\n          line: 'TASKBOARD_IMAGE={{ lookup(\"file\", \"files/tested-digest.txt\") | trim }}'\n        - regexp: '^TASKBOARD_STAGE='\n          line: TASKBOARD_STAGE=07\n      no_log: true\n      diff: false\nEOF\nansible-playbook -i inventory.json configure.yml --limit app1\n",
+          "explain": [
+            "The digest parser requires a repository@sha256 reference and refuses a mutable tag. The source archive excludes local secrets, virtual environments and reports; it supplies Compose, migrations and tests without rebuilding the deployed application.",
+            "The official repository signing key is fetched over HTTPS and scoped with Signed-By. Ansible installs the engine/CLI/Compose, starts Docker and copies support files into a root-only directory. Record installed package versions; this first bootstrap resolves current package candidates and is not a promise of bit-for-bit host-package reproduction.",
+            "Credentials copy separately with no_log/diff:false and mode 0600. The line edits select stage07 and the exact digest without printing .env. The Docker daemon is privileged; do not add the application identity to the docker group."
+          ],
+          "expected": "A configured private deployment directory with the tested image selected and no exposed secret output.",
+          "troubleshoot": "On an existing host, conflicting Docker packages need a separate reviewed migration. This procedure deliberately targets a fresh VM and must not remove another workload’s engine.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Re-run configuration once to observe convergence; explain repository cache metadata changes separately from application changes."
+    },
+    {
+      "title": "Pull and run the release",
+      "purpose": "In the GitLab project create a short-expiry deploy token with read_registry only, record its username and keep its token private. The following opens the VM session; lines after sudo -i run there until the two exits.",
+      "commands": [
+        {
+          "code": "ssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\"\nsudo -i\ncd /opt/devopps24\nread -r -p \"GitLab registry hostname, normally registry.gitlab.com: \" REGISTRY\nread -r -p \"Read-registry deploy-token username: \" REGISTRY_USER\nread -r -s -p \"Short-expiry read_registry deploy token: \" REGISTRY_TOKEN\nprintf '\\n'\nprintf '%s' \"$REGISTRY_TOKEN\" | docker login \"$REGISTRY\" -u \"$REGISTRY_USER\" --password-stdin\nunset REGISTRY_TOKEN\ndocker compose pull app migrate\ndocker logout \"$REGISTRY\"\ndocker compose up -d --no-build app\ndocker compose ps\ndocker compose images\ndocker inspect \"$(docker compose ps -q app)\" --format '{{.Config.Image}}'\ncurl --retry 10 --retry-connrefused --retry-delay 1 --fail-with-body -sS http://127.0.0.1:8000/readyz\ndocker version\ndocker compose version\nexit\nexit\n",
+          "explain": [
+            "read -s hides the registry token; --password-stdin avoids putting it in process arguments or command history. Use the exact registry hostname from your image and GitLab project. Unset the shell value and logout after the private image is pulled.",
+            "pull app migrate obtains the selected digest for both runtime and migrations. up --no-build never substitutes a new local image build. The supplied Compose ordering waits for database health and a successful explicit migration before app startup.",
+            "Compose publishes only 127.0.0.1:8000; the database has no published host port. The runtime image uses UID10001 and the supplied private network. Record the actual container image/digest, engine versions and readiness response.",
+            "docker inspect reads the running container’s configured image reference. Compare it exactly with files/tested-digest.txt and the GitLab source SHA/version response; a friendly tag in a listing is not enough."
+          ],
+          "expected": "Private app and database run, readiness returns 200 and the image matches tested-digest.txt.",
+          "troubleshoot": "An unauthorized registry response needs the read_registry token/project scope, not a public registry setting. A failed migration must be inspected before restarting or bypassing it.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Open a separate controller tunnel: ssh -i ~/.ssh/devopps24 -N -L 127.0.0.1:18024:127.0.0.1:8000 ubuntu@the-observed-IP; use the VM_HOST variable in the next command block."
+    },
+    {
+      "title": "Create recovery evidence and stop writes",
+      "purpose": "In a separate terminal run the tunnel command first. On the controller, create a known authenticated task and make a private dump. Do not proceed to replacement unless every command succeeds and pg_restore lists a valid archive.",
+      "commands": [
+        {
+          "code": "ssh -i ~/.ssh/devopps24 -N -L 127.0.0.1:18024:127.0.0.1:8000 \"ubuntu@$VM_HOST\"",
+          "explain": [
+            "The tunnel reaches only the private app; leave it foreground in its own terminal and use the original controller terminal for backup."
+          ],
+          "expected": "Local port 18024 reaches the VM service.",
+          "troubleshoot": "If this terminal lacks VM_HOST, run VM_HOST=$(terraform -chdir=\"$HOME/dev-opps-lab/platform24/infra\" output -raw public_ip), then reopen the tunnel.",
+          "shell": "bash"
+        },
+        {
+          "code": "cd ~/dev-opps-lab/platform24\numask 077\nsource ~/dev-opps-lab/app/taskboard/.env\ncurl --fail-with-body -sS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" -H 'Content-Type: application/json' -d '{\"title\":\"Survive the VM rebuild\"}' http://127.0.0.1:18024/tasks > evidence/known-task.json\nTASK_ID=$(python3 -c 'import json; print(json.load(open(\"evidence/known-task.json\"))[\"id\"])')\nexport TASK_ID\nssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\" 'sudo sh -c \"cd /opt/devopps24 && docker compose stop app\"'\nssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\" 'sudo sh -c \"cd /opt/devopps24 && docker compose exec -T db pg_dump -U taskboard -d taskboard -Fc\"' > evidence/taskboard.dump\nssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\" 'sudo sh -c \"cd /opt/devopps24 && docker compose exec -T db pg_restore --list\"' < evidence/taskboard.dump\nsha256sum evidence/taskboard.dump > evidence/taskboard.dump.sha256\nssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\" 'sudo sh -c \"cd /opt/devopps24 && docker compose exec -T db pg_dump -U taskboard -d taskboard --schema-only\"' > evidence/schema.sql\n",
+          "explain": [
+            "umask077 protects evidence files. The token comes from your own generated .env and is sent only through the local tunnel. The known task response supplies the actual ID; no demonstration UUID is substituted.",
+            "Stopping app pauses writers while the database remains running. The next SSH command sends only custom-format pg_dump bytes to the controller. pg_restore --list validates the archive structure before the source VM is removed; it does not yet prove application recovery.",
+            "sha256sum records transfer identity; a schema-only copy aids review but the custom dump is the actual recovery artifact. A checksum proves byte consistency, not semantic completeness. Keep all evidence private."
+          ],
+          "expected": "A known task response, nonempty valid dump archive, checksum and stopped application.",
+          "troubleshoot": "If dump/SSH/archive validation fails, keep the source VM and repair the backup first. Do not advance to replacement just because a file exists.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Close the old tunnel before replacing the host; preserve credentials, tested digest and backup independently of its root disk."
+    },
+    {
+      "title": "Replace, reconfigure and restore",
+      "purpose": "The replacement plan must replace only the app VM, keeping the network and key. After apply, repeat the verified-fingerprint inventory generation, configure.yml and digest pull/start steps for the new host. Do not rerun the original create plan.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/platform24/infra\ndate -u +%FT%TZ > ../evidence/rebuild-start.txt\nterraform plan -replace=aws_instance.app -out=replace.tfplan\nterraform show -no-color replace.tfplan\nterraform apply replace.tfplan\nVM_HOST=$(terraform output -raw public_ip)\nINSTANCE_ID=$(terraform output -raw instance_id)\nexport VM_HOST INSTANCE_ID\naws ec2 wait instance-status-ok --instance-ids \"$INSTANCE_ID\"\naws ec2 get-console-output --instance-id \"$INSTANCE_ID\" --latest --query Output --output text\n",
+          "explain": [
+            "The UTC timestamp starts the service recovery clock. -replace requests a managed replacement, and show makes its destructive boundary reviewable before apply. The old root disk/data are intentionally lost; only proceed after backup verification.",
+            "Refresh the output variables and inspect the new fingerprint. Rerun the inventory-generation Python block from step 2 with the new VM_HOST, then step 3 configuration and step 4 deployment. The reused image digest and source evidence remain the same."
+          ],
+          "expected": "A different instance ID and a freshly configured app using the same tested digest; its initial database is empty.",
+          "troubleshoot": "A plan replacing unrelated networking indicates drift or a wrong root. Stop and inspect. Never reuse old address/key assumptions automatically.",
+          "shell": "bash"
+        },
+        {
+          "code": "cd ~/dev-opps-lab/platform24\nsha256sum -c evidence/taskboard.dump.sha256\nssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\" 'umask 077; cat > /home/ubuntu/taskboard-restore24.dump' < evidence/taskboard.dump\nssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\"\nsudo -i\ncd /opt/devopps24\ndocker compose stop app\ndocker compose exec -T db createdb -U taskboard taskboard_restore24\ndocker compose exec -T db pg_restore -U taskboard -d taskboard_restore24 --exit-on-error < /home/ubuntu/taskboard-restore24.dump\numask 077\ncat > compose.override.yaml <<'EOF'\nservices:\n  app:\n    environment:\n      DATABASE_URL: postgresql://taskboard:${POSTGRES_PASSWORD:?required}@db:5432/taskboard_restore24\n  migrate:\n    environment:\n      DATABASE_URL: postgresql://taskboard:${POSTGRES_PASSWORD:?required}@db:5432/taskboard_restore24\nEOF\ndocker compose run --rm --no-deps migrate\ndocker compose up -d --no-build app\ncurl --retry 10 --retry-connrefused --retry-delay 1 --fail-with-body -sS http://127.0.0.1:8000/readyz\nrm -f -- /home/ubuntu/taskboard-restore24.dump\nexit\nexit\n",
+          "explain": [
+            "The controller checksum check verifies the saved dump before transfer. SSH writes it with umask077; the target root session stops app, creates a separately named restore database and imports the archive with exit-on-error. It never overwrites the original taskboard database.",
+            "The Compose override directs app and explicit migration to taskboard_restore24 using the existing private password substitution. It contains a variable reference, not the password. The migrate command checks schema/checksums against the restored data before app startup.",
+            "The bounded curl retry accommodates startup. Only after success is the temporary target dump removed; the controller backup remains until the evidence review."
+          ],
+          "expected": "The app is ready on the restored database, with the original empty database untouched.",
+          "troubleshoot": "If taskboard_restore24 already exists, inspect it instead of dropping it blindly. A restore error leaves the app stopped until diagnosis; do not redirect users to a partly restored database.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Reopen the tunnel with the new address, then prove the known record and complete the recovery clock."
+    },
+    {
+      "title": "Prove data, identity and behavior after replacement",
+      "purpose": "Use the same private tokens and actual known task ID. Reopening a shell requires reloading them from the controlled fixture, never copying example values.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/platform24\nsource ~/dev-opps-lab/app/taskboard/.env\nTASK_ID=$(python3 -c 'import json; print(json.load(open(\"evidence/known-task.json\"))[\"id\"])')\ncurl --fail-with-body -sS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:18024/tasks/$TASK_ID\" > evidence/recovered-task.json\npython3 - <<'PY'\nimport json\nfrom pathlib import Path\na=json.loads(Path(\"evidence/known-task.json\").read_text())\nb=json.loads(Path(\"evidence/recovered-task.json\").read_text())\nassert a==b, \"Recovered task fields differ\"\nprint(\"Known ID, title, completion state and timestamps match\")\nPY\ncd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nexport LAB_ALICE_TOKEN LAB_BOB_TOKEN\nunset TASKBOARD_TEST_MODE\nTASKBOARD_BASE_URL=http://127.0.0.1:18024 python -m pytest tests/system -q\ndate -u +%FT%TZ > ~/dev-opps-lab/platform24/evidence/rebuild-finished.txt",
+          "explain": [
+            "The exact known response is compared field-for-field through the recovered HTTP endpoint. The full system suite runs with both identities and the real database-backed listener; do not set memory test mode.",
+            "The source unit and real PostgreSQL integration results are retained from the same GitLab release pipeline. This restored-host suite supplies additional deployed-system evidence. Record any skipped/failing cases without converting them to a pass.",
+            "The final timestamp marks completion only after useful behavior and known data have been proven. Subtract the UTC start/end timestamps for observed recovery time and list any manual pauses."
+          ],
+          "expected": "Known record equality and authenticated system tests pass; elapsed recovery time is recorded.",
+          "troubleshoot": "If the list is empty despite readiness, inspect the database selected by the app and owner-token mapping before assuming the backup was empty.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "A passing readiness response alone is not this gate’s completion criterion."
+    }
+  ],
+  "failure": {
+    "title": "Roll back a bad database configuration",
+    "boundary": "Only the restored disposable VM and its Compose override; no database is deleted.",
+    "inject": [
+      {
+        "code": "ssh -i ~/.ssh/devopps24 \"ubuntu@$VM_HOST\"\nsudo -i\ncd /opt/devopps24\ncp -p compose.override.yaml compose.override.yaml.before-drill\nsed -i s/taskboard_restore24/taskboard_missing24/g compose.override.yaml\ndocker compose up -d --no-deps --force-recreate app\ncurl -i http://127.0.0.1:8000/readyz",
+        "explain": [
+          "Save the exact current override, point only the app to a nonexistent database, and recreate app without rerunning migrations. curl includes headers so the 503 is visible. Stay in this root session for investigation/recovery."
+        ],
+        "expected": "Readiness returns 503 while /livez still returns 200.",
+        "troubleshoot": "If the app remains ready, inspect whether the override loaded and whether the supposedly missing database actually exists. Do not drop a database to force the symptom.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "curl -i http://127.0.0.1:8000/livez\ndocker compose logs --tail 20 app\ndocker compose exec -T db psql -U taskboard -d postgres -c \"SELECT datname FROM pg_database WHERE datname LIKE 'taskboard%';\"",
+        "explain": [
+          "Observe process liveness, sanitized app logs and actual database names. Do not print docker compose config because expanded output can reveal credentials."
+        ],
+        "expected": "The process is alive and the expected restored database exists, while the configured missing target does not.",
+        "troubleshoot": "The wrong target is a configuration defect, not justification to rerun destructive migrations.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "Compare the saved override with the current one without expanding .env.",
+      "Recover configuration before changing any data."
+    ],
+    "answer": {
+      "explanation": [
+        "The application correctly reports an unavailable dependency. Restore the known configuration and recreate only app; the actual restored database has remained intact."
+      ],
+      "recover": [
+        {
+          "code": "mv -- compose.override.yaml.before-drill compose.override.yaml\ndocker compose up -d --no-deps --force-recreate app\nexit\nexit",
+          "explain": [
+            "Restore the exact saved override, recreate one app service and return to the controller. The database is untouched."
+          ],
+          "expected": "The previous configuration is active.",
+          "troubleshoot": "If the backup override is missing, stop and recover its reviewed contents; do not guess a new database name.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "curl --retry 10 --retry-connrefused --retry-delay 1 --fail-with-body -sS http://127.0.0.1:18024/readyz",
+        "explain": [
+          "With the tunnel open, check readiness and repeat the known-task comparison plus authenticated system suite from step 7."
+        ],
+        "expected": "Readiness and known-record/business behavior pass.",
+        "troubleshoot": "Readiness alone leaves the data/ownership recovery proof incomplete.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why deploy a digest instead of rebuilding an old commit?",
+      "hint": "A commit does not freeze external dependencies.",
+      "answer": "A rebuild can resolve different packages or base images. The tested digest identifies the bytes that actually passed the release pipeline, while database compatibility still needs separate review."
+    },
+    {
+      "prompt": "What does the valid dump listing prove?",
+      "hint": "Archive structure versus useful restored service.",
+      "answer": "It verifies that pg_restore recognizes the archive before source destruction. It does not prove successful restore, identity mapping or HTTP behavior; those are separate required checks."
+    },
+    {
+      "prompt": "Which input can Terraform not recreate here?",
+      "hint": "Look outside the infrastructure state.",
+      "answer": "The sandbox account, SSO access, GitLab runner/registry, short-lived registry authorization, private SSH key, application tokens and recovery dump are external inputs with owners and recovery procedures."
+    }
+  ],
+  "exercise": {
+    "brief": "Give the runbook to another operator, or simulate a fresh terminal/operator with only the written files, and identify every hidden dependency.",
+    "constraints": [
+      "No remembered IP, UUID, token or undocumented console configuration.",
+      "No unreviewed state editing or broad cleanup."
+    ],
+    "deliverables": [
+      "A dependency/owner list and corrected runbook.",
+      "A complete evidence chain from GitLab source SHA to tested digest, new instance ID, restore and HTTP checks."
+    ],
+    "acceptance": [
+      "The reader can identify each input and its secure source.",
+      "Every executed/pending claim is explicit.",
+      "Manual bootstrap and package-version variability are acknowledged."
+    ],
+    "hints": [
+      "Start with no shell variables and reconstruct them from recorded files or actual outputs.",
+      "A screenshot of a green pipeline is insufficient without release identity."
+    ],
+    "solution": [
+      "Document where each variable comes from, how the host fingerprint is verified, how secrets are delivered, which plan is reviewed and how the known task is recovered. Preserve exact observed IDs privately and summarize them safely in a public portfolio."
+    ]
+  },
+  "capstone": {
+    "title": "Rebuild a private VM platform from reviewed inputs",
+    "scenario": "The only application VM is lost. A new operator must recreate the platform, deploy the approved release and restore the known business record within the measured lab recovery window.",
+    "startingPoint": "The exact Terraform root, Ansible configuration, successful GitLab release artifacts, private credential source and verified controller-held dump from this lesson.",
+    "requirements": [
+      "One reviewed Terraform create and explicit VM replacement with scoped account/region.",
+      "Ansible host configuration and a documented ownership boundary.",
+      "The same GitLab-tested digest before and after replacement, with unit, real database integration and image system evidence from that release.",
+      "A new restore database and a field-for-field known-task comparison through authenticated HTTP.",
+      "Separate bad-configuration rollback with preserved data.",
+      "Independent/fresh-operator runbook review and exact resource teardown."
+    ],
+    "acceptance": [
+      "The new instance ID differs, with no undocumented console changes to managed infrastructure.",
+      "The runtime image matches tested-digest.txt and authenticated system tests pass.",
+      "Known task identity and timestamps survive recovery.",
+      "Recovery time includes every operator/setup/restore step and is reported as observed, not an invented SLO.",
+      "All paid resources created by this root are retired or explicitly retained with owner/expiry."
+    ],
+    "runbook": [
+      {
+        "code": "cd ~/dev-opps-lab/platform24/infra\nterraform plan -destroy -out=retire.tfplan\nterraform show -no-color retire.tfplan",
+        "explain": [
+          "Review the exact retirement of this VM/network/key only after evidence and backups are independently retained. The backend is a separate owned resource and is not destroyed by this root."
+        ],
+        "expected": "A bounded destruction plan matching the resource inventory.",
+        "troubleshoot": "Unexpected resources mean wrong state/root or unreviewed drift; do not approve it.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "A fresh VM being healthy with no tasks is an incomplete recovery.",
+      "Check both artifact identity and data identity."
+    ],
+    "solution": [
+      "Execute the staged create, deploy, known-record backup, replacement, isolated restore, authenticated verification and bad-configuration rollback. Present evidence at each boundary and distinguish unexecuted alternatives.",
+      "Conclude with the exact teardown plan/results, retained backend ownership and gaps such as single-host downtime, manually delivered credentials and package-version variability."
+    ],
+    "rubric": [
+      {
+        "criterion": "Reconstruction",
+        "evidence": "New instance ID, Terraform plan and Ansible runs",
+        "pass": "A replacement is built from declared inputs without undocumented host edits."
+      },
+      {
+        "criterion": "Release identity",
+        "evidence": "GitLab pipeline and runtime digest",
+        "pass": "The same tested immutable image is deployed."
+      },
+      {
+        "criterion": "Recovery",
+        "evidence": "Dump checksum, restored known task and authenticated HTTP suite",
+        "pass": "Useful data and ownership behavior are proven on the replacement."
+      },
+      {
+        "criterion": "Operations",
+        "evidence": "Timing, rollback, handoff and teardown record",
+        "pass": "A new operator can repeat the bounded procedure and explain remaining limits."
+      }
+    ],
+    "stretch": [
+      "Pin the validated host-package versions and AMI after the first successful run, then document how those pins will be updated.",
+      "Add an automated inventory-generation task to CI only after establishing its protected execution and secret-delivery boundaries."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab/platform24/infra\nterraform apply retire.tfplan\nterraform state list",
+      "explain": [
+        "Apply only the reviewed retirement plan from this root. Empty state list means this root tracks no managed resources; also inspect the recorded AWS instance/volume inventory and billing view for retained items."
+      ],
+      "expected": "This root’s VM, disk, network and key pair are gone. Backend remains deliberately owned for other course roots.",
+      "troubleshoot": "Do not delete the shared state bucket or OIDC provider. Revoke the read_registry deploy token in GitLab, close tunnels and retain private backup evidence only for its documented review period.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Docker Engine on Ubuntu",
+      "url": "https://docs.docker.com/engine/install/ubuntu/",
+      "usedFor": "Signed repository installation, current package names and firewall behavior."
+    },
+    {
+      "title": "GitLab deploy tokens",
+      "url": "https://docs.gitlab.com/user/project/deploy_tokens/",
+      "usedFor": "Read-registry-only temporary pull authority."
+    },
+    {
+      "title": "Terraform EC2 instance",
+      "url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance",
+      "usedFor": "Instance replacement, root volume and metadata configuration."
+    },
+    {
+      "title": "PostgreSQL pg_restore",
+      "url": "https://www.postgresql.org/docs/17/app-pgrestore.html",
+      "usedFor": "Custom archive inspection, isolated destination and exit-on-error."
+    },
+    {
+      "title": "Taskboard included lab",
+      "url": "https://docs.docker.com/compose/how-tos/startup-order/",
+      "usedFor": "Compose health/dependency sequencing; actual Taskboard files ship in labs/taskboard."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "devopshydclub/vprofile-project",
+      "principle": "Integrate infrastructure, configuration and application evidence",
+      "application": "The gate ties a new VM to a configured runtime, tested release and data restore instead of counting configuration files.",
+      "url": "https://github.com/devopshydclub/vprofile-project"
+    },
+    {
+      "repo": "milanm/DevOps-Roadmap",
+      "principle": "Use a concrete project as a learning spine",
+      "application": "The same Taskboard behavior is followed across source tests, CI image, VM replacement and restored business data.",
+      "url": "https://github.com/milanm/DevOps-Roadmap"
+    },
+    {
+      "repo": "ansible/ansible",
+      "principle": "Keep host configuration repeatable",
+      "application": "The configuration play is rerun on the replacement using generated inventory and separately delivered credentials.",
+      "url": "https://github.com/ansible/ansible"
+    }
+  ],
+  "notes": [
+    "This is a complete authored provider procedure, not an executed AWS/GitLab/VM deployment in the authoring environment. Docker/PostgreSQL/cloud execution remains a learner verification gate.",
+    "The Compose application uses synthetic two-user lab authentication and stays private. The single VM and logical dump do not claim high availability or continuous point-in-time recovery."
+  ],
+  "freeTrack": {
+    "title": "Rebuild an isolated local database and recover its data",
+    "objective": "Combine the local Ansible work with a real second Compose database, preserving evidence that recovery uses a separate target.",
+    "prerequisites": [
+      "Complete local-VM Ansible weeks 21–23 and local Taskboard week 8. Docker and Python are available.",
+      "The original devopps-taskboard database contains synthetic tasks. Pause all writers. The project name devopps-rebuild24 is reserved for a new disposable copy."
+    ],
+    "commands": [
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\nmkdir -p reports/week24\ndocker compose up -d db\ndocker compose exec -T db pg_dump -U taskboard -d taskboard -Fc > reports/week24/source.dump\ntest -s reports/week24/source.dump || exit 1\ndocker compose -p devopps-rebuild24 up -d --wait db\ndocker compose -p devopps-rebuild24 exec -T db pg_restore -U taskboard -d taskboard --no-owner --no-privileges --exit-on-error < reports/week24/source.dump\ndocker compose exec -T db psql -U taskboard -d taskboard -c \"COPY (SELECT id, owner_id, title, completed, created_at, completed_at FROM tasks ORDER BY id) TO STDOUT WITH CSV\" > reports/week24/source.csv\ndocker compose -p devopps-rebuild24 exec -T db psql -U taskboard -d taskboard -c \"COPY (SELECT id, owner_id, title, completed, created_at, completed_at FROM tasks ORDER BY id) TO STDOUT WITH CSV\" > reports/week24/restored.csv\ncmp reports/week24/source.csv reports/week24/restored.csv",
+        "explain": [
+          "pg_dump -Fc makes a custom-format logical backup from the original project. -T disables a terminal so binary bytes remain intact. test -s stops an empty backup.",
+          "-p selects a separate Compose project and therefore a separately named volume. --wait requires the new database health check before restore.",
+          "pg_restore stops on an error and writes only to the new target. Run this once against a fresh destination; do not add --clean to hide unexpected existing data.",
+          "The two COPY queries serialize the same ordered business columns. cmp exits zero only for byte-identical source and restored content; record its status immediately."
+        ],
+        "expected": "A new project database contains the same task records; cmp returns zero. The original database is unchanged.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      },
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\ndocker compose -p devopps-rebuild24 run --rm --no-deps app python -c \"import asyncio; from reference.postgres import PostgresStore; print(asyncio.run(PostgresStore().ready()))\"",
+        "explain": [
+          "run uses the configured application image and the rebuilt project's network. --no-deps prevents it from starting the original app port or rerunning migrations.",
+          "The actual application database adapter checks the restored schema. This is an additional application-readiness check, not a full HTTP test."
+        ],
+        "expected": "The application adapter prints True for the restored database.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Preserve source/restored comparisons and a known task ID; record elapsed recovery time.",
+      "Show different Compose project/volume identities.",
+      "Re-run local-VM Ansible site.yml and verify.yml from weeks 21–23; explain which rebuild claim each proves."
+    ],
+    "limits": "The two databases share one Docker host. This proves isolated logical recovery and local configuration convergence, not machine-loss recovery, AWS VM replacement or multi-zone durability.",
+    "cleanup": "Run docker compose -p devopps-rebuild24 down without --volumes to stop the copy while preserving evidence. Keep the original project and its data. Review the named copy volume before any later deliberate removal."
+  }
+}

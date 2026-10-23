@@ -1,0 +1,14 @@
+{
+  "checked": "2026-10-21",
+  "weeks": 52,
+  "assessmentGates": 13,
+  "findarepoRepositories": 30,
+  "learningRepositories": 10,
+  "handbookAndResearchChapters": 13,
+  "templates": 5,
+  "primaryReferenceLinks": 72,
+  "localDocumentLinks": "passed",
+  "javascriptSyntax": "passed",
+  "externalRuntimeDependencies": 0,
+  "labExecution": "Viewer validation does not execute labs. See teaching/validation-taskboard.md for local application evidence and infrastructure limits."
+}

@@ -1,0 +1,246 @@
+{
+  "week": 43,
+  "introduction": [
+    "Scaling begins with a measured bottleneck, not a larger replica count. The request may spend its time connecting to PostgreSQL, waiting on a lock, sorting rows or doing CPU work. Change one suspected constraint while holding the workload steady.",
+    "Use the bundled bounded local load sampler:1000 tasks,10 clients,60 seconds warmup,300 seconds measurement,90% reads and 10% completion requests. It reports how many completions changed state versus repeated an existing result. A five-minute closed-loop sample is a laboratory observation, not a monthly availability claim."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash; learner application at ~/dev-opps-lab/app/taskboard, copied and explained in week 3.",
+    "Docker Engine with Linux containers and Compose v2; the authenticated stage 07 lab from weeks 6–8 is working. Verify docker version shows a server.",
+    "Use only synthetic tasks in the private local lab. Record prior evidence; do not mark unrun checks passed.",
+    "Pause unrelated experiments and record CPU/RAM, image identity, dataset and client location.",
+    "At most 1000 tasks per identity; use a fresh disposable lab if the dataset already exceeds that contract limit."
+  ],
+  "concepts": [
+    {
+      "title": "A bottleneck needs a falsifiable hypothesis",
+      "paragraphs": [
+        "Latency is elapsed time for a request; throughput is completed work per second. Percentiles describe the distribution: p95 means 95% of samples are at or below that value. Errors and timeouts must remain in the denominator rather than disappear from charts.",
+        "A query plan shows how PostgreSQL finds rows. Indexes speed some reads but consume storage and add write work. A small table may legitimately use a sequential scan; forcing an index is not proof of improvement."
+      ],
+      "example": "Hypothesis: filtering and ordering tasks scans too many rows. Compare EXPLAIN and the same workload before/after the owner-order index.",
+      "judgment": "More app replicas can worsen a database connection bottleneck. Measure downstream limits before increasing producers."
+    },
+    {
+      "title": "Bounded work protects recovery",
+      "paragraphs": [
+        "A timeout limits how long a caller waits. Retries generate more work; without attempt caps, jitter and knowledge of idempotency they can turn a partial outage into overload. A queue only stores a burst while capacity and retention permit.",
+        "Taskboard completion is idempotent; creation is not. The reference bounds connection, SQL and request waits and returns 503 on dependency failure. It opens a connection per operation for clarity; a carefully sized pool is a later measured optimization."
+      ],
+      "example": "Ten clients each retrying three times can multiply the downstream request count even though user demand did not change.",
+      "judgment": "Do not add a background queue merely to practice a tool. If you add one, specify the requirement, deduplication key, retention and duplicate-delivery test."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Record a comparable baseline",
+      "purpose": "Run a short sanity check before the full controlled sample.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nset -a\nsource .env\nset +a\nmkdir -p ../../evidence/week-43\nlscpu > ../../evidence/week-43/cpu.txt\nfree -h > ../../evidence/week-43/memory.txt\ndocker stats --no-stream > ../../evidence/week-43/resources-before.txt\npython tools/load_sample.py --warmup 3 --seconds 10 --tasks 20 --clients 2 --output reports/load-smoke.json",
+          "explain": [
+            "Source only your generated credentials; set -a exports the token the sampler reads without putting it on its command line.",
+            "lscpu and free record host capacity; -h formats memory. docker stats --no-stream takes one resource snapshot.",
+            "The short run checks the harness and creates only enough tasks to reach 20. It is not the formal 1000-task sample."
+          ],
+          "expected": "A JSON report with request count, errors, latency percentiles and changed/repeated completion counts.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "A zero-error smoke run validates the harness sufficiently to begin a longer sample."
+    },
+    {
+      "title": "2 · Measure and inspect the database path",
+      "purpose": "Keep conditions unchanged during baseline collection.",
+      "commands": [
+        {
+          "code": "python tools/load_sample.py --output reports/load-baseline.json\ndocker compose exec -T db psql -U taskboard -d taskboard -c \"EXPLAIN (ANALYZE, BUFFERS) SELECT id, title, completed, created_at FROM tasks WHERE owner_id='lab-alice' ORDER BY created_at,id;\"\ndocker stats --no-stream > ../../evidence/week-43/resources-after.txt",
+          "explain": [
+            "Without timing overrides the sampler uses 60 s warmup and 300 s measurement,10 clients and 1000 tasks. It is local-only and bounds requests.",
+            "EXPLAIN ANALYZE actually executes this read and reports timing/rows; BUFFERS reports buffer activity. Do not casually use ANALYZE on mutating production SQL.",
+            "Compare CPU, memory and database evidence over the same interval."
+          ],
+          "expected": "A reproducible dataset/workload report plus a query plan.",
+          "troubleshoot": "If the sampler reports 503, investigate readiness/database pressure; do not delete failed requests from the result."
+        }
+      ],
+      "checkpoint": "State one hypothesis supported by both request and dependency evidence."
+    },
+    {
+      "title": "3 · Compare one controlled change",
+      "purpose": "The supplied schema already has an owner/order index; use an isolated transaction to compare the alternative plan without permanently deleting it.",
+      "commands": [
+        {
+          "code": "docker compose exec -T db psql -U taskboard -d taskboard -v ON_ERROR_STOP=1 <<'SQL'\nBEGIN;\nDROP INDEX tasks_owner_order;\nEXPLAIN (ANALYZE, BUFFERS) SELECT id,title,completed,created_at FROM tasks WHERE owner_id='lab-alice' ORDER BY created_at,id;\nROLLBACK;\nSQL\npython tools/load_sample.py --output reports/load-repeat.json",
+          "explain": [
+            "The heredoc sends literal SQL. BEGIN scopes the index removal; ROLLBACK restores it, including on connection close after an error. Keep this experiment on the disposable lab without other writers.",
+            "The query plan shows the no-index alternative. The repeated full sample runs with the original index restored; compare distributions, not just one fastest number."
+          ],
+          "expected": "Two plans and repeated baseline measurements; no permanently removed index.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "If no meaningful improvement is measured, report that result rather than manufacturing a win."
+    }
+  ],
+  "failure": {
+    "title": "Lock a dependency and watch the deadline",
+    "boundary": "Only one disposable task row; a 15-second SQL transaction releases its lock automatically.",
+    "inject": [
+      {
+        "code": "docker compose exec -T db psql -U taskboard -d taskboard -v ON_ERROR_STOP=1 <<'SQL'\nBEGIN;\nSELECT id FROM tasks WHERE owner_id='lab-alice' ORDER BY created_at,id LIMIT 1 FOR UPDATE;\nSELECT pg_sleep(15);\nROLLBACK;\nSQL",
+        "explain": [
+          "Run in terminalA. SELECT FOR UPDATE locks one row; pg_sleep holds the transaction for 15 seconds; ROLLBACK releases it."
+        ],
+        "expected": "A visible selected task ID, then a bounded wait.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "read -r -p 'Locked task UUID from terminal A: ' TASK_ID\ntime curl -i -X POST -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID/complete\"",
+        "explain": [
+          "Run immediately in terminalB with the same .env loaded. -X POST sends an empty completion request; time measures the client operation."
+        ],
+        "expected": "503 within the documented five-second boundary while the lock is held.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "A liveness 200 does not mean every business operation works.",
+      "Look for a lock wait, not a missing process."
+    ],
+    "answer": {
+      "explanation": [
+        "The SQL lock timeout makes the dependency failure visible instead of holding unlimited requests. After the transaction releases, retrying completion is safe because it preserves state; apply that reasoning per operation."
+      ],
+      "recover": [
+        {
+          "code": "sleep 16",
+          "explain": [
+            "Wait longer than the deliberately bounded lock hold; this delay is part of the exercise, not production readiness logic."
+          ],
+          "expected": "The injected transaction has ended.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "curl -i -X POST -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID/complete\"",
+        "explain": [
+          "Repeat the idempotent operation after release."
+        ],
+        "expected": "200 with a stable first completion timestamp.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why can p95 improve while the experience worsens?",
+      "hint": "Which requests are counted?",
+      "answer": "If errors/timeouts are dropped or offered load falls, the remaining successful sample can look faster. Keep errors, throughput, workload and measurement method together."
+    },
+    {
+      "prompt": "Why might an index not help 1000 rows?",
+      "hint": "Compare scanning cost with index traversal.",
+      "answer": "For small or unselective data, sequential scanning can be cheaper. Measure representative cardinality and keep the plan evidence."
+    },
+    {
+      "prompt": "When should a queue reject work?",
+      "hint": "Can the consumer catch up before retention or usefulness expires?",
+      "answer": "When bounded capacity cannot meet the work deadline, a clear rejection is safer than accepting an unbounded backlog and promising success later."
+    }
+  ],
+  "exercise": {
+    "brief": "Write one performance investigation with a falsifiable hypothesis and a controlled comparison.",
+    "constraints": [
+      "Local synthetic traffic only.",
+      "Keep image, hardware, dataset and client counts constant unless that is the one named variable.",
+      "Background messaging is optional and remains explicitly unimplemented unless justified."
+    ],
+    "deliverables": [
+      "Baseline/repeat JSON and query plans.",
+      "Timeout/retry policy and bottleneck conclusion."
+    ],
+    "acceptance": [
+      "p95/p99, errors, throughput and completion-change counts are all reported.",
+      "Claims distinguish warmup, measurement and fault intervals.",
+      "If a queue exists, a duplicate-delivery test proves no double application."
+    ],
+    "hints": [
+      "A failed hypothesis is useful if evidence rules it out.",
+      "A pool needs a bounded size and downstream connection budget."
+    ],
+    "solution": [
+      "Correlate latency with SQL/resource evidence, modify one cause, repeat identical conditions and report uncertainty.",
+      "Document optional background work as not implemented when it adds no product value."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker compose exec -T db psql -U taskboard -d taskboard -c \"SELECT indexname FROM pg_indexes WHERE tablename='tasks';\"",
+      "explain": [
+        "Confirm the experiment rolled back and the owner-order index remains."
+      ],
+      "expected": "tasks_owner_order exists. Retain the dataset and reports for later comparison.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "PostgreSQL EXPLAIN",
+      "url": "https://www.postgresql.org/docs/17/sql-explain.html",
+      "usedFor": "Interpreting executed query plans."
+    },
+    {
+      "title": "PostgreSQL locks",
+      "url": "https://www.postgresql.org/docs/17/explicit-locking.html",
+      "usedFor": "Row locks and transaction release."
+    },
+    {
+      "title": "SRE overload",
+      "url": "https://sre.google/sre-book/handling-overload/",
+      "usedFor": "Bounded load and admission decisions."
+    },
+    {
+      "title": "k6 test types",
+      "url": "https://grafana.com/docs/k6/latest/testing-guides/test-types/",
+      "usedFor": "Workload purpose and interpretation."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "kestra-io/kestra",
+      "principle": "A retry is another execution",
+      "application": "A workflow connects actions, but a green run only says the actions returned successfully. If a network reply is lost after an upload completed, retrying can duplicate it. Give the operation a stable identifier, check its recorded result before repeating a side effect, set a timeout and cap attempts. Keep the original failure and each retry in the timeline. Practice: Model source and destination backups with two local files. Run the copy twice using one backup identifier; compare checksums. Introduce a missing source and record a bounded failure.",
+      "url": "https://github.com/kestra-io/kestra"
+    },
+    {
+      "repo": "apache/apisix",
+      "principle": "Limit release exposure while measuring behavior",
+      "application": "A gateway can send some requests to a new version. Risk falls only when versions are compatible and signals reveal regressions. Define thresholds and stop conditions before traffic. Keep management access private and test authentication, throttling and upstream failure separately. Practice: Use two local versions and a small request sample. Record version, correctness and latency; restore all traffic to the known version after an injected defect.",
+      "url": "https://github.com/apache/apisix"
+    },
+    {
+      "repo": "bunkerity/bunkerweb",
+      "principle": "Edge filtering complements application correctness",
+      "application": "A WAF recognizes selected request patterns. Ownership of a user's task is business context enforced by the application. Keep authorization tests, then add edge controls and test legitimate and suspicious requests. Tune narrow false positives instead of disabling all rules. Practice: Retain two-user access tests. Run a local request corpus with valid punctuation and controlled suspicious strings, tune one false positive and rerun allowed and denied cases.",
+      "url": "https://github.com/bunkerity/bunkerweb"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability is a measured promise",
+      "application": "Define a useful user action and measure success within a meaningful latency threshold. An SLO states the target over a window; an error budget describes allowed bad events. This makes release tradeoffs explicit. Alert on actionable conditions, write symptom runbooks and examine contributing conditions after incidents. Practice: Define a Taskboard SLI from success counts and latency. Calculate good/total from a sample, inject a brief failure and connect the alert to a runbook.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    },
+    {
+      "repo": "wmariuss/awesome-devops",
+      "principle": "Make a reviewable tool decision",
+      "application": "A decision record states problem, constraints, alternatives, chosen approach and reconsideration evidence. Include permissions, cost, maintenance and recovery. Keep research bounded so it becomes a tested service improvement instead of a bookmark collection. Practice: Compare two candidates for one real course problem, perform an acceptance test with the choice and specify a reassessment trigger.",
+      "url": "https://github.com/wmariuss/awesome-devops"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

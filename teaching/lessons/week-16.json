@@ -1,0 +1,311 @@
+{
+  "week": 16,
+  "phase": "AWS foundations",
+  "title": "Gate 4 · review an AWS design",
+  "outcome": "Defend a simple AWS architecture against reliability, security and cost requirements.",
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: An architecture review begins with a user requirement and ends with evidence and unresolved risks. The goal is not to draw the most AWS icons. You will compare the small environment you actually operated with a proposed design that survives a larger failure, then explain their security, recovery and cost differences.",
+    "Optional provider lab: This gate is a design and operational review, not a requirement to buy a multi-AZ system. Label implemented, tested, proposed and unknown components separately. An honest unproven assumption is more useful than claiming resilience from a diagram."
+  ],
+  "prerequisites": [
+    "Week 13 identity/budget worksheet, week 14 network/deployment inventory and week 15 restore evidence, or explicit pending labels for cloud steps you could not execute.",
+    "Bash and Python 3 in ~/dev-opps-lab. No new AWS resources are required."
+  ],
+  "concepts": [
+    {
+      "title": "Failure domains and dependencies",
+      "paragraphs": [
+        "A failure domain is a group of components that can fail together. Two processes on one host share its power, disk and network failure. Two web servers in different zones still depend on their database, identity and delivery paths.",
+        "Ask which user journey survives each failed dependency. Availability is a property of the path, not a count of replicas. A backup supports recovery after failure; it does not keep a down service accepting traffic."
+      ],
+      "example": "Two web replicas cannot serve task writes if both require one unavailable database.",
+      "judgment": "Buy redundancy only after identifying the requirement it serves and the added operational cost."
+    },
+    {
+      "title": "Objectives and tradeoffs",
+      "paragraphs": [
+        "An RTO is the target time to restore acceptable service; RPO is the tolerated data-loss interval. Neither is established by a configuration label. Measure recovery from detection through validation and state what failed during the test.",
+        "An architecture decision records alternatives, assumptions, operating owner and reconsideration conditions. If a managed service removes host patching work but adds cost and product constraints, both belong in the decision."
+      ],
+      "example": "A measured twelve-minute local restore does not prove a sixty-minute cloud recovery when credentials, networking and deployment have not been rehearsed.",
+      "judgment": "Separate estimates, targets and measurements. Do not convert a best-case lab result into a production guarantee."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Build the review packet",
+      "purpose": "The files become an operator-facing record, not merely homework.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nmkdir -p evidence/week-16\ncat > evidence/week-16/design.md <<'EOF'\n# Taskboard AWS review\nUser journey: Alice creates a task, reads it later, completes it.\nLearning environment: one private/tunneled app and synthetic data.\nProposed service targets: 99.5% monthly successful requests; recovery within 60 minutes; at most 24 hours of lost data. These are exercise requirements, not achieved claims.\nImplemented components and exact evidence:\nProposed components and rationale:\nIdentity and trust boundaries:\nSingle-host, database, zone and credential-loss scenarios:\nRecovery owner and prerequisite access:\nCost assumptions and cleanup inventory:\nUnproven assumptions and next experiments:\nEOF\ncat evidence/week-16/design.md",
+          "explain": [
+            "mkdir creates the gate evidence folder. A quoted heredoc writes a review template literally; replace each empty section with your own observations and proposed design.",
+            "cat lets you review the saved packet in the terminal."
+          ],
+          "expected": "A review file explicitly distinguishes exercise targets from demonstrated outcomes.",
+          "troubleshoot": "If your packet says multi-AZ was tested but you only used one VM, correct the claim before review.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Draw one implemented diagram and one proposed diagram, naming every stateful dependency and access path."
+    },
+    {
+      "title": "Calculate from rates, not a free-tier assumption",
+      "purpose": "Use current prices from your selected Region's AWS pricing pages or account calculator, record their observation date and currency, then enter the rates. Do not provision resources to discover the price.",
+      "commands": [
+        {
+          "code": "cat > evidence/week-16/cost-estimate.py <<'PY'\nimport json\nfrom pathlib import Path\nrows=[]\nfor name,unit,quantity in [(\"compute\",\"instance-hour\",2),(\"public IPv4\",\"address-hour\",2),(\"root disk\",\"GB-month\",8*2/730),(\"backup storage\",\"GB-month\",1)]:\n    rate=float(input(f\"Current {name} price per {unit} in USD: \"))\n    if rate<0: raise SystemExit(\"Rate cannot be negative\")\n    reason=input(\"Price source/date and any free-tier assumption: \")\n    if not reason.strip(): raise SystemExit(\"Record the source and date\")\n    rows.append(dict(component=name,unit=unit,quantity=quantity,rate=rate,estimate=round(quantity*rate,6),source=reason))\nreport=dict(note=\"Two-hour illustrative lab; disk prorated with a 730-hour estimating month, not a billing guarantee. Add actual traffic/log/NAT/load-balancer use separately.\",rows=rows,total=round(sum(r[\"estimate\"] for r in rows),6))\nPath(\"evidence/week-16/cost.json\").write_text(json.dumps(report,indent=2))\nprint(json.dumps(report,indent=2))\nPY\npython3 evidence/week-16/cost-estimate.py",
+          "explain": [
+            "cat writes the quoted script into a local evidence file. python3 then runs that file with interactive standard input, prompting for actual unit rates and provenance. Each estimate is quantity multiplied by rate.",
+            "Disk capacity is prorated for a two-hour estimating window. The report names excluded components instead of silently treating them as free. write_text saves the result under this week's evidence."
+          ],
+          "expected": "A JSON total with per-component quantities, rates and source/date.",
+          "troubleshoot": "Reject a zero rate unless its assumption is explicitly justified for your account. Add load balancer, NAT, traffic and logs to the production proposal instead of reusing the small-lab total.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Compare estimated spend with the chosen ceiling; separately estimate the proposed production architecture."
+    },
+    {
+      "title": "Verify the cloud inventory",
+      "purpose": "Run only if you performed the AWS branch. Use the original Region and a read-authorized profile. A terminated instance entry may remain visible temporarily.",
+      "commands": [
+        {
+          "code": "export AWS_PROFILE=devopps-provisioner AWS_REGION=us-east-1 AWS_PAGER=\"\"\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\naws ec2 describe-instances --filters Name=tag:Course,Values=DevOpps --query 'Reservations[].Instances[].{Id:InstanceId,State:State.Name,Subnet:SubnetId,Profile:IamInstanceProfile.Arn}'\naws ec2 describe-volumes --query 'Volumes[].{Id:VolumeId,State:State,Size:Size,Attachments:Attachments[].InstanceId}'\naws s3api list-buckets --query 'Buckets[].Name'",
+          "explain": [
+            "Select and verify the sandbox identity and Region. The instance filter limits the displayed course-tagged hosts; volume and bucket lists are read-only inventory observations.",
+            "Compare returned IDs with your saved inventory. Listing a resource does not authorize deleting it; some may belong to other exercises."
+          ],
+          "expected": "Each created resource is either deliberately retained with an owner/expiry or confirmed removed.",
+          "troubleshoot": "An empty instance list in the wrong Region is not cleanup evidence. The deliberately restricted week-13 read-only role may deny listing buckets, so use the approved provisioning identity here.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record billing follow-up after reporting delay and preserve the budget alert."
+    }
+  ],
+  "failure": {
+    "title": "Remove a failure domain on paper",
+    "boundary": "A tabletop exercise changes the design document only; no cloud fault is injected.",
+    "inject": [
+      {
+        "code": "printf \"\\n## Injected scenario\\nThe availability zone containing the app and its database is unavailable. Evaluate the whole create/read/complete path.\\n\" >> evidence/week-16/design.md",
+        "explain": [
+          "printf appends a clearly labeled hypothetical failure; >> preserves the existing review."
+        ],
+        "expected": "Scenario is recorded without altering AWS.",
+        "troubleshoot": "Do not simulate a zone failure by deleting real resources or disabling an account.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "cat evidence/week-16/design.md\ncat evidence/week-16/cost.json",
+        "explain": [
+          "Review the actual dependency diagram and cost assumptions together; identify each component affected by the scenario."
+        ],
+        "expected": "A list of surviving and failed dependencies with a stated recovery sequence.",
+        "troubleshoot": "If the database placement or backup location is absent, the design lacks enough information to evaluate the scenario.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "Check data, identity, configuration, image registry and access paths, not just app replicas.",
+      "A backup in an inaccessible failure domain cannot support the proposed recovery."
+    ],
+    "answer": {
+      "explanation": [
+        "The one-host lab is intentionally unavailable when that host/zone fails. A proposal can place stateless replicas across zones and choose an appropriate managed database availability design, but must still validate failover, consistency and recovery access.",
+        "Do not claim the target is met until the relevant path is tested. Record the next experiment and its budget."
+      ],
+      "recover": [
+        {
+          "code": "printf \"\\n## Review action\\nDocument the missing dependency protection, its owner, estimated cost and a bounded validation experiment before approving the proposed design.\\n\" >> evidence/week-16/design.md",
+          "explain": [
+            "Append a concrete review action; fill its details in the document."
+          ],
+          "expected": "The proposal has an owner and test for each important unproven assumption.",
+          "troubleshoot": "Adding a box without a recovery procedure does not close the finding.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "test -s evidence/week-16/design.md && test -s evidence/week-16/cost.json",
+        "explain": [
+          "test -s checks files exist and contain data. This verifies packet presence only; the rubric assesses its content."
+        ],
+        "expected": "Zero exit status when both artifacts exist.",
+        "troubleshoot": "A passing file check is not proof of architectural quality.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Will two web replicas solve a database outage?",
+      "hint": "Follow the write request.",
+      "answer": "Not if both depend on the failed database. The data layer needs its own availability/recovery design and tested behavior."
+    },
+    {
+      "prompt": "Why are RTO and observed restore time different?",
+      "hint": "Target versus scope of measurement.",
+      "answer": "RTO is a requirement; measured time covers a specific scenario and dependencies. Unrehearsed access or network steps can dominate a real incident."
+    },
+    {
+      "prompt": "What costs does a larger proposal add?",
+      "hint": "Count every persistent component.",
+      "answer": "Possible load balancers, NAT gateways, duplicated compute, data replication, storage, backups, logs, addresses and traffic; quantities and regional rates must be explicit."
+    }
+  ],
+  "exercise": {
+    "brief": "Defend one architecture decision to a reviewer who prefers the opposite choice.",
+    "constraints": [
+      "Keep the same user journey and requirements.",
+      "State at least one advantage of the rejected option."
+    ],
+    "deliverables": [
+      "One-page decision with alternatives, evidence, cost and reconsideration trigger."
+    ],
+    "acceptance": [
+      "The choice follows a requirement.",
+      "Unknowns are labeled.",
+      "A future engineer can tell when to revisit the decision."
+    ],
+    "hints": [
+      "Compare managed PostgreSQL with self-managed PostgreSQL or a VM with a managed container service."
+    ],
+    "solution": [
+      "Explain the operating work each option retains or transfers, then connect that work to team capacity and recovery needs. Avoid judging by service count."
+    ]
+  },
+  "capstone": {
+    "title": "An AWS service review another engineer can challenge",
+    "scenario": "A small team wants Taskboard for an internal pilot. It can tolerate a documented outage but cannot lose all task history or expose one user's data to another. Review the real learning deployment and propose a justified next design.",
+    "startingPoint": "Weeks 13–15 identity, network, app and restoration evidence; no new production deployment is required.",
+    "requirements": [
+      "Account/Region, IAM roles, MFA and budget evidence.",
+      "Implemented and proposed diagrams with trust/failure boundaries.",
+      "Known task creation/read/completion and isolated restoration evidence, or specific pending execution labels.",
+      "Responses to host loss, database loss, leaked credential and zone loss.",
+      "Regional cost worksheet, exact cleanup record and explicit remaining risks."
+    ],
+    "acceptance": [
+      "A fresh reviewer can find every resource owner and recovery action.",
+      "No proposed component is falsely labeled implemented.",
+      "At least one restoration check compares contents and application behavior.",
+      "The review gives a justified go/no-go for the pilot without claiming impossible guarantees."
+    ],
+    "runbook": [
+      {
+        "code": "cd ~/dev-opps-lab\nfind evidence/week-13 evidence/week-14 evidence/week-15 evidence/week-16 -maxdepth 1 -type f ! -name \"*.pem\" -print",
+        "explain": [
+          "find inventories evidence files one directory deep and excludes private-key files from the displayed packet list. Inspect each intended public artifact for secrets before sharing."
+        ],
+        "expected": "A navigable set of identity, network, restore and design evidence.",
+        "troubleshoot": "Do not archive or publish private keys, .env, tokens, raw state or unredacted logs.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "Use the known request path as the review spine.",
+      "A narrow honest no-go is acceptable when an essential check is pending."
+    ],
+    "solution": [
+      "Walk the reviewer through the request and change paths; show each control and its evidence.",
+      "Present one minimal pilot architecture and one future resilience proposal with costs and validation conditions.",
+      "Conclude with owned actions and a measurable next test, not a list of extra tools."
+    ],
+    "rubric": [
+      {
+        "criterion": "Identity and exposure",
+        "evidence": "Correct account/role plus restricted ingress and private app path",
+        "pass": "Caller authority and network exposure are understood and evidenced."
+      },
+      {
+        "criterion": "Recovery",
+        "evidence": "Known-record restoration and measured scope",
+        "pass": "Data contents and app behavior are checked; missing provider proof is explicit."
+      },
+      {
+        "criterion": "Judgment",
+        "evidence": "Requirement-linked choices, cost model and risk register",
+        "pass": "Claims match evidence and a reviewer can challenge the assumptions."
+      }
+    ],
+    "stretch": [
+      "Have another learner perform only the documented recovery process and record each missing instruction."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "unset AWS_PROFILE AWS_REGION",
+      "explain": [
+        "Clear this terminal's cloud selection. Keep the budget, evidence and intentionally retained local task database."
+      ],
+      "expected": "No new billable resources were created by this gate.",
+      "troubleshoot": "If prior resources remain, use their original exact-ID teardown; a design review does not remove them.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html",
+      "usedFor": "Operational, security, reliability and cost tradeoffs."
+    },
+    {
+      "title": "AWS Budgets",
+      "url": "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html",
+      "usedFor": "Cost notification limits."
+    },
+    {
+      "title": "AWS pricing calculator",
+      "url": "https://calculator.aws/",
+      "usedFor": "Current regional price inputs, not hard-coded course rates."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "milanm/DevOps-Roadmap",
+      "principle": "Capabilities over tool collection",
+      "application": "The review tests identity, recovery and cost competence before increasing platform complexity.",
+      "url": "https://github.com/milanm/DevOps-Roadmap"
+    },
+    {
+      "repo": "awesome-foss/awesome-sysadmin",
+      "principle": "Requirements guide product decisions",
+      "application": "The decision record compares operational responsibility and exit costs.",
+      "url": "https://github.com/awesome-foss/awesome-sysadmin"
+    }
+  ],
+  "notes": [
+    "This gate includes a deliberately labeled tabletop, not a claim that multi-AZ failure was executed."
+  ],
+  "freeTrack": {
+    "title": "Review a local service like its next operator",
+    "objective": "Integrate identity, request flow, recovery and cost into a decision you can defend.",
+    "prerequisites": [
+      "Complete the local Taskboard lessons through week 8. Use Ubuntu Bash and your existing course workspace.",
+      "Use only generated lab identities and synthetic data. No cloud account or payment card is needed."
+    ],
+    "commands": [
+      {
+        "code": "mkdir -p ~/dev-opps-lab/evidence/week-16\ncat > ~/dev-opps-lab/evidence/week-16/local-review.md <<'EOF'\n# Local service review\nScope: local lab; provider execution unattempted\nUser outcome:\nIdentity and denied-access evidence:\nRequest path and trust boundaries:\nKnown restored task and restore evidence:\nFailure boundary the backup survives:\nResource inventory (process, image, volume, storage):\nProvider resources created: none\nProvider usage charges for this exercise: none\nExisting hardware, power and internet: not priced by this course\nSimpler alternative and rejected complexity:\nAccepted limitation, owner and next review:\nEOF\ncat ~/dev-opps-lab/evidence/week-16/local-review.md",
+        "explain": [
+          "mkdir -p creates an evidence directory. The quoted EOF writes a literal review template, with no shell expansion.",
+          "Replace every empty line with actual evidence or an explicit unverified item. Compare one VM against containers/Kubernetes for this workload, including operating effort."
+        ],
+        "expected": "A local-review.md template exists; completion requires your observations, not merely the generated file.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Complete every field with linked evidence or an honest gap.",
+      "Independently repeat one denial and one recovery check from weeks 13–15.",
+      "Use the senior-practice rubric and identify the weakest capability before advancing."
+    ],
+    "limits": "This is an evidence-based architecture review for local work. No AWS deployment or cloud cost estimate is certified.",
+    "cleanup": "Retain the review; stop lab containers when finished without deleting their volumes."
+  }
+}

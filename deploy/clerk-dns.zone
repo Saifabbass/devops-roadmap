@@ -1,0 +1,7 @@
+$ORIGIN devoops.tech.
+$TTL 300
+clerk IN CNAME frontend-api.clerk.services.
+accounts IN CNAME accounts.clerk.services.
+clkmail IN CNAME mail.9v731zyx55hz.clerk.services.
+clk._domainkey IN CNAME dkim1.9v731zyx55hz.clerk.services.
+clk2._domainkey IN CNAME dkim2.9v731zyx55hz.clerk.services.

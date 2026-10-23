@@ -1,0 +1,243 @@
+{
+  "week": 41,
+  "introduction": [
+    "A green build does not explain where its bytes came from. A release decision needs a chain from reviewed source to dependencies, builder, artifact and running service. This week produces evidence for that chain and intentionally rejects an altered artifact.",
+    "An SBOM inventories components; a vulnerability database reports known issues; a signature authenticates a statement from an expected key or identity. These answer different questions. None alone proves the application is correct or free of vulnerabilities.",
+    "The local exercise signs an image archive manifest with a dedicated lab key and pins the verification key separately. This teaches identity policy without publishing to a registry or transparency log. Your GitLab registry digest remains the deployment identity when using the registry workflow."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash; learner application at ~/dev-opps-lab/app/taskboard, copied and explained in week 3.",
+    "Docker Engine with Linux containers and Compose v2; the authenticated stage 07 lab from weeks 6–8 is working. Verify docker version shows a server.",
+    "Use only synthetic tasks in the private local lab. Record prior evidence; do not mark unrun checks passed.",
+    "OpenSSL and the tested local image devopps-taskboard:local. For a real release, retain its GitLab tested-digest.txt and source commit."
+  ],
+  "concepts": [
+    {
+      "title": "Inventory, risk and trust are separate",
+      "paragraphs": [
+        "An SBOM lists package names and versions. A scanner compares them to a changing advisory database. A finding needs triage: reachable code, exposed interface, exploit prerequisites, fixed versions and business impact. A report can change without image bytes changing.",
+        "A signature proves a holder of a key signed exact bytes. Verification must select an independently trusted key or issuer/subject policy. Accepting whichever public key arrives next to an artifact lets an attacker sign their own replacement."
+      ],
+      "example": "A signed vulnerable image can be authentic and still unsuitable. A clean scan from an unknown builder does not establish source provenance.",
+      "judgment": "Record both image identity and scanner/database timestamp. Expiring exceptions need owner, scope, compensating control and a retest date."
+    },
+    {
+      "title": "A release boundary should fail closed",
+      "paragraphs": [
+        "A mutable tag can point elsewhere after testing. A registry digest identifies a specific manifest; an archive checksum identifies a specific exported file. Keep those identities distinct rather than claiming an archive checksum is an OCI registry digest.",
+        "A release manifest links the artifact to source commit, dependency lock and test evidence. A restricted build identity signs the manifest; a separate verifier checks it before loading or deploying. The lab uses an explicit trusted public key; CI should use its reviewed identity policy and protected release path."
+      ],
+      "example": "A changed image.tar fails sha256sum even if the old signature file is still present.",
+      "judgment": "Host-hardening and reverse-proxy repositories contribute useful controls, but neither replaces artifact provenance. Record which layer each control addresses."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Freeze the candidate and preserve identity",
+      "purpose": "Work only with a tested local image; do not rebuild during verification.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nmkdir -p ../../evidence/week-41\ndocker image inspect devopps-taskboard:local --format '{{.Id}}' > ../../evidence/week-41/image-id.txt\ndocker image save devopps-taskboard:local -o ../../evidence/week-41/image.tar\ncd ../../evidence/week-41\nsha256sum image.tar > image.sha256\ngit -C ../../app/taskboard rev-parse HEAD > source-commit.txt",
+          "explain": [
+            "inspect records the immutable local image configuration ID. save exports its bytes; -o chooses one evidence file.",
+            "cd selects the evidence directory. sha256sum records archive integrity; > writes a manifest. git -C runs in the learner repository and records its actual commit. A dirty tree still needs an explicit diff record."
+          ],
+          "expected": "A real archive, checksum, image ID and source commit.",
+          "troubleshoot": "If no image exists, complete week 8 first. Do not fabricate a digest or claim an untested build is the release candidate."
+        }
+      ],
+      "checkpoint": "State separately the registry digest, local image ID and archive checksum."
+    },
+    {
+      "title": "2 · Generate an SBOM and scan the same archive",
+      "purpose": "The scanner receives a read-only archive, not your Docker daemon socket.",
+      "commands": [
+        {
+          "code": "docker pull aquasec/trivy:latest\nTRIVY_IMAGE=$(docker image inspect aquasec/trivy:latest --format '{{index .RepoDigests 0}}')\nprintf \"%s\\n\" \"$TRIVY_IMAGE\" > scanner-image.txt\ndocker run --rm \"$TRIVY_IMAGE\" --version\ndocker run --rm -v \"$PWD:/work\" \"$TRIVY_IMAGE\" image --input /work/image.tar --format spdx-json --output /work/sbom.json\ndocker run --rm -v \"$PWD:/work\" \"$TRIVY_IMAGE\" image --input /work/image.tar --scanners vuln --format json --output /work/vulnerabilities.json",
+          "explain": [
+            "The mutable scanner tag is resolved once to an actual registry digest and recorded; all subsequent calls use that digest. This is an explicit tool-selection step, not a permanently floating release dependency.",
+            "--rm removes each temporary scanner. The folder mount supplies the archive and receives reports; no Docker socket is mounted. image --input scans saved image bytes.",
+            "spdx-json produces an inventory; --scanners vuln requests vulnerability findings. Save version/database metadata with the reports; scanner network/database-download failures are not clean scans."
+          ],
+          "expected": "sbom.json and vulnerabilities.json describe the candidate archive.",
+          "troubleshoot": "If the database cannot download, inspect the tool error and network access. Do not use an empty report as evidence of zero vulnerabilities."
+        }
+      ],
+      "checkpoint": "Triage one finding, or explain a zero-finding result with database/version/date and its limits."
+    },
+    {
+      "title": "3 · Sign with a known key and verify before release",
+      "purpose": "The trusted public key is kept in the operator notes, separate from downloaded candidate material.",
+      "commands": [
+        {
+          "code": "umask 077\nopenssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out release-private.pem\nopenssl pkey -in release-private.pem -pubout -out ../../notes/release-public.pem\nsha256sum ../../notes/release-public.pem\nopenssl dgst -sha256 -sign release-private.pem -out image.sha256.sig image.sha256\nopenssl dgst -sha256 -verify ../../notes/release-public.pem -signature image.sha256.sig image.sha256\nsha256sum -c image.sha256",
+          "explain": [
+            "umask limits newly created files to the current user. genpkey creates a disposable RSA3072 key; it is private and must never enter Git or public evidence.",
+            "pkey -pubout exports only the public key to the previously created notes directory. Record its fingerprint through a separate trusted channel for a real team. Do not substitute a candidate-provided key.",
+            "dgst signs the checksum manifest; verification selects that expected public key. sha256sum -c separately verifies the candidate bytes match the signed manifest. Both must succeed."
+          ],
+          "expected": "Verified OK and image.tar: OK.",
+          "troubleshoot": "An unreadable private key is a local permission/config issue. A signature mismatch is a rejected candidate, not a reason to replace the trusted public key."
+        }
+      ],
+      "checkpoint": "Explain why a signature file existing is weaker than successful policy-based verification."
+    }
+  ],
+  "failure": {
+    "title": "A changed candidate must be rejected",
+    "boundary": "A one-byte copy of the local checksum manifest; the original archive remains intact.",
+    "inject": [
+      {
+        "code": "cp image.sha256 altered.sha256\nprintf \"tampered\\n\" >> altered.sha256\nopenssl dgst -sha256 -verify ../../notes/release-public.pem -signature image.sha256.sig altered.sha256",
+        "explain": [
+          "Copy the manifest, append bytes, verify with the original signature and expected key."
+        ],
+        "expected": "Nonzero verification failure.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "cmp image.sha256 altered.sha256\nsha256sum -c image.sha256",
+        "explain": [
+          "cmp shows that signed content differs. The original archive check establishes whether the original candidate is intact."
+        ],
+        "expected": "Changed manifest rejected; original checksum still valid.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "The signature covers bytes, including newlines.",
+      "Do not regenerate a signature merely to silence a failed release check."
+    ],
+    "answer": {
+      "explanation": [
+        "The altered manifest was never approved by the trusted signer. Reject it; retain it as negative-test evidence. The original candidate may be used only after both signature and checksum verification succeed."
+      ],
+      "recover": [
+        {
+          "code": "openssl dgst -sha256 -verify ../../notes/release-public.pem -signature image.sha256.sig image.sha256",
+          "explain": [
+            "Return to the unchanged approved manifest."
+          ],
+          "expected": "Verified OK.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "sha256sum -c image.sha256",
+        "explain": [
+          "Verify the archive independently after manifest authentication."
+        ],
+        "expected": "image.tar: OK.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Does a valid signature prove an image is safe?",
+      "hint": "What statement was signed?",
+      "answer": "It authenticates exact bytes to the expected key. It does not establish vulnerability absence, correct behavior or appropriate authorization to release."
+    },
+    {
+      "prompt": "Why record the scanner database date?",
+      "hint": "Can advisory data change without an image rebuild?",
+      "answer": "New findings may appear later for unchanged packages. The scan is evidence at a time, not a permanent property."
+    },
+    {
+      "prompt": "What makes a temporary exception defensible?",
+      "hint": "Who acts when it expires?",
+      "answer": "A specific finding/image scope, impact analysis, accountable owner, compensating control, deadline and scheduled retest. A blanket ignore file is not an accountable decision."
+    }
+  ],
+  "exercise": {
+    "brief": "Create a release trust record for one candidate and reject a second untrusted key.",
+    "constraints": [
+      "Use synthetic lab material; never publish private keys.",
+      "Do not accept a key supplied with the candidate."
+    ],
+    "deliverables": [
+      "SBOM, scan triage, expected-key fingerprint, source/image/test links.",
+      "A verification failure for a different signing key."
+    ],
+    "acceptance": [
+      "Both identity and byte-integrity checks gate release.",
+      "Every critical finding has a fix or a named expiring exception."
+    ],
+    "hints": [
+      "Generate a second lab key in a separate private file and sign a copy.",
+      "Verification must continue using the original trusted public key."
+    ],
+    "solution": [
+      "Keep the trust anchor outside candidate control; verify signature, checksum and recorded image identity before selection.",
+      "Compare the running digest to the tested GitLab digest for the registry path; do not replace that check with an unrelated tar hash."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "rm -- release-private.pem",
+      "explain": [
+        "After finishing the disposable signing exercise, delete only this lab private-key file. Keep the public key and signed evidence."
+      ],
+      "expected": "Private test key removed; no running services were created.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "Trivy container scans",
+      "url": "https://trivy.dev/docs/latest/target/container_image/",
+      "usedFor": "Scanning saved images without daemon access."
+    },
+    {
+      "title": "Trivy SBOM",
+      "url": "https://trivy.dev/docs/latest/supply-chain/sbom/",
+      "usedFor": "Inventory output and scan distinction."
+    },
+    {
+      "title": "OpenSSL digest signing",
+      "url": "https://docs.openssl.org/3.0/man1/openssl-dgst/",
+      "usedFor": "Signature creation and expected-key verification."
+    },
+    {
+      "title": "Sigstore verification",
+      "url": "https://docs.sigstore.dev/cosign/verifying/verify/",
+      "usedFor": "Identity policy when moving to OCI/keyless signatures."
+    },
+    {
+      "title": "SLSA",
+      "url": "https://slsa.dev/spec/v1.2/",
+      "usedFor": "Provenance and build trust concepts."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "CISOfy/lynis",
+      "principle": "A finding needs a threat and a verification",
+      "application": "An audit reports evidence and suggestions. Explain the threat, asset and operational effect before changing configuration. Apply the change reproducibly, rerun the audit and verify the service. Some findings can be accepted with a reason. A higher score alone cannot establish security or compliance. Practice: Choose one disposable-VM finding, explain it, apply an Ansible-managed fix and run the application smoke test. Keep before/after evidence and a recovery step.",
+      "url": "https://github.com/CISOfy/lynis"
+    },
+    {
+      "repo": "bunkerity/bunkerweb",
+      "principle": "Edge filtering complements application correctness",
+      "application": "A WAF recognizes selected request patterns. Ownership of a user's task is business context enforced by the application. Keep authorization tests, then add edge controls and test legitimate and suspicious requests. Tune narrow false positives instead of disabling all rules. Practice: Retain two-user access tests. Run a local request corpus with valid punctuation and controlled suspicious strings, tune one false positive and rerun allowed and denied cases.",
+      "url": "https://github.com/bunkerity/bunkerweb"
+    },
+    {
+      "repo": "MichaelCade/90DaysOfDevOps",
+      "principle": "Keep one service and a short learning loop",
+      "application": "A continuing app makes tools answer concrete needs: packaging handles environments, configuration automation replaces repeated setup, backups recover state. Journal predictions, changes, failures and proof. Revisit the same contracts as requirements grow. A calendar label is pacing, not mastery. Practice: Write prediction/change/failure/evidence notes. Identify one earlier check that must still pass after today's improvement.",
+      "url": "https://github.com/MichaelCade/90DaysOfDevOps"
+    },
+    {
+      "repo": "wmariuss/awesome-devops",
+      "principle": "Make a reviewable tool decision",
+      "application": "A decision record states problem, constraints, alternatives, chosen approach and reconsideration evidence. Include permissions, cost, maintenance and recovery. Keep research bounded so it becomes a tested service improvement instead of a bookmark collection. Practice: Compare two candidates for one real course problem, perform an acceptance test with the choice and specify a reassessment trigger.",
+      "url": "https://github.com/wmariuss/awesome-devops"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

@@ -1,0 +1,313 @@
+{
+  "week": 3,
+  "introduction": [
+    "You can find a process and follow an HTTP request. Now build a small service whose behavior you understand: Taskboard. A caller creates a task, lists tasks, reads one task and completes it. The same promises will survive later changes to containers, databases and cloud infrastructure.",
+    "Begin with a pure Python function, connect it to HTTP, then test a real listener. You receive an unfinished starter and completed references. Attempt each checkpoint before comparing the reference; an application that runs without explanation is not the goal.",
+    "This stage keeps tasks only in memory. Restarting loses them. There are no accounts, cloud resources or database yet. The limitation is useful evidence: persistence becomes a requirement you can explain in week 6."
+  ],
+  "prerequisites": [
+    "Weeks 1–2: navigate files, use Git, stop a foreground process, and distinguish HTTP errors from connection failures.",
+    "Ubuntu 24.04 Bash in WSL2 or a disposable VM; Python3.12+, python3-venv, curl and Git. Your learner workspace is ~/dev-opps-lab.",
+    "The extracted course must be accessible from Ubuntu. You will enter its actual absolute directory below, not assume the static course is your Git worktree."
+  ],
+  "concepts": [
+    {
+      "title": "A pure rule before a server",
+      "paragraphs": [
+        "A pure function receives input and returns a result without a database, network or hidden configuration. normalize_title either returns a valid string or raises ValueError. That makes edge cases cheap to test.",
+        "A Python annotation documents intent but does not reject a number at runtime. Check the actual type, then strip surrounding whitespace, then check length. Python len counts Unicode code points; that is the chosen contract, not bytes or visible grapheme clusters."
+      ],
+      "example": "\"  Ship  \" becomes \"Ship\". Length 120 passes;121 fails. The integer 42 must fail instead of becoming text.",
+      "judgment": "One shared rule prevents handlers from accepting different definitions of a valid task."
+    },
+    {
+      "title": "HTTP is an adapter",
+      "paragraphs": [
+        "Uvicorn accepts connections; FastAPI chooses a function using method and path. A Pydantic model checks the JSON body. StrictStr rejects number coercion and extra=\"forbid\" rejects fields the caller does not control.",
+        "POST /tasks returns 201 and Location; GET reads without completing; POST /tasks/{id}/complete changes completion. Invalid input is 422, a missing valid UUID404, and an unexpected defect a sanitized 500."
+      ],
+      "example": "A client-supplied owner_id is an extra field, even before real identities arrive in week 7.",
+      "judgment": "A status code alone cannot prove correctness. Test title, ID, state and headers."
+    },
+    {
+      "title": "State and repeatability",
+      "paragraphs": [
+        "A UUID is a generated identifier for one task. A dictionary stores tasks until the process ends. Multiple processes would have separate dictionaries, so extra workers would break consistent reads.",
+        "Completion preserves its first UTC timestamp. That operation is idempotent: repeating it has the same intended result. Creating twice makes two IDs. A lost response does not prove a creation failed."
+      ],
+      "example": "Complete one task twice: identical completed_at. Create the same title twice: different IDs.",
+      "judgment": "A request ID correlates logs; it is neither an idempotency key nor permission to retry every POST."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Copy a clean exercise into your learner repository",
+      "purpose": "Preserve your own work and exclude authoring environments, secrets and reports.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nread -r -p \"Absolute extracted course directory: \" COURSE_DIR\ntest -f \"$COURSE_DIR/labs/taskboard/README.md\" || { printf \"Check the course path.\\n\"; exit 1; }\ntest ! -e app/taskboard || { printf \"Existing app/taskboard preserved; use it instead of copying.\\n\"; exit 1; }\nmkdir -p app/taskboard\ncp -R \"$COURSE_DIR/labs/taskboard/reference\" \"$COURSE_DIR/labs/taskboard/starter\" \"$COURSE_DIR/labs/taskboard/tests\" \"$COURSE_DIR/labs/taskboard/tools\" \"$COURSE_DIR/labs/taskboard/migrations\" \"$COURSE_DIR/labs/taskboard/ci\" app/taskboard/\ncp \"$COURSE_DIR/labs/taskboard/requirements.lock\" \"$COURSE_DIR/labs/taskboard/requirements-dev.lock\" \"$COURSE_DIR/labs/taskboard/pytest.ini\" \"$COURSE_DIR/labs/taskboard/README.md\" \"$COURSE_DIR/labs/taskboard/Dockerfile\" \"$COURSE_DIR/labs/taskboard/compose.yaml\" \"$COURSE_DIR/labs/taskboard/.gitignore\" \"$COURSE_DIR/labs/taskboard/.dockerignore\" \"$COURSE_DIR/labs/taskboard/.env.example\" app/taskboard/\ncd app/taskboard\npwd",
+          "explain": [
+            "read -r records a literal path; quotes preserve spaces. A Windows D: folder is usually under /mnt/d inside Ubuntu.",
+            "The first test checks a known source file. || executes an error branch only on failure; exit1 stops rather than copying from an incorrect path. Reopen a terminal to retry.",
+            "The second test refuses to overwrite prior work. mkdir -p creates the new target. cp -R copies named source directories; the other cp copies named configuration files. No .venv or credentials are copied.",
+            "All following commands run in ~/dev-opps-lab/app/taskboard unless stated otherwise."
+          ],
+          "expected": "pwd ends in /dev-opps-lab/app/taskboard.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Explain source course folder versus learner repository."
+    },
+    {
+      "title": "2 · See a useful failing test",
+      "purpose": "The unfinished validator has eleven concrete expectations.",
+      "commands": [
+        {
+          "code": "python3 --version\npython3 -m venv .venv\nsource .venv/bin/activate\npython -m pip install --no-cache-dir -r requirements-dev.lock\npython -m pytest starter/test_domain.py -q",
+          "explain": [
+            "--version shows the interpreter. -m venv creates a project-local environment; source activates it only in this shell.",
+            "python -m pip uses that environment. -r reads pinned dependencies and --no-cache-dir avoids a redundant download cache.",
+            "pytest runs the named starter file; -q reduces output. NotImplementedError is the exercise starting point."
+          ],
+          "expected": "Eleven initially failing cases.",
+          "troubleshoot": "If venv is absent: sudo apt-get update updates Ubuntu package metadata; sudo apt-get install python3-venv installs the missing support. An install error is not a reason to modify the lock randomly."
+        }
+      ],
+      "checkpoint": "You can identify the deliberate failure rather than treating all red output as infrastructure trouble."
+    },
+    {
+      "title": "3 · Implement the title rule",
+      "purpose": "Attempt the four comments in starter/domain.py yourself, then compare this complete solution.",
+      "commands": [
+        {
+          "code": "cat > starter/domain.py <<'PY'\ndef normalize_title(value: object) -> str:\n    if type(value) is not str:\n        raise ValueError('Title must be a string')\n    title = value.strip()\n    if not 1 <= len(title) <= 120:\n        raise ValueError('Title must contain 1 to 120 characters')\n    return title\nPY\npython -m pytest starter/test_domain.py -q",
+          "explain": [
+            "The quoted heredoc writes literal Python; > replaces only this exercise file. Preserve any attempted variant in Git first.",
+            "The type guard rejects nonstrings before strip. The chained comparison includes both length endpoints. raise stops invalid values; return supplies the valid title.",
+            "Rerun the unchanged test contract."
+          ],
+          "expected": "11 passed.",
+          "troubleshoot": "IndentationError means the Python block spacing changed. A120-character failure usually signals an incorrect boundary comparison."
+        }
+      ],
+      "checkpoint": "Predict newline-only and emoji inputs before running them."
+    },
+    {
+      "title": "4 · Build creation and listing before the complete service",
+      "purpose": "This small checkpoint teaches the framework without hiding behavior in a giant application.",
+      "commands": [
+        {
+          "code": "cat > starter/app.py <<'PY'\nfrom datetime import datetime, timezone\nfrom uuid import uuid4\nfrom fastapi import FastAPI\nfrom fastapi.responses import JSONResponse\nfrom pydantic import BaseModel, ConfigDict, StrictStr, field_validator\nfrom starter.domain import normalize_title\napp = FastAPI(title='My Taskboard')\ntasks = {}\nclass CreateTask(BaseModel):\n    model_config = ConfigDict(extra='forbid')\n    title: StrictStr\n    @field_validator('title')\n    @classmethod\n    def valid_title(cls, value):\n        return normalize_title(value)\n@app.get('/livez')\ndef livez():\n    return {'status': 'ok'}\n@app.post('/tasks', status_code=201)\ndef create(body: CreateTask):\n    task_id = str(uuid4())\n    task = {'id': task_id, 'title': body.title, 'completed': False,\n            'created_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),\n            'completed_at': None}\n    tasks[task_id] = task\n    return JSONResponse(task, status_code=201, headers={'Location': '/tasks/' + task_id})\n@app.get('/tasks')\ndef list_tasks():\n    return {'items': sorted(tasks.values(), key=lambda t: (t['created_at'], t['id']))}\nPY\npython -m uvicorn starter.app:app --host 127.0.0.1 --port 8000",
+          "explain": [
+            "Imports introduce IDs, UTC timestamps, request validation and HTTP responses. The dictionary belongs to one process.",
+            "The model rejects invalid input before create runs. Its validator calls your rule. Decorators register method/path handlers; create supplies server-owned fields and Location; list orders results consistently.",
+            "Uvicorn loads app from starter/app.py. --host restricts the listener to loopback; --port selects 8000. Keep this terminal open."
+          ],
+          "expected": "A running local listener. Get-by-ID, completion and final structured errors remain your next checkpoint.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        },
+        {
+          "code": "curl -i -H 'Content-Type: application/json' -d '{\"title\":\"  Ship  \"}' http://127.0.0.1:8000/tasks\ncurl -i http://127.0.0.1:8000/tasks",
+          "explain": [
+            "Run in a second Ubuntu terminal. -i shows headers, -H declares JSON, -d sends a POST body. The second command defaults to GET.",
+            "Read the actual UUID, trimmed title, false completion and null completion timestamp."
+          ],
+          "expected": "201 with Location;200 list containing the same ID.",
+          "troubleshoot": "Connection refused means the listener is missing.422 means the request reached validation; inspect body syntax."
+        }
+      ],
+      "checkpoint": "Explain each line of the small app before adding more routes."
+    },
+    {
+      "title": "5 · Compare the final contract at three boundaries",
+      "purpose": "After attempting get and completion, inspect the reference in dependency order.",
+      "commands": [
+        {
+          "code": "sed -n '1,180p' reference/domain.py\nsed -n '1,180p' reference/memory.py\nsed -n '1,240p' reference/api.py\npython -m pytest tests/unit tests/contract -q\npython tools/run_local_system.py",
+          "explain": [
+            "sed -n prints a selected line range. Read pure behavior, memory storage, then HTTP adaptation; stage 07 credentials can wait until week 7.",
+            "found maps a missing task to 404; a UUID path parameter makes malformed IDs 422. Error handlers implement the contract rather than returning default framework error bodies.",
+            "Unit/adapter checks run in process. The system helper starts a real listener on an available loopback port, runs HTTP checks and stops only its own child."
+          ],
+          "expected": "Reference tests pass. Memory system checks pass; the authentication case is explicitly skipped until stage 07.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Record which test proves a socket and which does not."
+    },
+    {
+      "title": "6 · Record v0.1 and its limits",
+      "purpose": "Stop the foreground starter with Ctrl+C in its terminal; later operational lessons use the complete stage 03 reference.",
+      "commands": [
+        {
+          "code": "python -m pip check\ngit status --short\nmkdir -p ../../evidence\nprintf \"Week3: v0.1; API1.0; one worker; tasks lost on restart.\\n\" > ../../evidence/week-03.md",
+          "explain": [
+            "pip check checks dependency compatibility. git status lists edits; do not stage .venv, credentials or private reports.",
+            "mkdir ensures the evidence folder exists. printf writes a starting record; append your actual failing/passing evidence and explanation."
+          ],
+          "expected": "A clear record of behavior and limits.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "A fresh terminal can start reference.stage 03:app with the README command."
+    }
+  ],
+  "failure": {
+    "title": "A boundary error that accepts blanks",
+    "boundary": "Your starter validator only.",
+    "inject": [
+      {
+        "code": "cp starter/domain.py starter/domain.py.known-good\npython - <<'PY'\nfrom pathlib import Path\np=Path('starter/domain.py')\ns=p.read_text(); assert '1 <= len(title)' in s\np.write_text(s.replace('1 <= len(title)', '0 <= len(title)', 1))\nPY\npython -m pytest starter/test_domain.py -q",
+        "explain": [
+          "Save one known-good file, change only the lower bound, then run the same tests."
+        ],
+        "expected": "Blank-title cases fail.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "git diff -- starter/domain.py\npython -m pytest starter/test_domain.py -q -k reject",
+        "explain": [
+          "git diff limits inspection to one file; -k reject selects rejection tests."
+        ],
+        "expected": "An empty string is no longer rejected.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "Does strip run before the length check?",
+      "What exception did the test expect?"
+    ],
+    "answer": {
+      "explanation": [
+        "The implementation still runs, but its contract changed. Restore the rule rather than weakening the assertion."
+      ],
+      "recover": [
+        {
+          "code": "cp starter/domain.py.known-good starter/domain.py",
+          "explain": [
+            "Restore only the saved exercise file."
+          ],
+          "expected": "Lower bound restored.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "python -m pytest starter/test_domain.py -q",
+        "explain": [
+          "Repeat the same tests."
+        ],
+        "expected": "11 passed.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why is an annotation insufficient?",
+      "hint": "Does Python enforce the annotation on a normal function call?",
+      "answer": "The annotation documents intent. Explicit validation rejects a runtime integer; the framework model is a second boundary."
+    },
+    {
+      "prompt": "Why can completion be repeated safely while creation cannot?",
+      "hint": "Compare state changes and IDs.",
+      "answer": "Completion preserves one task and timestamp. Creation generates another ID. A lost response is ambiguous, so retrying creation may duplicate work."
+    },
+    {
+      "prompt": "Which test proves the listener works?",
+      "hint": "Look for a separate process and loopback URL.",
+      "answer": "The real HTTP helper does. In-process adapter tests bypass sockets; neither memory test proves PostgreSQL persistence."
+    }
+  ],
+  "exercise": {
+    "brief": "Implement get-by-ID and idempotent completion in your own starter before opening the matching reference handlers.",
+    "constraints": [
+      "Keep the five public fields and server-generated timestamps.",
+      "Invalid UUID 422; unknown valid UUID 404; completion takes an empty body.",
+      "No frontend, database or deletion."
+    ],
+    "deliverables": [
+      "Source and tests for unknown ID and repeated completion.",
+      "A create→get→complete→get HTTP record."
+    ],
+    "acceptance": [
+      "Read returns the created UUID/title.",
+      "Repeated completion preserves completed_at.",
+      "Invalid titles/extra fields fail and server errors reveal no traceback."
+    ],
+    "hints": [
+      "Look up the UUID and handle None explicitly.",
+      "Use the first completion timestamp instead of replacing it on every call."
+    ],
+    "solution": [
+      "Convert the path to UUID, look up the dictionary entry and map absence to an intentional 404.",
+      "Change false/null to true/current UTC once; return the existing state thereafter.",
+      "Compare reference/api.py for sanitized error handlers and generated request IDs."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "rm -- starter/domain.py.known-good",
+      "explain": [
+        "After successful recovery, remove only this temporary backup; retain code/evidence."
+      ],
+      "expected": "Backup removed.",
+      "troubleshoot": "If you did not run the fault, no backup needs removal."
+    },
+    {
+      "code": "deactivate",
+      "explain": [
+        "Leave this shell virtual environment; files remain."
+      ],
+      "expected": "Normal shell prompt.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "Python venv",
+      "url": "https://docs.python.org/3/library/venv.html",
+      "usedFor": "Interpreter isolation."
+    },
+    {
+      "title": "FastAPI bodies",
+      "url": "https://fastapi.tiangolo.com/tutorial/body/",
+      "usedFor": "Request model and validation."
+    },
+    {
+      "title": "Pydantic strict mode",
+      "url": "https://docs.pydantic.dev/latest/concepts/strict_mode/",
+      "usedFor": "Avoiding implicit input coercion."
+    },
+    {
+      "title": "FastAPI errors",
+      "url": "https://fastapi.tiangolo.com/tutorial/handling-errors/",
+      "usedFor": "Deliberate error responses."
+    },
+    {
+      "title": "pytest assertions",
+      "url": "https://docs.pytest.org/en/stable/how-to/assert.html",
+      "usedFor": "Value and exception assertions."
+    }
+  ],
+  "notes": [
+    "The small starter checkpoint intentionally lacks get/completion/final error handling; do not claim full contract compliance until implemented.",
+    "Reference authoring checks:38 unit/adapter passes;10 actual loopback HTTP passes;1 identity check intentionally skipped for memory mode.",
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ],
+  "repoConnections": [
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Questions reveal missing mental models",
+      "application": "Answer before revealing a solution. Predict output or the failing layer, then experiment in the lab. If observations disagree, correct the explanation and retain evidence. Revisit with changed conditions so recalled wording cannot replace understanding. Practice: Hide answers to three questions matching the week. Record predictions and run a safe experiment for uncertain answers. Reattempt the weakest next week.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    },
+    {
+      "repo": "MichaelCade/90DaysOfDevOps",
+      "principle": "Keep one service and a short learning loop",
+      "application": "A continuing app makes tools answer concrete needs: packaging handles environments, configuration automation replaces repeated setup, backups recover state. Journal predictions, changes, failures and proof. Revisit the same contracts as requirements grow. A calendar label is pacing, not mastery. Practice: Write prediction/change/failure/evidence notes. Identify one earlier check that must still pass after today's improvement.",
+      "url": "https://github.com/MichaelCade/90DaysOfDevOps"
+    }
+  ]
+}

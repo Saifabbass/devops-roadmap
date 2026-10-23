@@ -1,0 +1,12 @@
+{
+  "counts": {
+    "lessons": 12,
+    "commands": 124,
+    "bash": 122,
+    "python": 11,
+    "yaml": 12,
+    "hcl": 11
+  },
+  "errors": [],
+  "scope": "Syntax checks only; no provider calls, VM actions, Docker runs or live CI jobs were executed."
+}

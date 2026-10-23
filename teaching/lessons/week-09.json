@@ -1,0 +1,225 @@
+{
+  "week": 9,
+  "introduction": [
+    "Continuous integration runs your team's checks when code changes. Its value is not a green badge by itself: it makes the evidence repeatable and makes a failed requirement visible before release.",
+    "You will create a dedicated private Taskboard repository, run real lint and test jobs in GitLab, and submit an intentionally broken merge request. No cloud deployment credentials are needed."
+  ],
+  "prerequisites": [
+    "Complete the local-release capstone and retain its source/evidence.",
+    "Use a GitLab account and private learning project with a Linux Docker runner available. Inspect runner availability and compute quota before the first pipeline.",
+    "The dedicated CI repository will live at ~/dev-opps-delivery. Keep .env, reports, venvs and course browsing files out of it.",
+    "For a zero-charge runner, use your own disposable local Ubuntu VM. The Learn without a cloud bill handbook explains how to perform only week 10's basic installation/register steps before week 9, with privileged mode off. Hosted runner minutes are optional; do not buy compute for this course."
+  ],
+  "concepts": [
+    {
+      "title": "A pipeline is code running somewhere",
+      "paragraphs": [
+        "The .gitlab-ci.yml file describes jobs. GitLab schedules them; a runner executes their scripts in a configured environment. An image declaration only works with an executor that supports it. A pending job can mean no eligible runner, not broken application code.",
+        "Jobs have exit statuses. A failed required job must stop your release procedure. Publishing a JUnit report makes failures readable, but the report alone does not enforce a gate: the test command must return nonzero and the job must not ignore it."
+      ],
+      "example": "Adding `|| true` after pytest would hide its failed exit status even though a report still contains failures.",
+      "judgment": "Read both the job script and runner authority. Pipeline authors can execute code with whatever access the job receives."
+    },
+    {
+      "title": "Workflow rules choose which pipelines exist",
+      "paragraphs": [
+        "A push to a branch with an open merge request can otherwise trigger both branch and merge-request pipelines. The workflow below allows merge-request pipelines, suppresses redundant branch pipelines for open MRs, and allows other branch pipelines.",
+        "Job stages organize execution, but workflow rules run before jobs are considered. Variables in these rules are supplied by GitLab; they are not values you should invent or store as secrets."
+      ],
+      "example": "A new feature branch gets a branch pipeline. Once its MR is open, MR pipelines become the relevant change evidence.",
+      "judgment": "Know why a pipeline was created or suppressed. More duplicate runs do not automatically mean better coverage."
+    },
+    {
+      "title": "A merge decision needs an enforced or explicit gate",
+      "paragraphs": [
+        "In project settings, enable the merge check requiring successful pipelines where available, and protect main from direct unreviewed pushes. Confirm the rule with an actual failing MR rather than assuming a red icon blocks merging.",
+        "Some approval and protected-environment capabilities depend on the GitLab offering/tier. If a desired control is unavailable, document a manual release-owner check and its weaker enforcement instead of claiming a technical guarantee."
+      ],
+      "example": "A maintainer who can change CI and bypass branch policy has more effective authority than a contributor whose MR only runs untrusted tests.",
+      "judgment": "Make the control and its exceptions visible in the handoff."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Create a repository containing only the application",
+      "purpose": "In GitLab create a blank private project named dev-opps-taskboard without initializing a README. Inspect Settings → CI/CD → Runners for an available Linux Docker runner and the relevant usage quota. In your terminal copy only the intended application inputs.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\ntest ! -e ~/dev-opps-delivery || { printf '%s\\n' 'Destination already exists; inspect it before continuing.'; exit 1; }\nmkdir ~/dev-opps-delivery || exit 1\ncp -R reference starter migrations tests tools ci requirements.lock requirements-dev.lock Dockerfile compose.yaml pytest.ini .gitignore .dockerignore .env.example README.md ~/dev-opps-delivery/ || exit 1\ncd ~/dev-opps-delivery\ngit init -b main\ngit config user.name 'Dev Opps Learner'\ngit config user.email 'learner@example.invalid'\ngit status --short",
+          "explain": [
+            "test checks the new destination is absent; stop if it exists rather than overwriting it. mkdir creates this dedicated repository folder.",
+            "cp lists the exact required application files; it omits .env, .venv, reports and parent Git metadata.",
+            "git init creates a new main branch. Local author configuration applies only here. status lets you inspect the files before committing.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Only application source/configuration appears in the new repository; no credentials or generated data.",
+          "troubleshoot": "If a named file is missing, inspect the learner lab version. Do not replace this with an indiscriminate home-directory copy."
+        }
+      ],
+      "checkpoint": "Review .gitignore and the staged file list before sharing anything with GitLab."
+    },
+    {
+      "title": "Write the complete initial pipeline",
+      "purpose": "This first pipeline has no image build or deployment authority. The lint job selects correctness-focused rules; it is not a claim that formatting or every possible static rule was checked.",
+      "commands": [
+        {
+          "code": "cat > .gitlab-ci.yml <<'YAML'\nstages: [check]\nworkflow:\n  rules:\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'\n    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'\n      when: never\n    - if: '$CI_COMMIT_BRANCH'\ndefault:\n  image: python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83\nlint:\n  stage: check\n  script:\n    - python -m pip install --no-cache-dir ruff==0.11.13\n    - python -m ruff check --target-version py312 --select E9,F63,F7,F82 reference starter tools\nunit:\n  stage: check\n  script:\n    - python -m pip install --no-cache-dir -r requirements-dev.lock\n    - python -m pytest tests/unit tests/contract --junitxml=reports/unit.xml\n  artifacts:\n    when: always\n    expire_in: 14 days\n    reports:\n      junit: reports/unit.xml\nYAML\ngit add reference starter migrations tests tools ci requirements.lock requirements-dev.lock Dockerfile compose.yaml pytest.ini .gitignore .dockerignore .env.example README.md .gitlab-ci.yml\ngit diff --cached --stat\ngit commit -m 'Add Taskboard with required lint and unit checks'",
+          "explain": [
+            "The quoted YAML here-document preserves GitLab's $ variables literally.",
+            "stages defines check. workflow controls pipeline creation as explained above. default.image selects the pinned Python runtime for Docker-executor jobs.",
+            "lint installs a recorded Ruff version and checks syntax/undefined-name correctness rules with a Python 3.12 target. unit installs the locked test dependencies and runs real unit/adapter checks.",
+            "artifacts.when=always retains the JUnit report even after failure; expire_in bounds retention. git add stages only named inputs; diff --cached --stat reviews the list; commit records the pipeline."
+          ],
+          "expected": "One committed pipeline with two executable checks and finite report retention.",
+          "troubleshoot": "Before pushing, use GitLab's pipeline editor/CI lint validation for this YAML. A valid YAML document still needs GitLab-specific validation."
+        }
+      ],
+      "checkpoint": "Explain why a JUnit report cannot substitute for pytest's exit status."
+    },
+    {
+      "title": "Connect the project and inspect the first run",
+      "purpose": "Copy the actual clone URL from your private project's Code menu. Authenticate through your configured Git credential/SSH workflow; do not embed a token in the URL or evidence.",
+      "commands": [
+        {
+          "code": "read -r -p 'Paste your private GitLab project clone URL: ' GITLAB_REPO\ngit remote add origin \"$GITLAB_REPO\"\ngit push -u origin main",
+          "explain": [
+            "read obtains your actual destination without a fabricated namespace. -r preserves literal backslashes; quotes keep the URL one argument.",
+            "remote add records the destination. push -u uploads main and establishes its upstream."
+          ],
+          "expected": "GitLab's Build → Pipelines shows a run for the recorded commit. Inspect lint and unit logs and the Tests report.",
+          "troubleshoot": "If pending, inspect eligible runner tags/executor and quota. If denied, fix project access through normal GitLab authentication without pasting secrets into the course."
+        }
+      ],
+      "checkpoint": "Enable the project's successful-pipeline merge check, protect main, and record the exact settings available in your tier."
+    }
+  ],
+  "failure": {
+    "title": "Submit a real validation defect",
+    "boundary": "Use a feature branch in the private learning repository. Never merge the broken version. The fault changes only the lower title-length boundary.",
+    "inject": [
+      {
+        "code": "git switch -c practice/ci-empty-title || exit 1\npython3 - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('reference/domain.py')\ns = p.read_text()\nold = 'if not 1 <= len(title) <= 120:'\nassert s.count(old) == 1\np.write_text(s.replace(old, 'if not 0 <= len(title) <= 120:'))\nPY\ngit add reference/domain.py\ngit commit -m 'Practice a validation defect for the CI gate'\ngit push -u origin practice/ci-empty-title",
+        "explain": [
+          "Create a dedicated practice branch. The asserted single replacement allows an empty normalized title.",
+          "Commit and push only that defect. Open an MR targeting main in GitLab and inspect its required pipeline.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+        ],
+        "expected": "The existing blank-title test fails; the MR shows a failed pipeline and the configured merge restriction.",
+        "troubleshoot": "If no relevant test fails, inspect the test selection and exit handling. Do not add an unconditional failure to disguise a missing behavior assertion."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "git show --stat HEAD\ngit diff main...HEAD -- reference/domain.py",
+        "explain": [
+          "show identifies the change in this commit. diff with three dots shows the feature change since its merge base with main."
+        ],
+        "expected": "Exactly the intended lower-bound change, corresponding to the failing test.",
+        "troubleshoot": "Compare the pipeline commit SHA to this local commit before diagnosing stale output."
+      }
+    ],
+    "hints": [
+      "The test should protect the contract already taught in week 3.",
+      "Inspect whether any job uses allow_failure or ignores command exits."
+    ],
+    "answer": {
+      "explanation": [
+        "Allowing length zero violates the task contract. Revert the deliberate commit and require the same MR pipeline to pass. Keep both runs as evidence that the gate detects a meaningful defect."
+      ],
+      "recover": [
+        {
+          "code": "git revert --no-edit HEAD\ngit push",
+          "explain": [
+            "The inverse commit preserves the failed change in history. push sends the repair to the same MR branch."
+          ],
+          "expected": "A new pipeline runs against the repaired commit.",
+          "troubleshoot": "If HEAD is no longer the deliberate defect, inspect the log and revert its actual hash."
+        }
+      ],
+      "verification": {
+        "code": "git log --oneline -2\ngit status --short",
+        "explain": [
+          "Record the defect/recovery history and a clean working tree. In GitLab verify the latest exact commit passes both jobs and the previously blocked MR is now eligible under the configured policy."
+        ],
+        "expected": "Two distinct runs: failing defect and passing repair, with the correct commit IDs.",
+        "troubleshoot": "A passing old pipeline is not evidence for the latest commit."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What does a pending job tell you?",
+      "hint": "Has the script necessarily started?",
+      "answer": "Usually only that GitLab has not assigned an eligible runner yet. Inspect runner availability, tags, executor and quota before changing application code."
+    },
+    {
+      "prompt": "Why does artifacts:when:always not make tests optional?",
+      "hint": "Separate evidence retention from command status.",
+      "answer": "It retains evidence after failure. The script's nonzero exit still fails the job unless explicitly ignored or configured as allowed failure."
+    },
+    {
+      "prompt": "Who can effectively use a job's credentials?",
+      "hint": "Who controls the executed script?",
+      "answer": "Anyone able to alter code executed in that credential-bearing job can attempt to use its authority. Masking output is not a substitute for controlling which changes run with secrets."
+    }
+  ],
+  "exercise": {
+    "brief": "Document and demonstrate the project's change gate with a failing and repaired MR.",
+    "constraints": [
+      "No deployment credentials.",
+      "Do not merge the deliberate defect or bypass protection to claim success."
+    ],
+    "deliverables": [
+      "Pipeline links/commit IDs, failed assertion, repair and available merge-control settings."
+    ],
+    "acceptance": [
+      "Checks execute real lint/test commands.",
+      "The meaningful defect fails and the repair passes.",
+      "You explain runner location and available authority.",
+      "Duplicate branch/MR behavior matches the workflow rules."
+    ],
+    "hints": [
+      "Inspect pipeline source and commit SHA in GitLab."
+    ],
+    "solution": [
+      "Create the MR, observe the red requirement, repair through a new commit and compare both runs.",
+      "Record any unavailable policy feature as a limitation with a named manual release-owner check."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "git switch main\ngit status --short",
+      "explain": [
+        "Return to main after closing or merging the repaired MR according to your review. Keep the branch history and pipeline evidence until the capstone."
+      ],
+      "expected": "A known local branch and no accidental uncommitted defect.",
+      "troubleshoot": "If the repaired MR was merged, git pull --ff-only updates main without creating an unexpected merge commit."
+    }
+  ],
+  "references": [
+    {
+      "title": "GitLab workflow rules",
+      "url": "https://docs.gitlab.com/ci/yaml/workflow/",
+      "usedFor": "Choosing branch and merge-request pipelines."
+    },
+    {
+      "title": "GitLab unit-test reports",
+      "url": "https://docs.gitlab.com/ci/testing/unit_test_reports/",
+      "usedFor": "JUnit display and retention separate from job success."
+    },
+    {
+      "title": "GitLab YAML reference",
+      "url": "https://docs.gitlab.com/ci/yaml/",
+      "usedFor": "Job/stage/artifact semantics."
+    },
+    {
+      "title": "Recorded Ruff release",
+      "url": "https://pypi.org/project/ruff/0.11.13/",
+      "usedFor": "The deliberately pinned lint tool version used by this introductory pipeline."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "No GitLab account or runner was used during authoring. GitLab pipeline execution and merge enforcement must be verified in the learner's own private project."
+  ]
+}

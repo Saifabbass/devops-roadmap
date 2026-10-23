@@ -1,0 +1,248 @@
+{
+  "week": 26,
+  "introduction": [
+    "A process can be alive but unable to serve useful requests. Kubernetes needs an explicit traffic contract: which port to use, which Pods match, and what makes a Pod ready. You will observe each link instead of inferring success from a green process indicator.",
+    "Stage03 has no external dependency, so /livez is also sufficient for this bounded readiness experiment. When you use the PostgreSQL adapter, readiness must use /readyz while liveness stays /livez. Do not let a transient database failure restart every application process."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Week25 cluster and app.yaml retained. In each new terminal set KUBECONFIG to ~/dev-opps-lab/k8s/kubeconfig; context must be kind-devopps."
+  ],
+  "concepts": [
+    {
+      "title": "A Service is a stable selection rule",
+      "paragraphs": [
+        "A ClusterIP Service gets a stable virtual address and DNS name. Its selector finds Pod labels. EndpointSlices describe matching addresses and readiness. kube-proxy or the networking implementation routes ordinary Service connections to eligible endpoints.",
+        "kubectl port-forward service/... selects a backing Pod and creates a debugging tunnel. It does not test the normal in-cluster Service dataplane, so use a request from a second Pod as well."
+      ],
+      "example": "taskboard.devopps.svc.cluster.local names a Service, not a particular Pod.",
+      "judgment": "An empty EndpointSlice can mean a wrong selector or unready matching Pods. Check both before blaming DNS."
+    },
+    {
+      "title": "Three probes, three decisions",
+      "paragraphs": [
+        "Startup protects initialization by postponing liveness/readiness evaluation until startup succeeds. Readiness removes a Pod from normal Service traffic without restarting it. Liveness restarts a stuck container after repeated failures.",
+        "Termination first removes serving eligibility; applications still need time to complete in-flight work. A graceful Uvicorn shutdown is useful, but an abrupt node failure cannot guarantee every in-flight request finishes."
+      ],
+      "example": "A missing /readyz route produces404; a restart may leave the route equally missing.",
+      "judgment": "Set thresholds from observed startup/shutdown duration and dependency behavior. Extremely aggressive liveness probes can turn overload into a restart storm."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Declare routing and health",
+      "purpose": "Persist the additions rather than leaving only imperative changes.",
+      "commands": [
+        {
+          "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\ncd \"$HOME/dev-opps-lab/k8s\"\nkubectl -n devopps expose deployment taskboard --name=taskboard --port=80 --target-port=http --dry-run=client -o yaml > service.yaml\nkubectl apply -f service.yaml\ncat > probes.json <<'JSON'\n{\"spec\":{\"template\":{\"spec\":{\"terminationGracePeriodSeconds\":30,\"containers\":[{\"name\":\"app\",\"startupProbe\":{\"httpGet\":{\"path\":\"/livez\",\"port\":\"http\"},\"periodSeconds\":2,\"failureThreshold\":30},\"readinessProbe\":{\"httpGet\":{\"path\":\"/livez\",\"port\":\"http\"},\"periodSeconds\":3,\"failureThreshold\":2},\"livenessProbe\":{\"httpGet\":{\"path\":\"/livez\",\"port\":\"http\"},\"periodSeconds\":10,\"failureThreshold\":3}}]}}}}\nJSON\nkubectl patch --local -f app.yaml --type=strategic --patch-file probes.json -o yaml > app-probed.yaml\nkubectl apply -f app-probed.yaml\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "expose generates a Service from the Deployment selector. --dry-run=client prints YAML instead of creating it; > stores that document. target-port http resolves the container's named port8000.",
+            "The JSON patch adds health timing and a30-second termination window. --local modifies the file, --type=strategic merges the container named app, and -o yaml writes a complete reproducible manifest.",
+            "Startup allows roughly60seconds for initialization. Readiness checks every3seconds and liveness every10; these are explicit lab values, not universal production defaults."
+          ],
+          "expected": "Service port80 maps to named app port8000; rollout reaches2/2.",
+          "troubleshoot": "Check the event reason and HTTP path on failing probes. A404 is different from a connection refusal."
+        }
+      ],
+      "checkpoint": "The original desired Deployment plus probe configuration is now app-probed.yaml."
+    },
+    {
+      "title": "Follow a real Service request",
+      "purpose": "Observe DNS and readiness from inside the cluster.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps run client --image=busybox:1.37 --restart=Never --command -- sleep 3600\nkubectl -n devopps wait --for=condition=Ready pod/client --timeout=120s\nkubectl -n devopps exec client -- nslookup taskboard\nkubectl -n devopps exec client -- wget -qO- http://taskboard/livez\nkubectl -n devopps get endpointslice -l kubernetes.io/service-name=taskboard -o yaml",
+          "explain": [
+            "run creates one disposable client Pod; --restart=Never prevents a Deployment controller. sleep keeps the shell available. wait requires Ready.",
+            "exec runs after -- inside that Pod. nslookup asks cluster DNS. wget -qO- hides progress and writes the body to stdout. EndpointSlice selection shows addresses and conditions.ready."
+          ],
+          "expected": "{\"status\":\"ok\"}; EndpointSlice addresses have ready:true.",
+          "troubleshoot": "If nslookup fails inspect kube-system DNS Pods; if DNS resolves but wget fails inspect selector and endpoint readiness before changing network policy."
+        }
+      ],
+      "checkpoint": "Record Service selector, matching labels, targetPort and two endpoint addresses."
+    },
+    {
+      "title": "Measure a rollout",
+      "purpose": "Run the request loop in a second terminal; trigger the update in the first.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps exec client -- sh -c 'i=0; while [ \"$i\" -lt 40 ]; do date -u +%FT%TZ; wget -T 2 -qO- http://taskboard/livez || echo REQUEST_FAILED; i=$((i+1)); sleep 1; done' ",
+          "explain": [
+            "The shell loop sends40 bounded requests with a2-second timeout. || records failures; the arithmetic increments the counter and sleep controls rate. Keep the output as evidence."
+          ],
+          "expected": "One timestamp/body per second; count every REQUEST_FAILED rather than hiding them.",
+          "troubleshoot": "Do not infer zero downtime from a final healthy state; record the whole window."
+        },
+        {
+          "code": "kubectl -n devopps rollout restart deployment/taskboard\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "restart changes a Pod-template annotation to exercise replacement; it is not an image promotion. rollout status watches completion."
+          ],
+          "expected": "New Pods become ready before old replicas terminate under the default rolling strategy.",
+          "troubleshoot": "Use describe deployment and events if available replicas drop. Compare termination time with the request stream."
+        }
+      ],
+      "checkpoint": "Record restart behavior, then repeat the same request stream during the real digest promotion below."
+    },
+    {
+      "title": "Promote a tested image by digest",
+      "purpose": "Use the CI artifact record from the earlier pipeline level; keep the same stage03 command so the change isolates image delivery.",
+      "commands": [
+        {
+          "code": "read -r -p \"New tested Taskboard IMAGE_REF from CI: \" NEW_IMAGE_REF\ncase \"$NEW_IMAGE_REF\" in *@sha256:*) ;; *) printf \"Use a real CI-tested digest\\n\"; exit 1;; esac\nREGISTRY_HOST=\"${NEW_IMAGE_REF%%/*}\"\nread -r -p \"Read-only GitLab deploy-token username: \" REGISTRY_USER\nread -r -s -p \"Read-only deploy token: \" REGISTRY_TOKEN; printf \"\\n\"\nkubectl -n devopps create secret docker-registry registry-read --docker-server=\"$REGISTRY_HOST\" --docker-username=\"$REGISTRY_USER\" --docker-password=\"$REGISTRY_TOKEN\" --dry-run=client -o yaml | kubectl apply -f -\nunset REGISTRY_TOKEN\nkubectl -n devopps patch deployment taskboard --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"imagePullSecrets\":[{\"name\":\"registry-read\"}]}}}}'\nkubectl -n devopps set image deployment/taskboard app=\"$NEW_IMAGE_REF\"\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s\nkubectl -n devopps get pods -o jsonpath='{range .items[*]}{.metadata.name}{\" \"}{.status.containerStatuses[0].imageID}{\"\\n\"}{end}'",
+          "explain": [
+            "Read the actual new digest from a passing CI artifact. The limited registry token lets kubelet pull only the intended repository; the Secret is sent through a pipe rather than saved as a YAML file. The token is briefly a process argument during this local command: use a dedicated short-lived read-only deploy token and never publish shell traces.",
+            "The imagePullSecrets patch attaches that named credential. set image changes the desired immutable reference; rollout status and runtime image IDs verify delivery. The existing stage03 entry point stays unchanged."
+          ],
+          "expected": "The request stream records real behavior during an image change. Runtime IDs resolve to the promoted image or its platform-specific manifest.",
+          "troubleshoot": "ImagePullBackOff requires checking registry hostname, token scope and digest; do not replace the digest with latest or grant write_registry."
+        }
+      ],
+      "checkpoint": "Compare failure count and readiness timing with the restart experiment. Record source commit, tested digest and observed runtime image IDs."
+    }
+  ],
+  "failure": {
+    "title": "Distinguish a selector error from a readiness error",
+    "boundary": "Only this namespace; restore the first fault fully before the second.",
+    "inject": [
+      {
+        "code": "kubectl -n devopps patch service taskboard -p '{\"spec\":{\"selector\":{\"app\":\"wrong-label\"}}}'",
+        "explain": [
+          "The merge patch changes the Service selector to match no application Pods."
+        ],
+        "expected": "Service requests fail although Pods remain Ready.",
+        "troubleshoot": "Inspect selectors and labels."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n devopps get pods --show-labels\nkubectl -n devopps get service taskboard -o yaml\nkubectl -n devopps get endpointslice -l kubernetes.io/service-name=taskboard",
+        "explain": [
+          "Compare selected labels and endpoint membership."
+        ],
+        "expected": "No selected Taskboard endpoint despite healthy Pods.",
+        "troubleshoot": "A cached connection can outlive a change; open a fresh wget request."
+      }
+    ],
+    "hints": [
+      "Which object decides membership?",
+      "Readiness controls matching Pods; it cannot fix an incorrect selector."
+    ],
+    "answer": {
+      "explanation": [
+        "The Service selected the wrong population. After recovering it, change the readiness path to /missing with set probe through a copied app-probed.yaml and observe matched-but-unready endpoints. Restore app-probed.yaml afterward."
+      ],
+      "recover": [
+        {
+          "code": "kubectl apply -f \"$HOME/dev-opps-lab/k8s/service.yaml\"",
+          "explain": [
+            "Restore the recorded selector."
+          ],
+          "expected": "Ready endpoints return.",
+          "troubleshoot": "Inspect EndpointSlice readiness before retrying the user request."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps exec client -- wget -qO- http://taskboard/livez",
+        "explain": [
+          "A new request tests the normal Service route."
+        ],
+        "expected": "status ok.",
+        "troubleshoot": "If no endpoint returns inspect rollout readiness."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why not probe the database from liveness?",
+      "hint": "What does liveness failure do?",
+      "answer": "A database outage affects every replica; restarting all of them adds connection churn and destroys warm capacity. Readiness and user-facing errors describe dependency availability."
+    },
+    {
+      "prompt": "Does successful port-forward prove Service routing?",
+      "hint": "Which endpoint does the tunnel choose?",
+      "answer": "No. It selects a Pod for debugging; cluster DNS, selectors, virtual-IP routing and policy still require an in-cluster test."
+    },
+    {
+      "prompt": "Why is a startup probe useful?",
+      "hint": "Compare slow and permanently dead.",
+      "answer": "It gives a bounded initialization window while retaining strict liveness timing after startup; simply making all liveness checks slow also delays real failure detection."
+    }
+  ],
+  "exercise": {
+    "brief": "Diagnose a bad readiness path independently.",
+    "constraints": [
+      "Use a copied manifest and /missing; keep liveness /livez.",
+      "Restore the known good file before leaving."
+    ],
+    "deliverables": [
+      "Bad manifest and timeline",
+      "Ready counts and endpoint conditions"
+    ],
+    "acceptance": [
+      "Failure is identified as readiness, not image or scheduling",
+      "Recovery produces a fresh successful Service request"
+    ],
+    "hints": [
+      "kubectl describe pod shows probe HTTP status."
+    ],
+    "solution": [
+      "Copy app-probed.yaml to app-not-ready.yaml, change only readinessProbe.httpGet.path to /missing, apply, inspect events/endpoints, then reapply app-probed.yaml."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n devopps delete pod client",
+      "explain": [
+        "Delete the temporary request client. Retain Service and Deployment manifests for the next lesson."
+      ],
+      "expected": "client deleted.",
+      "troubleshoot": "If already absent, get pod client confirms no leftover workload."
+    },
+    {
+      "code": "kubectl apply -f \"$HOME/dev-opps-lab/k8s/app-probed.yaml\"\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+      "explain": [
+        "Restore the recorded local image baseline for week 27 after keeping the promotion evidence. The read-only pull Secret is deliberately retained for later registry work."
+      ],
+      "expected": "The original local baseline is healthy.",
+      "troubleshoot": "If your CI image changes the API contract, do not assume an image rollback also restores database compatibility; this stage03 exercise has no database."
+    }
+  ],
+  "references": [
+    {
+      "title": "Services",
+      "url": "https://kubernetes.io/docs/concepts/services-networking/service/",
+      "usedFor": "Selectors and ports"
+    },
+    {
+      "title": "EndpointSlices",
+      "url": "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/",
+      "usedFor": "Membership and readiness"
+    },
+    {
+      "title": "Container probes",
+      "url": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+      "usedFor": "Health-check actions and timing"
+    },
+    {
+      "title": "Pod lifecycle",
+      "url": "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/",
+      "usedFor": "Graceful termination"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "stefanprodan/podinfo",
+      "principle": "A known health interface exposes platform behavior.",
+      "application": "Compare this probe contract to podinfo health/ready routes; transfer the mechanism to Taskboard while keeping dependency and business tests separate.",
+      "url": "https://github.com/stefanprodan/podinfo"
+    }
+  ],
+  "notes": [
+    "Documentation-checked; Kubernetes execution remains for the learner environment."
+  ],
+  "phase": "Kubernetes",
+  "title": "Traffic, probes and safe rollout",
+  "outcome": "Route requests to ready application instances and handle startup and shutdown correctly."
+}

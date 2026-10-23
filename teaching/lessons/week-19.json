@@ -1,0 +1,232 @@
+{
+  "week": 19,
+  "phase": "Terraform",
+  "title": "Test drift, assumptions and changes",
+  "outcome": "Catch invalid infrastructure designs and distinguish drift from intended change.",
+  "introduction": [
+    "Valid syntax can still describe an unsafe design. Today you will reject unrestricted SSH in a plan-level test, distinguish a mocked provider from a real cloud check and detect a manual change to a local managed resource.",
+    "The local and mocked exercises cost no cloud money. They establish input and configuration properties, not actual AWS reachability, IAM behavior or resilience. Live checks must stay separate, explicitly authorized and cleaned up."
+  ],
+  "prerequisites": [
+    "Weeks 17–18 Terraform workflow, modules, state and locking. Terraform >=1.10 is used for the included test/mocking features.",
+    "Provider downloads require network access; no AWS credentials or real infrastructure apply are required in infra/policy19. The independent drift root contains only local files."
+  ],
+  "concepts": [
+    {
+      "title": "What a test boundary can prove",
+      "paragraphs": [
+        "A mocked provider returns simulated resource values, so Terraform can evaluate configuration without calling AWS. Assertions can reject an invalid input or check a planned rule. They cannot establish packet delivery, identity enforcement or a managed service's behavior.",
+        "A real apply test has a larger boundary and may create billable resources. Test cleanup can fail, so a provider inventory check is still required. Label the two kinds clearly."
+      ],
+      "example": "A /32 administrative CIDR assertion rejects an unsafe policy input; it does not prove the administrator can actually SSH.",
+      "judgment": "Use cheap tests for fast feedback and a small explicit live test for the boundary that only the provider can establish."
+    },
+    {
+      "title": "Drift, import and resource addresses",
+      "paragraphs": [
+        "Drift is an observed difference between managed intent and the real object. Decide whether to restore intended configuration or adopt the change after review. Refreshing state alone does not write a new desired configuration.",
+        "A Terraform address identifies ownership inside state. Renaming an address without explaining the move can look like delete/create. A moved block preserves the mapping while code structure changes. Import similarly adopts an existing object, but requires matching configuration and careful ownership review."
+      ],
+      "example": "Renaming local_file.notice to local_file.service_notice should not delete and recreate a file solely because its address changed.",
+      "judgment": "Never use state editing as a shortcut to conceal a real difference or take ownership of a resource another state manages."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Describe a bounded administrative rule",
+      "purpose": "This root is only for mocked plan tests. The documentation address is a non-routable example; do not apply it to AWS.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-lab/infra/policy19/tests ~/dev-opps-lab/infra/drift19/output ~/dev-opps-lab/evidence/week-19\ncd ~/dev-opps-lab/infra/policy19\ncat > main.tf <<'EOF'\nterraform {\n  required_version = \">= 1.10, < 2.0\"\n  required_providers { aws = { source = \"hashicorp/aws\", version = \"~> 6.0\" } }\n}\nprovider \"aws\" { region = \"us-east-1\" }\nvariable \"admin_cidr\" {\n  type = string\n  default = \"203.0.113.10/32\"\n  validation {\n    condition = can(cidrhost(var.admin_cidr, 0)) && can(regex(\"^[0-9.]+/32$\", var.admin_cidr))\n    error_message = \"The lab requires one valid IPv4 administrator address with /32.\"\n  }\n}\nresource \"aws_vpc\" \"lab\" { cidr_block = \"10.78.0.0/16\" }\nresource \"aws_security_group\" \"admin\" {\n  name_prefix = \"devopps-test-\"\n  vpc_id = aws_vpc.lab.id\n}\nresource \"aws_vpc_security_group_ingress_rule\" \"ssh\" {\n  security_group_id = aws_security_group.admin.id\n  ip_protocol = \"tcp\"\n  from_port = 22\n  to_port = 22\n  cidr_ipv4 = var.admin_cidr\n}\nEOF\ncat > tests/security.tftest.hcl <<'EOF'\nmock_provider \"aws\" {}\nrun \"only_one_admin\" {\n  command = plan\n  assert {\n    condition = aws_vpc_security_group_ingress_rule.ssh.cidr_ipv4 == \"203.0.113.10/32\" && aws_vpc_security_group_ingress_rule.ssh.from_port == 22 && aws_vpc_security_group_ingress_rule.ssh.to_port == 22\n    error_message = \"SSH must target the reviewed single administrator address.\"\n  }\n}\nrun \"reject_world_open\" {\n  command = plan\n  variables { admin_cidr = \"0.0.0.0/0\" }\n  expect_failures = [var.admin_cidr]\n}\nEOF\ncp ../local17/.gitignore .gitignore\nterraform fmt -recursive\nterraform init\nterraform validate\nterraform test",
+          "explain": [
+            "The variable validates CIDR syntax and a single-host prefix. The ingress resource describes only TCP 22 to that address; it is not an instruction to create resources in this root.",
+            "mock_provider replaces AWS operations in the test. Both runs use command=plan. The positive assertion checks address and ports; expect_failures marks the validation failure that the negative test requires.",
+            "init downloads provider schema; validate checks structure; test runs the two configured test cases without a live AWS apply."
+          ],
+          "expected": "Two passing tests, including the expected rejection of world-open input.",
+          "troubleshoot": "If AWS credential lookup occurs, check that the test file is inside tests and names mock_provider aws. Do not supply administrator keys to turn a supposed mock test into a live test.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Explain why a passing negative test means the unsafe input was rejected, not accepted."
+    },
+    {
+      "title": "Create a separate local drift specimen",
+      "purpose": "Copy only configuration from week 17, never its state.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/infra/drift19\ncp ../local17/main.tf main.tf\ncp ../local17/.gitignore .gitignore\nterraform init\nterraform plan -out=create.tfplan\nterraform show -no-color create.tfplan\nterraform apply create.tfplan\ncat output/notice.txt",
+          "explain": [
+            "This root owns its own local file and state. The reviewed plan should contain exactly that local resource."
+          ],
+          "expected": "The known notice text exists under drift19/output.",
+          "troubleshoot": "If the plan contains AWS resources, you are in policy19, not drift19; stop before apply.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record the file content and Terraform address before creating drift."
+    },
+    {
+      "title": "Refactor without changing the object",
+      "purpose": "After completing the failure/recovery drill below, rename the resource address and describe its move.",
+      "commands": [
+        {
+          "code": "sed -i 's/\"notice\"/\"service_notice\"/g; s/local_file.notice/local_file.service_notice/g' main.tf\ncat > moved.tf <<'EOF'\nmoved {\n  from = local_file.notice\n  to   = local_file.service_notice\n}\nEOF\nterraform fmt\nterraform plan -out=move.tfplan\nterraform show -no-color move.tfplan\nterraform apply move.tfplan\nterraform state list",
+          "explain": [
+            "sed changes the exact resource name and references in this small lab file. The moved block tells Terraform the old state address now belongs to the new address.",
+            "Review the move plan for no unintended deletion or creation before apply. state list should now use local_file.service_notice."
+          ],
+          "expected": "The address changes while the actual file and content remain intact.",
+          "troubleshoot": "If the plan proposes destroy/create instead of an address move, inspect from/to spelling and current state before applying.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Write an import checklist: identify the real object, prove exclusive ownership, write matching configuration, import, and inspect a no-unexpected-change plan. Do not import an unrelated object as an exercise."
+    }
+  ],
+  "failure": {
+    "title": "Make an out-of-band local change",
+    "boundary": "Only drift19/output/notice.txt, which this root created.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-lab/infra/drift19\nprintf \"A manual change Terraform did not request.\\n\" > output/notice.txt\nterraform plan -out=repair.tfplan",
+        "explain": [
+          "printf overwrites only the known disposable file. The refreshed plan observes drift relative to desired content."
+        ],
+        "expected": "A nonempty change plan proposes restoring managed content; exact action shape follows the provider version.",
+        "troubleshoot": "If no difference appears, verify the output path, active state and file content rather than claiming the detector worked.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "cat output/notice.txt\nterraform show -no-color repair.tfplan\nterraform state list",
+        "explain": [
+          "Compare real bytes, planned repair and the ownership mapping. Decide whether this manual change was intended before applying anything."
+        ],
+        "expected": "The desired and observed contents differ, and the plan names only the lab file.",
+        "troubleshoot": "Do not edit state JSON by hand to suppress the difference.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "A new observation is not automatically a new requirement.",
+      "Choose restore-intent or adopt-change and explain the choice."
+    ],
+    "answer": {
+      "explanation": [
+        "This manual change is deliberately unauthorized by the lab's desired configuration, so restore intent. In a real incident an emergency change might be valid; adopting it would require updating configuration and reviewing a new plan."
+      ],
+      "recover": [
+        {
+          "code": "terraform apply repair.tfplan",
+          "explain": [
+            "Apply the exact reviewed repair for the local file."
+          ],
+          "expected": "Managed content restored.",
+          "troubleshoot": "If the saved plan is stale, regenerate and review it; do not bypass state locking.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "cat output/notice.txt\nterraform plan -detailed-exitcode",
+        "explain": [
+          "Check bytes and convergence independently."
+        ],
+        "expected": "Original content and status 0 for no changes.",
+        "troubleshoot": "Status 2 means another difference remains; inspect it before refactoring the address.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What can a mocked provider never prove?",
+      "hint": "No real service was called.",
+      "answer": "Actual IAM permissions, network reachability, quotas, billing, runtime behavior and recovery of a real resource remain untested."
+    },
+    {
+      "prompt": "Should drift always be overwritten?",
+      "hint": "Intent may have changed.",
+      "answer": "No. Determine whether the change is an error or an approved emergency correction; either restore intent or adopt the change through reviewed configuration."
+    },
+    {
+      "prompt": "Why keep a moved block?",
+      "hint": "History matters to existing state.",
+      "answer": "It documents the old-to-new ownership mapping so users of the older configuration can upgrade without an unintended delete/create."
+    }
+  ],
+  "exercise": {
+    "brief": "Add one valid and one invalid administrative-CIDR case, then document a safe resource rename.",
+    "constraints": [
+      "Mocked plan tests only in policy19.",
+      "No real AWS apply or world-open rule creation."
+    ],
+    "deliverables": [
+      "Three or more explicit test runs with expected outcomes.",
+      "Drift prediction, repair evidence and address-move plan."
+    ],
+    "acceptance": [
+      "A broader prefix is rejected before apply.",
+      "A valid /32 is accepted with the correct port.",
+      "The move does not replace the physical local file solely due to renaming."
+    ],
+    "hints": [
+      "Add a run with /24 and expect variable validation failure.",
+      "For a valid alternate address, assert the matching supplied value instead of the default."
+    ],
+    "solution": [
+      "Use separate run blocks so each expected outcome is readable. Explain the difference between a negative validation test and a live denied-network test."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab/infra/drift19\nterraform plan -destroy -out=destroy.tfplan\nterraform show -no-color destroy.tfplan\nterraform apply destroy.tfplan",
+      "explain": [
+        "Destroy only the local drift specimen through its reviewed state; retain configuration and test evidence."
+      ],
+      "expected": "No managed local resources remain; mocked tests created no AWS resources.",
+      "troubleshoot": "If any live test was added independently, verify its own provider inventory and cost instead of assuming test cleanup succeeded.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Terraform tests",
+      "url": "https://developer.hashicorp.com/terraform/language/tests",
+      "usedFor": "Run blocks, assertions and expected failures."
+    },
+    {
+      "title": "Provider mocking",
+      "url": "https://developer.hashicorp.com/terraform/language/tests/mocking",
+      "usedFor": "Mocked provider scope and limitations."
+    },
+    {
+      "title": "Refactor modules",
+      "url": "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring",
+      "usedFor": "Moved blocks preserve resource addresses."
+    },
+    {
+      "title": "AWS security-group ingress rule",
+      "url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule",
+      "usedFor": "Explicit protocol, port and CIDR attributes."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Use experiments to correct mental models",
+      "application": "The negative policy case and drift repair require predictions and observed results.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    },
+    {
+      "repo": "The-DevOps-Daily/devops-daily",
+      "principle": "Add checks beyond successful apply",
+      "application": "The lesson distinguishes local/mocked evidence from unproven provider behavior.",
+      "url": "https://github.com/The-DevOps-Daily/devops-daily"
+    }
+  ],
+  "notes": [
+    "No real AWS resources are created by the supplied test path. Provider/schema commands still require learner execution; no live-cloud pass is claimed."
+  ]
+}

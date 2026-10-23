@@ -1,0 +1,584 @@
+[
+  {
+    "key": "ansible",
+    "url": "https://docs.ansible.com/projects/ansible/latest/getting_started/index.html",
+    "status": 429,
+    "finalUrl": "https://docs.ansible.com/projects/ansible/latest/getting_started/index.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD",
+    "webFallbackStatus": "retrieved",
+    "webFallbackFinalUrl": "https://docs.ansible.com/projects/ansible/latest/getting_started/index.html",
+    "note": "Direct HEAD was rate-limited with HTTP 429. The web retrieval tool successfully opened the official documentation on the same check date; this is not a confirmed broken link."
+  },
+  {
+    "key": "ansiblecheck",
+    "url": "https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_checkmode.html",
+    "status": 429,
+    "finalUrl": "https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_checkmode.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD",
+    "webFallbackStatus": "retrieved",
+    "webFallbackFinalUrl": "https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_checkmode.html",
+    "note": "Direct HEAD was rate-limited with HTTP 429. The web retrieval tool successfully opened the official documentation on the same check date; this is not a confirmed broken link."
+  },
+  {
+    "key": "argo",
+    "url": "https://argo-cd.readthedocs.io/en/stable/",
+    "status": 200,
+    "finalUrl": "https://argo-cd.readthedocs.io/en/stable/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awesomesre",
+    "url": "https://github.com/dastergon/awesome-sre",
+    "status": 200,
+    "finalUrl": "https://github.com/dastergon/awesome-sre",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awsbudget",
+    "url": "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awsec2",
+    "url": "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/concepts.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awsiam",
+    "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awsrds",
+    "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Welcome.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Welcome.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awss3",
+    "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awsvpc",
+    "url": "https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "awswa",
+    "url": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "cloudrun",
+    "url": "https://cloud.google.com/run/docs",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/run/docs",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "cnpg",
+    "url": "https://github.com/cloudnative-pg/cloudnative-pg",
+    "status": 200,
+    "finalUrl": "https://github.com/cloudnative-pg/cloudnative-pg",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "compose",
+    "url": "https://docs.docker.com/compose/",
+    "status": 200,
+    "finalUrl": "https://docs.docker.com/compose/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "databasus",
+    "url": "https://github.com/databasus/databasus",
+    "status": 200,
+    "finalUrl": "https://github.com/databasus/databasus",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "docker",
+    "url": "https://docs.docker.com/get-started/",
+    "status": 200,
+    "finalUrl": "https://docs.docker.com/get-started/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "dockerbuild",
+    "url": "https://docs.docker.com/build/building/best-practices/",
+    "status": 200,
+    "finalUrl": "https://docs.docker.com/build/building/best-practices/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "eks",
+    "url": "https://docs.aws.amazon.com/eks/latest/userguide/what-is-eks.html",
+    "status": 200,
+    "finalUrl": "https://docs.aws.amazon.com/eks/latest/userguide/what-is-eks.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "exercises",
+    "url": "https://github.com/bregman-arie/devops-exercises",
+    "status": 200,
+    "finalUrl": "https://github.com/bregman-arie/devops-exercises",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "fastapi",
+    "url": "https://fastapi.tiangolo.com/tutorial/",
+    "status": 200,
+    "finalUrl": "https://fastapi.tiangolo.com/tutorial/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gatus",
+    "url": "https://github.com/TwiN/gatus",
+    "status": 200,
+    "finalUrl": "https://github.com/TwiN/gatus",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gcpbudget",
+    "url": "https://docs.cloud.google.com/billing/docs/how-to/budgets",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/billing/docs/how-to/budgets",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gcpcompute",
+    "url": "https://cloud.google.com/compute/docs",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/compute/docs",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gcpiam",
+    "url": "https://cloud.google.com/iam/docs/overview",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/iam/docs/overview",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gcpstorage",
+    "url": "https://cloud.google.com/storage/docs/access-control",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/storage/docs/access-control",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gcpvpc",
+    "url": "https://cloud.google.com/vpc/docs/overview",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/vpc/docs/overview",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gcpwa",
+    "url": "https://docs.cloud.google.com/architecture/framework",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/architecture/framework",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "git",
+    "url": "https://git-scm.com/book/en/v2",
+    "status": 200,
+    "finalUrl": "https://git-scm.com/book/en/v2",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gitlab",
+    "url": "https://docs.gitlab.com/ci/",
+    "status": 200,
+    "finalUrl": "https://docs.gitlab.com/ci/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gitlabaws",
+    "url": "https://docs.gitlab.com/ci/cloud_services/aws/",
+    "status": 200,
+    "finalUrl": "https://docs.gitlab.com/ci/cloud_services/aws/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gitlabgcp",
+    "url": "https://docs.gitlab.com/ci/cloud_services/google_cloud/",
+    "status": 200,
+    "finalUrl": "https://docs.gitlab.com/ci/cloud_services/google_cloud/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gitlabsecurity",
+    "url": "https://docs.gitlab.com/ci/pipeline_security/",
+    "status": 200,
+    "finalUrl": "https://docs.gitlab.com/ci/pipeline_security/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gitlabtesting",
+    "url": "https://docs.gitlab.com/ci/testing/unit_test_reports/",
+    "status": 200,
+    "finalUrl": "https://docs.gitlab.com/ci/testing/unit_test_reports/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gitlabyaml",
+    "url": "https://docs.gitlab.com/ci/yaml/",
+    "status": 200,
+    "finalUrl": "https://docs.gitlab.com/ci/yaml/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "gke",
+    "url": "https://cloud.google.com/kubernetes-engine/docs/concepts/kubernetes-engine-overview",
+    "status": 200,
+    "finalUrl": "https://docs.cloud.google.com/kubernetes-engine/docs/concepts/kubernetes-engine-overview",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "http",
+    "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview",
+    "status": 200,
+    "finalUrl": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Overview",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k6",
+    "url": "https://grafana.com/docs/k6/latest/",
+    "status": 200,
+    "finalUrl": "https://grafana.com/docs/k6/latest/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8sbasics",
+    "url": "https://kubernetes.io/docs/concepts/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8shpa",
+    "url": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8snetworkpolicy",
+    "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8sprobes",
+    "url": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8sresources",
+    "url": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8ssecurity",
+    "url": "https://kubernetes.io/docs/concepts/security/security-checklist/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/security/security-checklist/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8sservice",
+    "url": "https://kubernetes.io/docs/concepts/services-networking/service/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/services-networking/service/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8sstorage",
+    "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8stroubleshoot",
+    "url": "https://kubernetes.io/docs/tasks/debug/debug-application/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/tasks/debug/debug-application/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8supgrade",
+    "url": "https://kubernetes.io/releases/version-skew-policy/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/releases/version-skew-policy/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "k8sworkloads",
+    "url": "https://kubernetes.io/docs/concepts/workloads/management/",
+    "status": 200,
+    "finalUrl": "https://kubernetes.io/docs/concepts/workloads/management/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "kind",
+    "url": "https://kind.sigs.k8s.io/docs/user/quick-start/",
+    "status": 200,
+    "finalUrl": "https://kind.sigs.k8s.io/docs/user/quick-start/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "kthw",
+    "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way",
+    "status": 200,
+    "finalUrl": "https://github.com/kelseyhightower/kubernetes-the-hard-way",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "linux",
+    "url": "https://ubuntu.com/tutorials/command-line-for-beginners",
+    "status": 200,
+    "finalUrl": "https://ubuntu.com/tutorials/command-line-for-beginners",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "lynis",
+    "url": "https://github.com/CISOfy/lynis",
+    "status": 200,
+    "finalUrl": "https://github.com/CISOfy/lynis",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "otel",
+    "url": "https://opentelemetry.io/docs/concepts/signals/",
+    "status": 200,
+    "finalUrl": "https://opentelemetry.io/docs/concepts/signals/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "podinfo",
+    "url": "https://github.com/stefanprodan/podinfo",
+    "status": 200,
+    "finalUrl": "https://github.com/stefanprodan/podinfo",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "postgres",
+    "url": "https://www.postgresql.org/docs/current/backup.html",
+    "status": 200,
+    "finalUrl": "https://www.postgresql.org/docs/current/backup.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "prometheus",
+    "url": "https://prometheus.io/docs/introduction/overview/",
+    "status": 200,
+    "finalUrl": "https://prometheus.io/docs/introduction/overview/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "pytest",
+    "url": "https://docs.pytest.org/en/stable/how-to/fixtures.html",
+    "status": 200,
+    "finalUrl": "https://docs.pytest.org/en/stable/how-to/fixtures.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "roadmap",
+    "url": "https://roadmap.sh/devops",
+    "status": 200,
+    "finalUrl": "https://roadmap.sh/devops",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "sentry",
+    "url": "https://github.com/getsentry/sentry",
+    "status": 200,
+    "finalUrl": "https://github.com/getsentry/sentry",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "signoz",
+    "url": "https://github.com/SigNoz/signoz",
+    "status": 200,
+    "finalUrl": "https://github.com/SigNoz/signoz",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "sigstore",
+    "url": "https://docs.sigstore.dev/",
+    "status": 200,
+    "finalUrl": "https://docs.sigstore.dev/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "slo",
+    "url": "https://sre.google/sre-book/service-level-objectives/",
+    "status": 200,
+    "finalUrl": "https://sre.google/sre-book/service-level-objectives/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "slsa",
+    "url": "https://slsa.dev/",
+    "status": 200,
+    "finalUrl": "https://slsa.dev/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "sops",
+    "url": "https://github.com/getsops/sops",
+    "status": 200,
+    "finalUrl": "https://github.com/getsops/sops",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "sreworkbook",
+    "url": "https://sre.google/workbook/table-of-contents/",
+    "status": 200,
+    "finalUrl": "https://sre.google/workbook/table-of-contents/",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "systemd",
+    "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html",
+    "status": 200,
+    "finalUrl": "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "task",
+    "url": "https://github.com/go-task/task",
+    "status": 200,
+    "finalUrl": "https://github.com/go-task/task",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "terraform",
+    "url": "https://developer.hashicorp.com/terraform/tutorials",
+    "status": 200,
+    "finalUrl": "https://developer.hashicorp.com/terraform/tutorials",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "tfmodules",
+    "url": "https://developer.hashicorp.com/terraform/language/modules",
+    "status": 200,
+    "finalUrl": "https://developer.hashicorp.com/terraform/language/modules",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "tfs3",
+    "url": "https://developer.hashicorp.com/terraform/language/backend/s3",
+    "status": 200,
+    "finalUrl": "https://developer.hashicorp.com/terraform/language/backend/s3",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "tfstate",
+    "url": "https://developer.hashicorp.com/terraform/language/state",
+    "status": 200,
+    "finalUrl": "https://developer.hashicorp.com/terraform/language/state",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  },
+  {
+    "key": "tftest",
+    "url": "https://developer.hashicorp.com/terraform/language/tests",
+    "status": 200,
+    "finalUrl": "https://developer.hashicorp.com/terraform/language/tests",
+    "checkDate": "2026-10-20",
+    "method": "HEAD"
+  }
+]

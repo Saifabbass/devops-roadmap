@@ -1,0 +1,292 @@
+{
+  "week": 1,
+  "introduction": [
+    "A website is eventually a running program on a machine. Before you can operate a cluster, you need to answer four smaller questions: which program is running, who owns it, where it listens, and what evidence explains its failure. This week makes those questions visible on your own Linux lab.",
+    "You will create a workspace, serve one harmless web page on your own computer, locate its process and socket, and recover a bad Git commit. Nothing here requires a cloud account. The tiny Python server is a learning instrument, not a production web server.",
+    "Work in two Ubuntu terminals. Terminal A keeps the server running; terminal B inspects it. Read each explanation before copying the command. Predict the result, compare the output, and write down one observation before continuing."
+  ],
+  "prerequisites": [
+    "Complete the in-course lab setup using Ubuntu 24.04 LTS in WSL2 or a disposable VM.",
+    "Have Bash, Python 3, Git, curl, iproute2 and procps installed using the setup guide.",
+    "Use a new ~/dev-opps-lab folder for this course. If that name already contains unrelated work, choose a fresh folder and use it consistently."
+  ],
+  "concepts": [
+    {
+      "title": "A shell runs programs; a directory gives them context",
+      "paragraphs": [
+        "The terminal is a window into a shell, the program that reads your command. A command has a program name followed by arguments. In `mkdir -p notes`, mkdir is the program, -p is an option, and notes is the directory name.",
+        "A relative path starts at your current directory. An absolute path starts at `/`. `~` expands to your user's home directory. Quoting a path keeps spaces inside one argument. When you see Permission denied, first inspect ownership and the path; adding sudo changes the authority of a command and can hide a wrong assumption."
+      ],
+      "example": "From ~/dev-opps-lab, app/index.html names the file inside this lab. From another directory, the same text could name a different file.",
+      "judgment": "Keep normal project work owned by your user. Use administrator authority only for the specific setup actions that require it."
+    },
+    {
+      "title": "A process and a listening socket are different evidence",
+      "paragraphs": [
+        "A process is a running instance of a program. Linux assigns it a process ID, or PID, and a user identity. A socket is an endpoint for communication. A TCP listening socket has an address and port and waits for incoming connections.",
+        "127.0.0.1 is the loopback address: this machine talks to itself. Port 8000 is the numbered endpoint we choose for the exercise. A process can exist without opening that socket; a log can contain an old success message after the process has exited. Compare current process, socket and request evidence."
+      ],
+      "example": "ps can show Python running while curl fails because Python is listening on port 8001 and the client asks for 8000.",
+      "judgment": "Identify the owner before stopping a process. A command that kills every Python process can interrupt unrelated work."
+    },
+    {
+      "title": "Output, errors and exit status tell different parts of the story",
+      "paragraphs": [
+        "Programs normally write ordinary output to standard output and diagnostics to standard error. Both appear in your terminal unless redirected. `>` writes standard output into a file, replacing that file. `2>` redirects standard error. A pipe `|` sends one program's standard output into another program.",
+        "Every completed command also supplies an exit status: zero conventionally means success, nonzero means failure. `$?` is the status of the immediately previous command, so save or print it before another command overwrites it. An HTTP error and a shell error are different: curl normally exits zero after receiving an HTTP 404 unless asked to fail on HTTP errors."
+      ],
+      "example": "`python3 --version > notes/python-version.txt` records version output. It does not save unrelated future terminal output.",
+      "judgment": "Record the command, its status, and relevant output together. A screenshot saying 'done' is weaker evidence than a reproducible observation."
+    },
+    {
+      "title": "Git records deliberate snapshots",
+      "paragraphs": [
+        "Git's working tree is the files you edit. The staging area is the set of changes selected for the next snapshot. A commit records that snapshot with a parent and a message. A branch is a movable name for a line of commits.",
+        "A revert creates a new commit that undoes an earlier commit. The mistake remains visible in history, which is useful when explaining an incident to teammates. A branch does not create another copy of a running service; your process may continue using data it already loaded."
+      ],
+      "example": "Commit A sets port 8000, B changes it to 8001, and C reverts B. The current file says 8000, and the history explains why.",
+      "judgment": "Use a harmless lab configuration for this drill. Do not erase shared history to make an incident look as if it never happened."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Create a workspace you can explain",
+      "purpose": "Run in terminal B. These directories separate application code, tests, notes and evidence. An empty directory is not tracked by Git until it contains a file.",
+      "commands": [
+        {
+          "code": "mkdir -p ~/dev-opps-lab/{notes,app,tests,evidence}\ncd ~/dev-opps-lab\npwd\nls -ld . notes app tests evidence",
+          "explain": [
+            "mkdir creates directories; -p allows missing parent directories and already-existing directories. Bash brace expansion produces the four names before mkdir runs.",
+            "cd changes the current directory. pwd prints its absolute path.",
+            "ls lists entries; -l shows ownership and permissions; -d inspects the directories themselves rather than their contents."
+          ],
+          "expected": "The path ends in /dev-opps-lab. Four directories exist and are owned by your normal Linux user.",
+          "troubleshoot": "If a directory is owned by root, stop and inspect how it was created. Use a fresh user-owned lab folder rather than recursively changing unrelated files."
+        },
+        {
+          "code": "cat /etc/os-release > notes/environment.txt\nfree -h >> notes/environment.txt\npython3 --version >> notes/environment.txt\ngit --version >> notes/environment.txt\ncat notes/environment.txt",
+          "explain": [
+            "cat prints the operating-system identification file; > creates or replaces this lab note.",
+            "free reports memory; -h uses readable units. >> appends instead of replacing previous observations.",
+            "python3 --version and git --version record the actual installed tools. The final cat displays the collected note."
+          ],
+          "expected": "A note containing Ubuntu version, memory totals, Python version and Git version.",
+          "troubleshoot": "If a command is missing, return to the setup guide. Available memory changes over time; a different value is not a failed lab."
+        }
+      ],
+      "checkpoint": "Explain the difference between > and >> before editing your evidence file."
+    },
+    {
+      "title": "Create and serve a single page",
+      "purpose": "Start the server in terminal A. It serves only the designated web directory, which contains no private files.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nmkdir -p app/hello\nprintf '%s\\n' '<h1>Dev Opps lab</h1>' > app/hello/index.html\npython3 -m http.server 8000 --bind 127.0.0.1 --directory app/hello",
+          "explain": [
+            "cd selects the lab; mkdir -p creates the dedicated public directory.",
+            "printf prints the quoted string followed by a newline; > writes it to index.html.",
+            "python3 -m runs Python's http.server module. 8000 chooses the TCP port. --bind restricts the listener to loopback. --directory restricts which directory is served.",
+            "The command stays in the foreground. Keep this terminal open; Ctrl+C will later interrupt this specific server."
+          ],
+          "expected": "Terminal A reports that it is serving on 127.0.0.1 port 8000 and waits for requests.",
+          "troubleshoot": "Address already in use means something already owns the endpoint. Use the next step to identify it; do not change firewall settings or kill an unknown process."
+        }
+      ],
+      "checkpoint": "The waiting terminal is the running service, not a frozen shell."
+    },
+    {
+      "title": "Connect the request to its socket and owner",
+      "purpose": "Use terminal B while terminal A keeps running. Read the PID from ss; never copy a PID from someone else's screenshot.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\ncurl --fail --show-error http://127.0.0.1:8000/\nss -ltnp 'sport = :8000'\nps -u \"$USER\" -o pid,user,stat,%cpu,%mem,args",
+          "explain": [
+            "curl sends a GET request. --fail makes HTTP status 400 or higher a command failure; --show-error keeps diagnostics visible.",
+            "ss shows sockets. -l selects listening sockets, -t TCP, -n numeric addresses/ports, and -p owning processes visible to your user. The quoted filter selects local port 8000.",
+            "ps lists processes; -u selects your user; -o selects PID, owner, state, CPU, memory and complete command. $USER expands your username; quotes keep it one argument."
+          ],
+          "expected": "curl prints the page. ss shows LISTEN on 127.0.0.1:8000 with a Python PID; the same PID appears in ps. Terminal A logs the GET request.",
+          "troubleshoot": "If ss shows a listener but curl returns the wrong page, compare its command and directory. If no listener exists, inspect terminal A's startup error."
+        },
+        {
+          "code": "ls -l app/hello/index.html\ncurl --fail --show-error http://127.0.0.1:8000/missing-page\nprintf 'curl exit status: %s\\n' \"$?\"",
+          "explain": [
+            "ls -l shows the file's owner and rwx permission bits: user, group, then others.",
+            "curl asks for a deliberately absent path; --fail turns its HTTP 404 into a nonzero exit.",
+            "printf immediately records $? before another command can replace it. Double quotes allow expansion of the saved shell status."
+          ],
+          "expected": "The missing page produces an HTTP 404 diagnostic and curl status 22. The server remains alive.",
+          "troubleshoot": "A connection error instead of 404 means you have not reached the server. Resolve the address/port/process issue before reasoning about paths."
+        }
+      ],
+      "checkpoint": "Describe one observation proving the process exists and another proving HTTP behavior."
+    },
+    {
+      "title": "Commit a mistake, then preserve its recovery",
+      "purpose": "The port note is deliberately harmless configuration: it is not consumed by the running server. This isolates Git mechanics from service changes.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\ngit init -b main\ngit config user.name 'Dev Opps Learner'\ngit config user.email 'learner@example.invalid'\nprintf 'PORT=8000\\n' > app/lab.env\ngit add notes/environment.txt app/hello/index.html app/lab.env\ngit commit -m 'Record the first local service'",
+          "explain": [
+            "git init -b main creates repository metadata with main as the initial branch; run this in the new course folder.",
+            "git config without --global sets a lab-only author identity. The example.invalid address is deliberately non-deliverable; replace it with a chosen public commit identity before sharing work if desired.",
+            "printf writes a non-secret configuration note. git add stages exactly the listed files; git commit records them with a message."
+          ],
+          "expected": "One initial commit exists, containing the environment note, page and port note.",
+          "troubleshoot": "If Git asks for identity, check you ran the local config in this repository. Do not add credentials or all home-directory files."
+        },
+        {
+          "code": "git switch -c practice/wrong-port || exit 1\nprintf 'PORT=8001\\n' > app/lab.env\ngit diff\ngit add app/lab.env\ngit commit -m 'Practice an incorrect port note'\ngit revert --no-edit HEAD\ncat app/lab.env\ngit log --oneline -3\ngit status --short",
+          "explain": [
+            "git switch -c creates and switches to a practice branch.",
+            "printf changes one tracked file; git diff shows unstaged differences. git add selects that file and commit records the mistake.",
+            "git revert --no-edit HEAD creates a new inverse commit using the default message. HEAD means the current commit, which must be the deliberate mistake you just made.",
+            "cat verifies current content; log --oneline -3 shows three concise commits; status --short reveals remaining uncommitted changes.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "PORT=8000 is restored. History includes initial state, mistake and revert. Other files are unaffected.",
+          "troubleshoot": "If you made another commit before reverting, inspect git log and target the mistake's actual hash. Stop on conflicts and read the changed file; do not blindly reset the repository."
+        }
+      ],
+      "checkpoint": "Explain why the web server did not move to port 8001 when you edited this unused note."
+    }
+  ],
+  "failure": {
+    "title": "Two servers cannot own this same endpoint",
+    "boundary": "Only use the loopback server you started. Keep terminal A running. Terminal B's second server will fail before serving traffic.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-lab\npython3 -m http.server 8000 --bind 127.0.0.1 --directory app/hello\nprintf 'second server exit status: %s\\n' \"$?\"",
+        "explain": [
+          "The command attempts to bind the same address and port as terminal A.",
+          "printf captures the failed startup's exit status immediately."
+        ],
+        "expected": "An Address already in use error and nonzero exit status.",
+        "troubleshoot": "If a second server starts, terminal A may have stopped or used a different address/port. Inspect both terminals."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ss -ltnp 'sport = :8000'\nps -u \"$USER\" -o pid,user,args\ncurl --fail --show-error http://127.0.0.1:8000/",
+        "explain": [
+          "ss identifies the existing socket owner. ps connects that owner PID to a command.",
+          "curl proves the first service can still answer despite the second startup failing."
+        ],
+        "expected": "One relevant listener remains, and the original page still responds.",
+        "troubleshoot": "Read actual PIDs rather than assuming the newest Python process owns the socket."
+      }
+    ],
+    "hints": [
+      "A startup failure in one process does not mean the already-running service failed.",
+      "Compare the bind address and port before changing either program."
+    ],
+    "answer": {
+      "explanation": [
+        "The first process already owns the loopback TCP endpoint. The second exits during binding. The working response comes from the first process, so a working curl alone cannot prove your new deployment started."
+      ],
+      "recover": [
+        {
+          "code": "python3 -m http.server 8001 --bind 127.0.0.1 --directory app/hello",
+          "explain": [
+            "In terminal B, select unused port 8001 for a separate intentional service instance.",
+            "Keep it in the foreground; use terminal C for verification."
+          ],
+          "expected": "The second instance starts on port 8001.",
+          "troubleshoot": "If 8001 is occupied, inspect its owner. Do not displace someone else's process."
+        }
+      ],
+      "verification": {
+        "code": "curl --fail --show-error http://127.0.0.1:8000/\ncurl --fail --show-error http://127.0.0.1:8001/\nss -ltnp 'sport = :8000 or sport = :8001'",
+        "explain": [
+          "Two requests exercise the two endpoints; ss shows their separate listening sockets and PIDs."
+        ],
+        "expected": "Both return the page, with distinct Python processes listening on distinct ports.",
+        "troubleshoot": "If only one works, inspect that terminal's startup and socket state."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "How would you distinguish 'never started' from 'running on the wrong port'?",
+      "hint": "Use three observations rather than one log line.",
+      "answer": "A startup error plus no matching process supports never started. A matching process with a listener on another port supports wrong configuration. Inspect ps, ss and the current log, then request the observed endpoint. A PID alone does not prove readiness."
+    },
+    {
+      "prompt": "Why did the 404 not stop the server?",
+      "hint": "The client's outcome and the service lifecycle are separate.",
+      "answer": "The server handled a request for an absent resource and returned an HTTP response. curl --fail reported that response as a client command failure. The server process continued accepting requests, which you can prove by requesting / afterward."
+    },
+    {
+      "prompt": "What does a revert preserve that deleting the mistake from history would lose?",
+      "hint": "Think of a teammate investigating yesterday's incident.",
+      "answer": "It preserves the original change, its author and message, and a distinct recovery commit. Teammates can inspect what happened and why. Reverting source does not automatically restore a running process or external data."
+    }
+  ],
+  "exercise": {
+    "brief": "From a fresh terminal, produce a short incident note proving which process serves the page, what user owns it, and how you recovered the wrong port note.",
+    "constraints": [
+      "Use only your loopback lab and normal user.",
+      "Do not delete Git history or stop unrelated processes."
+    ],
+    "deliverables": [
+      "evidence/week-01.md with process/socket/request evidence, actual version information, three commit summaries and a five-minute explanation."
+    ],
+    "acceptance": [
+      "A reader can reproduce the successful page request.",
+      "The socket PID matches the process owner and command.",
+      "The note distinguishes the deliberate second-server failure from an outage.",
+      "The current port note is 8000 and its mistake/revert remain visible."
+    ],
+    "hints": [
+      "Record observations immediately after the command.",
+      "Explain why each observation matters, not only what it prints."
+    ],
+    "solution": [
+      "Use pwd to establish context, ps and ss to connect process to socket, and curl to establish behavior.",
+      "Capture git log --oneline -3 and explain the inverse commit.",
+      "Write an alternative hypothesis and the observation that ruled it out."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "printf '%s\\n' 'In terminals A and B, press Ctrl+C once in each running server.'\nss -ltnp 'sport = :8000 or sport = :8001'",
+      "explain": [
+        "printf displays the exact manual cleanup action. Ctrl+C interrupts the foreground server in that terminal; it does not target every Python process.",
+        "After stopping your instances, ss checks the two lab ports."
+      ],
+      "expected": "Your two server listeners disappear. Keep the workspace and Git history for next week.",
+      "troubleshoot": "If another listener remains, inspect its PID and owner before deciding whether it belongs to this lab."
+    }
+  ],
+  "references": [
+    {
+      "title": "Python HTTP server",
+      "url": "https://docs.python.org/3/library/http.server.html",
+      "usedFor": "The module's bind/directory options and the limits of this development server."
+    },
+    {
+      "title": "ss socket inspection",
+      "url": "https://man7.org/linux/man-pages/man8/ss.8.html",
+      "usedFor": "Listening TCP filters and process ownership output."
+    },
+    {
+      "title": "ps process inspection",
+      "url": "https://man7.org/linux/man-pages/man1/ps.1.html",
+      "usedFor": "User selection and explicit process output fields."
+    },
+    {
+      "title": "Git revert",
+      "url": "https://git-scm.com/docs/git-revert",
+      "usedFor": "Recording an inverse commit without rewriting history."
+    },
+    {
+      "title": "Bash redirections",
+      "url": "https://www.gnu.org/software/bash/manual/html_node/Redirections.html",
+      "usedFor": "Output streams and redirection operators."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "Designed for Ubuntu Bash. These Linux process/socket commands require execution in your Linux lab; Windows PowerShell has different commands and output."
+  ]
+}

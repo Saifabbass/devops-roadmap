@@ -1,0 +1,224 @@
+{
+  "week": 7,
+  "introduction": [
+    "A passing function test does not prove a deployed service is usable. A running service can return the right status and the wrong task, or allow one user to change another user's data. This week tests those boundaries through real HTTP.",
+    "You will enable two synthetic lab identities, prove server-side ownership and run the packaged system suite. Then you will introduce a response-body defect that a status-only smoke check misses."
+  ],
+  "prerequisites": [
+    "Complete week 6's database and integration checks.",
+    "Use ~/dev-opps-lab/app/taskboard, its activated venv, Docker/Compose, and the .env created locally by init_lab.py.",
+    "Keep the service on loopback/private networking. The two opaque teaching tokens are not a public identity provider."
+  ],
+  "concepts": [
+    {
+      "title": "Test level and test purpose answer different questions",
+      "paragraphs": [
+        "A unit test exercises a small behavior with few dependencies. An integration test exercises a real boundary such as SQL. A system test treats the running service as a client sees it, including transport and deployed configuration.",
+        "Smoke describes a small set of high-value checks, not a separate implementation layer. A performance test asks about behavior under a specified workload. High code coverage says which code executed; it does not prove the assertions match what users need."
+      ],
+      "example": "An in-process FastAPI TestClient test can verify validation, but cannot prove Docker published the right port. A real HTTP test can observe that deployment boundary.",
+      "judgment": "Choose the smallest test that can detect the risk, then add broader tests where the boundary itself matters."
+    },
+    {
+      "title": "Authentication identifies; authorization permits",
+      "paragraphs": [
+        "Authentication establishes the caller's identity. Authorization decides whether that identity may perform this operation on this task. The reference parses bearer credentials through maintained framework tooling and maps two locally generated tokens to server-owned identities.",
+        "The client never chooses owner_id. Queries and updates filter by the authenticated owner. Missing or invalid credentials return 401. A missing task and another user's task both return 404 to avoid revealing whether someone else's identifier exists."
+      ],
+      "example": "Bob can possess Alice's task UUID and still receive 404 for both read and complete. Alice's task must remain unchanged after Bob's rejected update.",
+      "judgment": "A token check without per-object authorization is incomplete. Keep this synthetic authentication private until a reviewed real identity integration replaces it."
+    },
+    {
+      "title": "Assertions must protect state, not only status",
+      "paragraphs": [
+        "A meaningful system test checks the response shape, field values, ordering, error envelope, headers and persisted state. Negative cases are first-class: malformed data, missing credentials, wrong owners and dependency outages deserve explicit assertions.",
+        "Every request needs a timeout so a failed service cannot hang the test indefinitely. Fixtures should create their own uniquely identified records and avoid assuming an empty shared development database."
+      ],
+      "example": "HTTP 200 after completion is insufficient if completed remains false or the completion timestamp changes on every retry.",
+      "judgment": "Demonstrate at least one intentional defect that your tests catch. A permanently green test may simply assert too little."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Enable the two-user stage",
+      "purpose": "This changes authentication, not schema ownership. Existing stage-6 tasks stay owned by local-student and are intentionally invisible to the two new identities.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\npython - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('.env')\ntext = p.read_text()\nassert 'TASKBOARD_STAGE=06' in text or 'TASKBOARD_STAGE=07' in text\np.write_text(text.replace('TASKBOARD_STAGE=06', 'TASKBOARD_STAGE=07'))\nPY\ndocker compose up -d --force-recreate app || exit 1\ncurl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/readyz || exit 1\nsource .env",
+          "explain": [
+            "The Python block changes only the non-secret stage selector. Compose recreates app using stage 07 and preserves the database.",
+            "source .env loads your own locally generated file into this shell. It executes shell syntax, so never source an untrusted downloaded credential file.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal.",
+            "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+          ],
+          "expected": "App starts with authentication enabled. The token values are not printed.",
+          "troubleshoot": "If .env is absent, return to the initializer; do not use sample hard-coded tokens from a screenshot."
+        }
+      ],
+      "checkpoint": "Explain why existing stage-6 tasks are not automatically assigned to Alice."
+    },
+    {
+      "title": "Prove identity and object ownership",
+      "purpose": "Capture the actual created ID, then ask Bob to read and complete it. Verify Alice's state after both denials.",
+      "commands": [
+        {
+          "code": "mkdir -p reports\ncurl --fail --show-error -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" -H 'Content-Type: application/json' -d '{\"title\":\"Alice ownership evidence\"}' http://127.0.0.1:8000/tasks > reports/week07-alice.json || exit 1\nTASK_ID=$(python -c \"import json; print(json.load(open('reports/week07-alice.json'))['id'])\")\ncurl --include --max-time 5 -H \"Authorization: Bearer $LAB_BOB_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID\"\ncurl --include --max-time 5 -X POST -H \"Authorization: Bearer $LAB_BOB_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID/complete\"\ncurl --fail --show-error -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID\"\ncurl --include --max-time 5 http://127.0.0.1:8000/tasks",
+          "explain": [
+            "The first POST authenticates Alice and saves its response. The Python expression extracts the real UUID into TASK_ID.",
+            "-H sends Bob's credential without printing it separately. --include exposes status and headers. -X POST selects the completion operation with no request body.",
+            "Alice's final GET checks state after the denied update. The unauthenticated request checks the 401 boundary and WWW-Authenticate header.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Alice creates a task. Bob's read and update return 404. Alice still sees completed=false. Missing credentials return 401.",
+          "troubleshoot": "Do not use verbose request logging with bearer headers. If Bob succeeds, stop the exercise and inspect server-derived ownership before any public exposure."
+        }
+      ],
+      "checkpoint": "Explain why testing only Bob's response status would miss a rejected request that nevertheless changed the database."
+    },
+    {
+      "title": "Run each test boundary and the lifecycle drill",
+      "purpose": "The included suites have distinct evidence. Read the system assertions so the command is not a black box.",
+      "commands": [
+        {
+          "code": "python -m pytest tests/unit -q\npython -m pytest tests/contract -q\ndocker compose --profile test run --build --rm integration\nsed -n '1,220p' tests/system/test_api.py\ndocker compose --profile test run --build --rm system\npython tools/compose_drill.py",
+          "explain": [
+            "The first two commands run pure behavior and in-process HTTP adapter checks respectively; neither proves a container or real socket.",
+            "integration uses real PostgreSQL in the guarded test database. sed displays the black-box HTTP checks, including ownership and response-body assertions.",
+            "system sends actual HTTP to the running app. compose_drill.py creates a disposable record, restarts app/database separately, then stops just the lab database and verifies bounded 503 behavior before restoring it."
+          ],
+          "expected": "All applicable suites pass. The drill records persistence and distinguishes liveness from readiness during dependency failure.",
+          "troubleshoot": "A skipped authentication test is not an authorization pass. Inspect environment/stage and test output. If a drill fails, read its report and confirm the database was restarted before continuing."
+        }
+      ],
+      "checkpoint": "Create a matrix mapping each test to the risk it detects and the boundaries it does not exercise."
+    }
+  ],
+  "failure": {
+    "title": "Return HTTP 200 with an incorrect completion body",
+    "boundary": "Edit only your copied lab source after verifying this file has no uncommitted changes. Preserve the original file and rebuild only the lab app.",
+    "inject": [
+      {
+        "code": "git diff --quiet -- reference/api.py || { printf '%s\\n' 'Save your current source changes before this drill.'; exit 1; }\ntest ! -e reports/week07-api.original || { printf '%s\\n' 'Prior drill backup exists: inspect it before repeating.'; exit 1; }\ncp reference/api.py reports/week07-api.original || exit 1\npython - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('reference/api.py')\ns = p.read_text()\nold = 'return found(await store.complete(owner, task_id))'\nassert s.count(old) == 1\np.write_text(s.replace(old, 'return {**found(await store.complete(owner, task_id)), \"completed\": False}'))\nPY\ndocker compose build app\ndocker compose up -d --no-deps --force-recreate app || exit 1\ncurl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/readyz || exit 1",
+        "explain": [
+          "git diff --quiet must return zero before you continue; otherwise save your own work first. cp preserves the exact original in reports.",
+          "The Python edit asserts a single known target and changes only the returned completion flag. The store still performs completion.",
+          "build app packages the intentional defect; up recreates only this service.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal.",
+          "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+        ],
+        "expected": "The app starts and completion still returns HTTP 200, but its body lies about completed.",
+        "troubleshoot": "Stop if the assertion fails: the source differs from this lesson's expected reference. Do not apply a broad text replacement."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "curl --include --max-time 5 -X POST -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID/complete\"\ndocker compose --profile test run --rm system",
+        "explain": [
+          "The direct request reveals HTTP 200 with completed=false. The system suite's positive-path assertion detects the incorrect body.",
+          "run --rm uses the already-built test image; the intentionally broken app is the system under test."
+        ],
+        "expected": "The system suite fails at a behavior assertion rather than passing on status alone.",
+        "troubleshoot": "If the app image did not rebuild, inspect its startup and image selection. Ensure TASKBOARD_IMAGE is not selecting a different release artifact."
+      }
+    ],
+    "hints": [
+      "Compare the returned completed flag with the completion contract.",
+      "A healthy /livez does not inspect task semantics."
+    ],
+    "answer": {
+      "explanation": [
+        "The transport and status remain successful while the response violates the task contract. Restore the source, rebuild, and require the same behavior test to pass. Do not weaken its assertion."
+      ],
+      "recover": [
+        {
+          "code": "cp reports/week07-api.original reference/api.py\ndocker compose build app\ndocker compose up -d --no-deps --force-recreate app || exit 1\ncurl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/readyz || exit 1",
+          "explain": [
+            "Restore only the file saved for this drill, rebuild the runtime and recreate app.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal.",
+            "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+          ],
+          "expected": "The original completion behavior is restored.",
+          "troubleshoot": "Keep failing and repaired reports so you can explain the test's diagnostic value."
+        }
+      ],
+      "verification": {
+        "code": "docker compose --profile test run --rm system",
+        "explain": [
+          "Repeat the same black-box suite against the repaired app."
+        ],
+        "expected": "Positive path, validation, identity and ownership checks pass.",
+        "troubleshoot": "Read failures individually; a repaired completion flag does not excuse an unrelated authorization failure."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Can high code coverage coexist with broken ownership?",
+      "hint": "Think about which users the test uses.",
+      "answer": "Yes. Tests may execute every handler only as the owner and never try another identity. Add cross-user read/update attempts and verify stored state after denial."
+    },
+    {
+      "prompt": "Why are stage-6 tasks invisible after enabling stage 7?",
+      "hint": "Who owned the old rows?",
+      "answer": "They remain owned by local-student. The new authenticated identities are lab-alice/lab-bob. Silently reassigning old rows would be an undocumented data migration and could violate ownership."
+    },
+    {
+      "prompt": "What makes the supplied token scheme unsuitable as a public login system?",
+      "hint": "What identity lifecycle is missing?",
+      "answer": "It only recognizes two local opaque values. It has no user enrollment, centralized lifecycle, reviewed revocation or full public identity architecture. Replace it with an established provider and maintained verification of issuer, audience, expiry and authorization before public exposure."
+    }
+  ],
+  "exercise": {
+    "brief": "Add a system test that proves repeating completion preserves the first timestamp and that another user cannot mutate the task between those repeats.",
+    "constraints": [
+      "Use synthetic identities and a unique task.",
+      "Use bounded HTTP calls and assert the full state after denied access."
+    ],
+    "deliverables": [
+      "Test code, risk matrix and failed/passing fault evidence."
+    ],
+    "acceptance": [
+      "The test detects a changed completion timestamp.",
+      "It verifies both the denied response and unchanged owner-visible state.",
+      "The deployed stack, not only an in-process adapter, is exercised."
+    ],
+    "hints": [
+      "Save the first successful completion response and compare a later read."
+    ],
+    "solution": [
+      "Create as Alice, complete once, attempt Bob's update, read as Alice, complete again, and compare immutable fields.",
+      "Keep request IDs for diagnosis without logging credentials."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker compose --profile test stop\nunset LAB_ALICE_TOKEN LAB_BOB_TOKEN TASK_ID",
+      "explain": [
+        "Stop the course stack without deleting its volume. unset removes these values from the current shell; .env remains private for the next lab."
+      ],
+      "expected": "No running course containers; source is restored and evidence retained.",
+      "troubleshoot": "Inspect git diff -- reference/api.py to confirm the intentional defect is gone."
+    }
+  ],
+  "references": [
+    {
+      "title": "FastAPI security helpers",
+      "url": "https://fastapi.tiangolo.com/reference/security/",
+      "usedFor": "Bearer credential parsing at the HTTP boundary."
+    },
+    {
+      "title": "pytest assertions",
+      "url": "https://docs.pytest.org/en/stable/how-to/assert.html",
+      "usedFor": "Behavioral assertions and useful failure reports."
+    },
+    {
+      "title": "FastAPI testing",
+      "url": "https://fastapi.tiangolo.com/tutorial/testing/",
+      "usedFor": "The distinction between in-process adapter checks and real HTTP system tests."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "Unit/adapter and stage-3 real HTTP checks were executed during authoring; authenticated PostgreSQL/Compose checks require the Docker-capable learner environment."
+  ]
+}

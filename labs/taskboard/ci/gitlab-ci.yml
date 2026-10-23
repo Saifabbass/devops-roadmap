@@ -1,0 +1,125 @@
+# Copy this file to .gitlab-ci.yml in a dedicated repository whose root is labs/taskboard.
+# Standard jobs need a Linux Docker runner. Image jobs additionally need the isolated TLS dind runner described in README.
+stages: [check, build, system, promote]
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+default:
+  image: python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
+  before_script:
+    - python -m pip install --no-cache-dir -r requirements-dev.lock
+  artifacts:
+    when: always
+    expire_in: 14 days
+    reports:
+      junit: reports/*.xml
+lint:
+  stage: check
+  script:
+    - python -m pip install --no-cache-dir ruff==0.11.13
+    - python -m ruff check --target-version py312 --select E9,F63,F7,F82 reference starter tools
+unit:
+  stage: check
+  script:
+    - python -m compileall -q reference starter tools
+    - python -m pytest tests/unit tests/contract --junitxml=reports/unit.xml
+integration:
+  stage: check
+  services:
+    - name: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+      alias: postgres
+  variables:
+    POSTGRES_USER: taskboard_test
+    POSTGRES_DB: taskboard_test
+    # Ephemeral job-local DB, never a reusable deployment credential.
+    POSTGRES_PASSWORD: disposable-ci-database-only
+    TEST_DATABASE_URL: postgresql://taskboard_test:disposable-ci-database-only@postgres:5432/taskboard_test
+  script:
+    - python -c "import os,time,psycopg; from tools.wait_postgres import wait; wait(os.environ['TEST_DATABASE_URL'])"
+    - python -m pytest tests/integration --junitxml=reports/integration.xml
+.docker_job:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+    - when: never
+  image: docker:28-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d
+  tags: [isolated-docker-tls]
+  services:
+    - name: docker:28-dind@sha256:2a232a42256f70d78e3cc5d2b5d6b3276710a0de0596c145f627ecfae90282ac
+      alias: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: /certs
+    DOCKER_TLS_VERIFY: '1'
+    DOCKER_CERT_PATH: /certs/client
+  before_script:
+    - docker info
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+  artifacts: {}
+build:
+  extends: .docker_job
+  stage: build
+  needs: [lint, unit, integration]
+  script:
+    - docker build --target runtime --build-arg GIT_SHA="$CI_COMMIT_SHA" -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - docker pull "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+    - IMAGE_REF=$(docker image inspect "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA" --format '{{index .RepoDigests 0}}')
+    - printf 'IMAGE_REF=%s\n' "$IMAGE_REF" > image.env
+  artifacts:
+    expire_in: 14 days
+    reports:
+      dotenv: image.env
+system:
+  extends: .docker_job
+  stage: system
+  needs:
+    - job: build
+      artifacts: true
+  script:
+    - docker pull "$IMAGE_REF"
+    - docker build --target tests -t taskboard-tests .
+    - export POSTGRES_PASSWORD=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+    - export LAB_ALICE_TOKEN=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+    - export LAB_BOB_TOKEN=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+    - export DATABASE_URL="postgresql://taskboard:$POSTGRES_PASSWORD@db:5432/taskboard"
+    - docker network create taskboard-ci
+    - docker run -d --name db --network taskboard-ci -e POSTGRES_USER=taskboard -e POSTGRES_DB=taskboard -e POSTGRES_PASSWORD postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    - docker run --rm --network taskboard-ci -e DATABASE_URL taskboard-tests python -c "import os; from tools.wait_postgres import wait; wait(os.environ['DATABASE_URL'])"
+    - docker run --rm --network taskboard-ci -e DATABASE_URL "$IMAGE_REF" python -m reference.migrate
+    - docker run -d --name app --network taskboard-ci -e DATABASE_URL -e LAB_ALICE_TOKEN -e LAB_BOB_TOKEN "$IMAGE_REF"
+    - docker run --rm --network taskboard-ci taskboard-tests python tools/wait_http.py
+    - docker run --name taskboard-system --network taskboard-ci -e TASKBOARD_BASE_URL=http://app:8000 -e LAB_ALICE_TOKEN -e LAB_BOB_TOKEN taskboard-tests python -m pytest tests/system -p no:cacheprovider --junitxml=/tmp/system.xml
+    - printf '%s\n' "$IMAGE_REF" > tested-digest.txt
+  after_script:
+    - mkdir -p reports
+    - docker cp taskboard-system:/tmp/system.xml reports/system.xml || true
+    - docker rm -f app db taskboard-system || true
+    - docker network rm taskboard-ci || true
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths: [tested-digest.txt]
+    reports:
+      junit: reports/system.xml
+promote_record:
+  stage: promote
+  needs:
+    - job: system
+      artifacts: true
+  before_script: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: manual
+  allow_failure: false
+  resource_group: private-staging
+  script:
+    - test -s tested-digest.txt
+    - cat tested-digest.txt
+  artifacts:
+    expire_in: 90 days
+    paths: [tested-digest.txt]
+# This job records approval; it does not pretend to deploy to an unconfigured host.
+# Week 12 must add the private target, stale-deployment protection, and smoke/rollback evidence.

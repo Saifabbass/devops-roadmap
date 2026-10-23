@@ -1,0 +1,331 @@
+{
+  "week": 14,
+  "phase": "AWS foundations",
+  "title": "Networking and a small EC2 deployment",
+  "outcome": "Trace traffic through a VPC, subnet, route table and security group.",
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: An address is only one part of reachability. A request also needs a route, a permitted security-group rule and a process listening at the destination. This lesson builds one short-lived Ubuntu EC2 host and keeps Taskboard behind an SSH tunnel.",
+    "Optional provider lab: The private learning service is deliberately single-instance and uses the memory reference stage so you can see the network clearly. It loses tasks after restart. PostgreSQL persistence returns in the next lesson; neither this exercise nor two copied servers proves production resilience."
+  ],
+  "prerequisites": [
+    "Week 13 account/MFA/budget completed; the monthly ceiling must cover the selected EC2 hours, EBS disk and public IPv4. Record current rates in the worksheet before launch.",
+    "Taskboard from week 3 exists at ~/dev-opps-lab/app/taskboard and its unit tests pass.",
+    "For your isolated sandbox, an administrator assigns a separate DevOppsProvisioner permission set with the EC2 and SSM parameter-read permissions needed below; never change DevOppsReadOnly into an administrator. Configure it with aws configure sso --profile devopps-provisioner. If unavailable, use a disposable local Ubuntu VM and label AWS routing, security-group and billing proof pending.",
+    "In IAM → Roles → Create role, select AWS service EC2 and name DevOppsInstance. Attach no service-access policy: this app needs no AWS API. The console creates its instance profile. This one-time bootstrap requires an administrator; the provisioning identity needs iam:PassRole only for this role."
+  ],
+  "concepts": [
+    {
+      "title": "Routing and filtering are separate",
+      "paragraphs": [
+        "A VPC contains address space. A subnet selects part of it; a route table decides the next hop for an address. An internet gateway plus a route and a public IPv4 address provides an internet path. A security group then allows selected connections to a network interface.",
+        "A security group is stateful, so replies to permitted connections are tracked. It does not start the application and it does not replace application authorization. Here only SSH from your current public IPv4 is allowed; the app binds remote loopback."
+      ],
+      "example": "The tunnel connects local 18000 to remote 127.0.0.1:8000. No inbound rule for port 8000 is required.",
+      "judgment": "Avoid opening 0.0.0.0/0 administration to repair a timeout. Trace route, interface, rule and listener instead."
+    },
+    {
+      "title": "Instance identity and release identity",
+      "paragraphs": [
+        "The instance profile associates a role with the host. An empty role grants no application service access, which fits this app. Later, if a specific AWS operation is needed, add only that resource/action permission instead of storing a permanent key on disk.",
+        "An AMI is a machine image. Record its actual ID rather than assuming a floating description remains unchanged. Likewise, record the application archive checksum before transferring it."
+      ],
+      "example": "A source archive SHA-256 identifies the bytes copied to the server; it does not alone prove those bytes passed tests.",
+      "judgment": "Cloud-init can finish after EC2 says running. Wait for initialization before diagnosing package commands as broken."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Verify target and capture the application",
+      "purpose": "Use one local terminal for the following AWS variables through cleanup.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nexport AWS_PROFILE=devopps-provisioner AWS_REGION=us-east-1 AWS_PAGER=\"\"\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\nmkdir -p evidence/week-14\ntar --exclude=.venv --exclude=.env --exclude=reports --exclude=__pycache__ -czf evidence/week-14/taskboard.tar.gz -C app/taskboard .\nsha256sum evidence/week-14/taskboard.tar.gz",
+          "explain": [
+            "export chooses the intended profile and Region; login refreshes the temporary session and identity confirms its account.",
+            "tar packages the known app directory; -C changes the archive input directory, -c creates, -z compresses, -f names the output. Exclusions omit environment, credentials and local outputs. sha256sum records archive identity."
+          ],
+          "expected": "Correct sandbox account and one SHA-256 line for taskboard.tar.gz.",
+          "troubleshoot": "If the app path does not exist, return to week 3's included-assets copy step. Never copy .env or cloud credential directories into the archive.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record identity, archive checksum, two-hour cost ceiling and teardown deadline."
+    },
+    {
+      "title": "Create the network",
+      "purpose": "These commands create only a tagged lab VPC, one subnet, route and SSH security group. They do not launch a paid instance yet.",
+      "commands": [
+        {
+          "code": "LAB_NAME=\"devopps-w14-$(date +%s)\"\nVPC_ID=$(aws ec2 create-vpc --cidr-block 10.77.0.0/16 --query Vpc.VpcId --output text)\naws ec2 create-tags --resources \"$VPC_ID\" --tags Key=Name,Value=\"$LAB_NAME\" Key=Course,Value=DevOpps\nSUBNET_ID=$(aws ec2 create-subnet --vpc-id \"$VPC_ID\" --cidr-block 10.77.1.0/24 --query Subnet.SubnetId --output text)\nIGW_ID=$(aws ec2 create-internet-gateway --query InternetGateway.InternetGatewayId --output text)\naws ec2 attach-internet-gateway --vpc-id \"$VPC_ID\" --internet-gateway-id \"$IGW_ID\"\nRT_ID=$(aws ec2 create-route-table --vpc-id \"$VPC_ID\" --query RouteTable.RouteTableId --output text)\naws ec2 create-route --route-table-id \"$RT_ID\" --destination-cidr-block 0.0.0.0/0 --gateway-id \"$IGW_ID\"\nASSOC_ID=$(aws ec2 associate-route-table --subnet-id \"$SUBNET_ID\" --route-table-id \"$RT_ID\" --query AssociationId --output text)\nSG_ID=$(aws ec2 create-security-group --group-name \"$LAB_NAME\" --description \"DevOpps bounded SSH lab\" --vpc-id \"$VPC_ID\" --query GroupId --output text)",
+          "explain": [
+            "LAB_NAME uses a timestamp to avoid collisions. Command substitution captures each returned resource ID; --query selects its exact field and --output text makes it reusable.",
+            "The /16 VPC contains the /24 subnet. attach connects the internet gateway; create-route makes it the next hop for destinations outside the local VPC; associate selects that route table for the subnet.",
+            "The security group starts with no allowed inbound connections. Its default outbound rule is retained for Ubuntu/Python package downloads in this lab."
+          ],
+          "expected": "Each ID has its expected vpc-, subnet-, igw-, rtb-, rtbassoc- or sg- prefix; create-route returns Return true.",
+          "troubleshoot": "Stop at the first failed command. Preserve every already-created ID and use the matching cleanup commands; do not rerun the whole block and create duplicate resources.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Add every returned ID to the inventory; save variables with the next step before leaving this terminal."
+    },
+    {
+      "title": "Allow one administrator and launch",
+      "purpose": "Enter the public IPv4 shown for your own connection by your router/VPN or AWS console's My IP control. This value is not the machine's private 192.168 address. Launch only after the estimate fits your ceiling.",
+      "commands": [
+        {
+          "code": "read -r -p \"Your current public IPv4, without /32: \" ADMIN_IP\npython3 -c \"import ipaddress,sys; assert ipaddress.ip_address(sys.argv[1]).version==4\" \"$ADMIN_IP\"\naws ec2 authorize-security-group-ingress --group-id \"$SG_ID\" --protocol tcp --port 22 --cidr \"$ADMIN_IP/32\"\nKEY_NAME=\"$LAB_NAME-key\"\numask 077\naws ec2 create-key-pair --key-name \"$KEY_NAME\" --query KeyMaterial --output text > \"evidence/week-14/$KEY_NAME.pem\"\nAMI_ID=$(aws ssm get-parameter --name /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id --query Parameter.Value --output text)\nINSTANCE_ID=$(aws ec2 run-instances --image-id \"$AMI_ID\" --instance-type t3.small --count 1 --subnet-id \"$SUBNET_ID\" --security-group-ids \"$SG_ID\" --associate-public-ip-address --key-name \"$KEY_NAME\" --iam-instance-profile Name=DevOppsInstance --metadata-options HttpTokens=required --block-device-mappings '[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{\"VolumeSize\":8,\"VolumeType\":\"gp3\",\"Encrypted\":true,\"DeleteOnTermination\":true}}]' --tag-specifications \"ResourceType=instance,Tags=[{Key=Name,Value=$LAB_NAME},{Key=Course,Value=DevOpps}]\" --query Instances[0].InstanceId --output text)\naws ec2 wait instance-status-ok --instance-ids \"$INSTANCE_ID\"\nPUBLIC_IP=$(aws ec2 describe-instances --instance-ids \"$INSTANCE_ID\" --query Reservations[0].Instances[0].PublicIpAddress --output text)\nprintf \"%s\\n\" \"Instance=$INSTANCE_ID AMI=$AMI_ID Address=$PUBLIC_IP\"\ndeclare -p LAB_NAME VPC_ID SUBNET_ID IGW_ID RT_ID ASSOC_ID SG_ID KEY_NAME AMI_ID INSTANCE_ID PUBLIC_IP ADMIN_IP > evidence/week-14/resources.sh",
+          "explain": [
+            "read obtains your real input and Python validates IPv4 syntax. /32 permits exactly that source address. Port 22 is SSH, not application traffic.",
+            "umask 077 makes newly written private files accessible only to your user. create-key-pair returns a one-time private key; redirect it to the named file, never to Git.",
+            "The SSM public parameter resolves Canonical's current Ubuntu 24.04 amd64 AMI. run-instances creates one t3.small, encrypted 8 GiB root disk deleted on termination, a public address and IMDSv2-only metadata. The instance profile contains no application API authority.",
+            "The waiter observes instance health. describe reads its actual address. declare -p stores non-secret resource identifiers for scoped teardown; the private key remains separate."
+          ],
+          "expected": "One healthy instance and an IPv4 address. Billing for compute, storage and address can now accrue.",
+          "troubleshoot": "A waiter timeout is not proof creation failed: inspect this INSTANCE_ID in the console. If capacity is unavailable, do not select a larger type without revising the estimate.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Inspect the instance's attached profile, root volume deletion flag and ingress rule in the console."
+    },
+    {
+      "title": "Verify SSH and transfer",
+      "purpose": "In EC2 → instance → Actions → Monitor and troubleshoot → Get system log, locate the host key fingerprint. Compare it with the first SSH prompt. Accept only a match; do not disable host-key checking.",
+      "commands": [
+        {
+          "code": "ssh -i \"evidence/week-14/$KEY_NAME.pem\" \"ubuntu@$PUBLIC_IP\"\n# After checking the host key and seeing the remote prompt, type: exit\nscp -i \"evidence/week-14/$KEY_NAME.pem\" evidence/week-14/taskboard.tar.gz \"ubuntu@$PUBLIC_IP:taskboard.tar.gz\"\nssh -i \"evidence/week-14/$KEY_NAME.pem\" \"ubuntu@$PUBLIC_IP\"",
+          "explain": [
+            "ssh uses the private key and Ubuntu image's ubuntu login. Its first trust prompt must match the separately observed instance fingerprint. exit returns to the local terminal.",
+            "scp copies only the archive to the remote home. The final ssh opens the remote terminal for the next block."
+          ],
+          "expected": "The remote prompt belongs to Ubuntu on the recorded instance.",
+          "troubleshoot": "For a timeout inspect source IP, SG, route and public address; for Permission denied inspect user/key; for a changed fingerprint stop and verify instance identity.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Make the local-versus-remote prompt distinction explicit in your notes."
+    },
+    {
+      "title": "Run Taskboard on the remote loopback interface",
+      "purpose": "Run this block only in the remote SSH terminal. Keep the server in the foreground so Ctrl+C is an obvious stop action.",
+      "commands": [
+        {
+          "code": "sudo cloud-init status --wait\nsudo apt-get update\nsudo apt-get install -y python3-venv\nmkdir -p ~/taskboard\ntar -xzf ~/taskboard.tar.gz -C ~/taskboard\ncd ~/taskboard\npython3 -m venv .venv\n.venv/bin/python -m pip install -r requirements.lock\n.venv/bin/python -m uvicorn reference.stage03:app --host 127.0.0.1 --port 8000 --no-access-log",
+          "explain": [
+            "cloud-init waits for image initialization; apt-get update refreshes package indexes and install adds Ubuntu virtual-environment support.",
+            "mkdir creates the app directory; tar -x extracts the archive there. venv isolates runtime packages; pip -r reads the supplied version lock.",
+            "Uvicorn loads the memory reference, accepts only remote loopback connections and suppresses raw access logs in favor of the app's sanitized structured log."
+          ],
+          "expected": "Uvicorn listens on 127.0.0.1:8000 on the remote host.",
+          "troubleshoot": "If package setup fails, inspect DNS/outbound access before changing ingress. Address already in use requires identifying the process with ss, not killing unrelated processes.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "The application remains inaccessible directly through the instance's public port 8000."
+    },
+    {
+      "title": "Reach the service through a tunnel",
+      "purpose": "Open another local terminal, reload only your own saved resource file, and keep the tunnel running. Use a third local terminal for the curl check.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nsource evidence/week-14/resources.sh\nssh -i \"evidence/week-14/$KEY_NAME.pem\" -N -L 127.0.0.1:18000:127.0.0.1:8000 \"ubuntu@$PUBLIC_IP\"",
+          "explain": [
+            "source executes the resource assignments you created; do not source an untrusted file. -N asks SSH to run no remote command. -L binds a local loopback port and forwards it to remote loopback 8000."
+          ],
+          "expected": "Tunnel stays in the foreground without a remote shell.",
+          "troubleshoot": "If local 18000 is occupied, identify its owner or choose another local port and use it consistently.",
+          "shell": "bash"
+        },
+        {
+          "code": "curl --fail --max-time 5 http://127.0.0.1:18000/livez",
+          "explain": [
+            "Run in the third local terminal. --fail treats HTTP errors as failure and --max-time 5 bounds the wait."
+          ],
+          "expected": "HTTP body {\"status\":\"ok\"}.",
+          "troubleshoot": "If SSH connects but HTTP is refused, inspect the remote listener and chosen tunnel destination.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Explain all three addresses: public SSH destination, local tunnel listener and remote app loopback."
+    }
+  ],
+  "failure": {
+    "title": "Point the tunnel at the wrong service port",
+    "boundary": "Only the lab tunnel configuration; SSH administration and security groups remain available.",
+    "inject": [
+      {
+        "code": "ssh -i \"evidence/week-14/$KEY_NAME.pem\" -N -L 127.0.0.1:18001:127.0.0.1:8001 \"ubuntu@$PUBLIC_IP\"",
+        "explain": [
+          "A second local tunnel deliberately targets unused remote port 8001."
+        ],
+        "expected": "SSH connects, but a request to local 18001 fails.",
+        "troubleshoot": "Use a separate terminal to request http://127.0.0.1:18001/livez with curl --max-time 5.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ssh -i \"evidence/week-14/$KEY_NAME.pem\" \"ubuntu@$PUBLIC_IP\" 'ss -lnt | grep \":8000\"'\ncurl --max-time 5 http://127.0.0.1:18001/livez",
+        "explain": [
+          "The read-only remote ss command lists listening TCP sockets; grep selects the known app port. The second command exercises the incorrect path."
+        ],
+        "expected": "The listener is at 8000, while the bad tunnel reports a connection failure.",
+        "troubleshoot": "If no listener exists, investigate the app foreground terminal first; a stopped app is a different fault.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "An established SSH connection proves port 22 works, not that the tunnel's target service exists.",
+      "Compare the last number in -L with the observed remote listener."
+    ],
+    "answer": {
+      "explanation": [
+        "The route and SSH authorization worked; the final TCP hop targeted the wrong port. Opening more cloud ports would not correct a wrong remote-loopback destination."
+      ],
+      "recover": [
+        {
+          "code": "curl --fail --max-time 5 http://127.0.0.1:18000/livez",
+          "explain": [
+            "Use the previously working tunnel to port 8000, then Ctrl+C only the incorrect tunnel's foreground terminal."
+          ],
+          "expected": "The good endpoint returns status ok.",
+          "troubleshoot": "If both fail, verify the server is still running before changing cloud rules.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "curl --fail --max-time 5 http://127.0.0.1:18000/version",
+        "explain": [
+          "Version confirms traffic reaches Taskboard rather than an unrelated listener."
+        ],
+        "expected": "Taskboard version JSON.",
+        "troubleshoot": "Unexpected content means the local port belongs to another service or tunnel.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why no security-group rule for 8000?",
+      "hint": "Follow the encrypted tunnel.",
+      "answer": "Inbound cloud traffic is SSH on 22; the SSH server makes the final loopback connection inside the VM."
+    },
+    {
+      "prompt": "What does a public subnet actually require?",
+      "hint": "Names do not route packets.",
+      "answer": "A route to an internet gateway provides the subnet's internet path; instance addressing and security rules still determine practical reachability."
+    },
+    {
+      "prompt": "Why attach an empty instance role?",
+      "hint": "Start with required authority.",
+      "answer": "It establishes the role-based identity pattern without granting unused API access. Future permissions must match actual app requirements."
+    }
+  ],
+  "exercise": {
+    "brief": "Write and execute a layered diagnosis runbook for this private service.",
+    "constraints": [
+      "No broad ingress and no public application listener.",
+      "Retain one known working SSH session while investigating."
+    ],
+    "deliverables": [
+      "Diagram with routes, rules, tunnel and listener.",
+      "Working health response, one wrong-port diagnosis and exact cleanup inventory."
+    ],
+    "acceptance": [
+      "Another learner locates the failed hop without opening extra ports.",
+      "Archive identity and actual AMI ID are recorded.",
+      "All created resource IDs are accounted for."
+    ],
+    "hints": [
+      "Check identity → route/address → SSH → listener → HTTP contract."
+    ],
+    "solution": [
+      "Observe each boundary independently. Preserve failing output and the good port's evidence before changing the tunnel.",
+      "Add the UTC creation and deletion times to the cost worksheet; inspect billing later for delayed records."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab\nsource evidence/week-14/resources.sh\nexport AWS_PROFILE=devopps-provisioner AWS_REGION=us-east-1 AWS_PAGER=\"\"\naws sts get-caller-identity\naws ec2 terminate-instances --instance-ids \"$INSTANCE_ID\"\naws ec2 wait instance-terminated --instance-ids \"$INSTANCE_ID\"\naws ec2 delete-key-pair --key-name \"$KEY_NAME\"\naws ec2 delete-security-group --group-id \"$SG_ID\"\naws ec2 disassociate-route-table --association-id \"$ASSOC_ID\"\naws ec2 delete-subnet --subnet-id \"$SUBNET_ID\"\naws ec2 delete-route-table --route-table-id \"$RT_ID\"\naws ec2 detach-internet-gateway --internet-gateway-id \"$IGW_ID\" --vpc-id \"$VPC_ID\"\naws ec2 delete-internet-gateway --internet-gateway-id \"$IGW_ID\"\naws ec2 delete-vpc --vpc-id \"$VPC_ID\"",
+      "explain": [
+        "Stop the foreground server/tunnels with Ctrl+C first. Reload only recorded lab IDs and verify the account.",
+        "terminate permanently removes this lab VM; the waiter confirms termination before dependent resources are removed. The root disk was configured DeleteOnTermination.",
+        "Delete only this key, security group, route association, subnet, route table, gateway and VPC in dependency order. Keep evidence; remove the local private key after cloud key deletion using rm -- on its exact recorded path if no longer needed."
+      ],
+      "expected": "All delete calls succeed; console inventory shows no remaining lab volumes/interfaces or address allocation.",
+      "troubleshoot": "For DependencyViolation inspect this resource's remaining attachments. Do not delete unrelated VPC resources. If the terminal was lost, recover IDs from inventory/console before cleanup.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Ubuntu image discovery",
+      "url": "https://ubuntu.com/aws/docs/aws-how-to/instances/find-ubuntu-images/",
+      "usedFor": "Canonical SSM image parameter and Ubuntu 24.04 identity."
+    },
+    {
+      "title": "EC2 run-instances",
+      "url": "https://docs.aws.amazon.com/cli/latest/reference/ec2/run-instances.html",
+      "usedFor": "Launch, metadata and storage options."
+    },
+    {
+      "title": "VPC fundamentals",
+      "url": "https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html",
+      "usedFor": "Addressing, routing and network components."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "pranshuparmar/witr",
+      "principle": "Observe the socket owner before changing infrastructure",
+      "application": "The wrong-port drill separates a listener problem from cloud routing.",
+      "url": "https://github.com/pranshuparmar/witr"
+    },
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "Connect layers through an actual request",
+      "application": "The tunnel diagram connects network, identity, process and HTTP behavior.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    }
+  ],
+  "notes": [
+    "AWS creation, SSH and teardown are documented procedures, not author-executed cloud tests. The local VM route leaves provider behavior unproven."
+  ],
+  "freeTrack": {
+    "title": "Trace a private local request",
+    "objective": "Connect a process, listener and request, then diagnose a deliberately wrong destination without exposing an administrator port.",
+    "prerequisites": [
+      "Complete the local Taskboard lessons through week 8. Use Ubuntu Bash and your existing course workspace.",
+      "Use only generated lab identities and synthetic data. No cloud account or payment card is needed."
+    ],
+    "commands": [
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\npython -m uvicorn reference.stage03:app --host 127.0.0.1 --port 18014 --no-access-log",
+        "explain": [
+          "Run in terminal A. Uvicorn imports the supplied in-memory stage; the explicit loopback address keeps traffic on this machine.",
+          "18014 is a separate lab port. --no-access-log leaves the application's sanitized structured logging in use. Keep this terminal open."
+        ],
+        "expected": "The server listens on 127.0.0.1:18014.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      },
+      {
+        "code": "ss -ltnp 'sport = :18014'\ncurl --fail --show-error --max-time 5 http://127.0.0.1:18014/livez\ncurl --fail --show-error --max-time 2 http://127.0.0.1:18015/livez\nprintf 'wrong-port status: %s\\n' \"$?\"",
+        "explain": [
+          "Run in terminal B. ss selects listening TCP sockets and shows the owning process for port 18014.",
+          "The first curl must return healthy. The second intentionally targets unused port 18015; --max-time bounds the wait, and $? captures its nonzero status.",
+          "Inspect 18015 first if something already owns it; choose another unused port for the fault."
+        ],
+        "expected": "The real endpoint returns {\"status\":\"ok\"}; the wrong endpoint fails while the server remains healthy.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Draw client → loopback listener → application and connect its PID to the response.",
+      "Explain connection refusal versus a server HTTP error.",
+      "Describe the additional SSH tunnel, routes and identity checks required by the AWS extension."
+    ],
+    "limits": "One-machine loopback does not prove VPC routing, security groups, SSH authentication or a remote VM.",
+    "cleanup": "Press Ctrl+C in terminal A. Verify its listener disappeared with ss; do not stop unrelated processes."
+  }
+}

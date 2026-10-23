@@ -1,0 +1,248 @@
+{
+  "week": 11,
+  "introduction": [
+    "A pipeline can run arbitrary project code. If that code receives a deployment credential, its author can attempt to use the credential even when the value is masked in logs. This week makes that trust boundary explicit.",
+    "You will test variable scope with a harmless sentinel, separate untrusted MR checks from protected jobs, and draft the identity claims a future cloud role should accept. Actual AWS/GCP federation follows after you learn each provider's IAM model."
+  ],
+  "prerequisites": [
+    "Weeks 9–10's private project, protected default branch and dedicated protected build runner are configured.",
+    "Work in ~/dev-opps-delivery. Keep all real deployment/cloud credentials out of this exercise.",
+    "Know your actual GitLab project path, numeric project ID and namespace ID. GitLab displays project/group identifiers in their settings.",
+    "If week 10 cleanup stopped the dedicated image runner, start it again on that VM with sudo gitlab-runner start before expecting protected build jobs to run."
+  ],
+  "concepts": [
+    {
+      "title": "Masking changes log display, not permission",
+      "paragraphs": [
+        "A masked variable is still supplied to the job. Malicious code can use it directly, encode it or send it elsewhere. Protected-ref restrictions and environment scope determine which eligible jobs receive a value; code review and runner isolation determine what can execute there.",
+        "An untrusted MR should run tests without deployment credentials. A protected job still needs review because merging a malicious pipeline change moves that code into the trusted context."
+      ],
+      "example": "A job can call a cloud API without ever printing its credential, so a clean log does not prove the credential was protected.",
+      "judgment": "Ask who can modify the script and its dependencies, not just whether the variable has a masking checkbox."
+    },
+    {
+      "title": "OIDC exchanges a bounded identity for bounded authority",
+      "paragraphs": [
+        "An OIDC ID token is signed evidence about a job, with issuer, audience, subject and other claims. A cloud provider verifies the signature using the trusted issuer's keys, checks expiry and audience, then evaluates the role's trust conditions. A short-lived credential is issued only if that policy accepts the identity.",
+        "The subject includes project/ref information. Stable numeric project/namespace claims can further constrain GitLab.com AWS trust where supported. Do not assume every self-managed issuer exposes identical provider condition keys. Authentication and the permissions granted by the resulting role are separate decisions."
+      ],
+      "example": "A token from the right issuer but wrong audience or project must not assume your deployment role.",
+      "judgment": "Short lifetime limits exposure; it does not excuse broad permissions or an overly broad trust policy."
+    },
+    {
+      "title": "Runner and environment controls form different boundaries",
+      "paragraphs": [
+        "Runner protection controls where jobs can execute. Environment protection controls who may deploy to a named target where supported. Branch protection controls changes to a ref. None alone proves that all other boundaries are correct.",
+        "GitLab feature availability varies by tier and offering. Record which controls are enforced automatically. For unavailable approval controls, a documented release-owner decision is useful but weaker than a technical restriction."
+      ],
+      "example": "resource_group serializes jobs for a target but does not decide whether their code or identity should be trusted.",
+      "judgment": "Document the actual policy and exceptions, then exercise both allowed and denied paths."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Map authority before adding another credential",
+      "purpose": "Draw contributor → MR test runner → protected image runner → registry → future deploy role → private environment. Label code-change authority, network access and credentials at each boundary.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-delivery\nsed -n '1,240p' .gitlab-ci.yml\ngit log --oneline -5",
+          "explain": [
+            "sed prints the complete current pipeline region without expanding any variables. Identify protected rules, runner tags, login and artifact transfer.",
+            "git log shows recent changes and who is reviewing the pipeline's authority in your workflow."
+          ],
+          "expected": "A reviewed list of each job's intended access, with no cloud key needed.",
+          "troubleshoot": "Do not copy runner config or .env into the threat model; record role names and scopes, not credential values."
+        }
+      ],
+      "checkpoint": "State which source changes could influence a protected job even if .gitlab-ci.yml itself is unchanged."
+    },
+    {
+      "title": "Create a harmless scoped sentinel",
+      "purpose": "In GitLab Settings → CI/CD → Variables create DEPLOY_SENTINEL with value course-sentinel-not-a-secret. Mark it Protected and set environment scope private-staging. This is deliberately not a real secret. Keep the MR source branch unprotected. Add the probes below through a reviewed change.",
+      "commands": [
+        {
+          "code": "git switch -c trust/scoped-sentinel || exit 1\ncat >> .gitlab-ci.yml <<'YAML'\n\ntrust_probe:\n  stage: check\n  before_script: []\n  rules:\n    - if: '$CI_PIPELINE_SOURCE == \"merge_request_event\"'\n  environment:\n    name: private-staging\n    action: verify\n  script:\n    - test -z \"${DEPLOY_SENTINEL:-}\"\nprotected_scope_probe:\n  stage: promote\n  before_script: []\n  rules:\n    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == \"true\"'\n      when: manual\n  environment:\n    name: private-staging\n    action: verify\n  script:\n    - test \"${DEPLOY_SENTINEL:-}\" = \"course-sentinel-not-a-secret\"\nYAML\ngit add .gitlab-ci.yml\ngit commit -m 'Verify untrusted and protected variable boundaries'\ngit push -u origin trust/scoped-sentinel",
+          "explain": [
+            "Append two explicit probe jobs. trust_probe runs on the MR and requests verification context for private-staging; its test succeeds only when the variable is absent.",
+            "protected_scope_probe runs manually on the protected default branch and verifies the sentinel is present. environment.action=verify avoids claiming a deployment occurred.",
+            "test inspects values without printing them. Publish the branch, open an MR and inspect the negative probe. After review/merge, run the protected probe.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Unprotected MR cannot read the sentinel; the allowed protected scope can. Record actual job outcomes.",
+          "troubleshoot": "If environment protection denies the MR job before execution, record that enforced boundary separately; it is not the same as a script proving an absent variable."
+        }
+      ],
+      "checkpoint": "Explain what each observed denial/success proves, including any control that prevented the script from running."
+    },
+    {
+      "title": "Write the future trust contract as data",
+      "purpose": "This draft records intended AWS federation claims. It is not a token verifier and grants no cloud permissions.",
+      "commands": [
+        {
+          "code": "mkdir -p ci\nread -r -p 'Actual GitLab.com project path, group/project: ' PROJECT_PATH\nread -r -p 'Numeric project ID: ' PROJECT_ID\nread -r -p 'Numeric namespace ID: ' NAMESPACE_ID\nread -r -p 'Protected deployment branch name: ' DEPLOY_REF\npython3 - \"$PROJECT_PATH\" \"$PROJECT_ID\" \"$NAMESPACE_ID\" \"$DEPLOY_REF\" <<'PY' || exit 1\nimport json,sys\nfrom pathlib import Path\npath, project_id, namespace_id, ref = (value.strip() for value in sys.argv[1:])\nif not ('/' in path and project_id.isdigit() and namespace_id.isdigit() and ref):\n    raise SystemExit('Use the actual project path, numeric identifiers and protected branch name.')\ncontract = {'iss':'https://gitlab.com','aud':'sts.amazonaws.com','project_id':project_id,'namespace_id':namespace_id,'sub':f'project_path:{path}:ref_type:branch:ref:{ref}','ref':ref,'ref_protected':'true'}\nPath('ci/trust-contract.json').write_text(json.dumps(contract, indent=2) + '\\n', encoding='utf-8')\nprint('Draft saved. No token issued or role assumed.')\nPY",
+          "explain": [
+            "Python prompts for your actual non-secret identifiers and validates their basic shape.",
+            "It writes the intended issuer, AWS STS audience, numeric identities and protected branch subject. This example assumes GitLab.com; self-managed installations must use their actual issuer and supported claims.",
+            "The file is a policy-design input for week 20, not a secret and not an executable authentication mechanism.",
+            "Bash read collects the four values before the here-document starts. Python receives them as separate quoted argv entries; its stdin is already occupied by the program text.",
+            "The documented default subject includes :ref: before the branch. GitLab's sample payload uses the string 'true' for ref_protected, not a JSON boolean. This draft assumes GitLab.com and an unchanged default subject; custom subjects and other issuers need their own exact reviewed contract.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "A JSON contract matching one exact project and protected deployment ref.",
+          "troubleshoot": "Inspect the resulting sub field carefully. A typo can deny legitimate deployment; a wildcard can unintentionally admit other identities."
+        }
+      ],
+      "checkpoint": "Draft a separate permission list for the role. Trusting a job identity and allowing it to modify resources are different policy decisions."
+    },
+    {
+      "title": "Exercise negative claim cases locally",
+      "purpose": "Use synthetic claim dictionaries to check your intended matching logic. This does not validate a real signature, expiry or provider policy.",
+      "commands": [
+        {
+          "code": "python3 - <<'PY'\nimport json\nfrom pathlib import Path\nexpected = json.loads(Path('ci/trust-contract.json').read_text())\ndef allowed(claims):\n    return all(claims.get(key) == value for key, value in expected.items())\nassert allowed(expected)\nfor key in ('iss','aud','project_id','namespace_id','sub','ref','ref_protected'):\n    changed = dict(expected)\n    changed[key] = 'false' if key == 'ref_protected' else 'wrong-value'\n    assert not allowed(changed), key\n    print('Denied synthetic wrong-' + key)\nPY",
+          "explain": [
+            "Load the draft as data. allowed checks exact equality for the intended conditions.",
+            "Each case changes one boundary while preserving the others, so a failure identifies an overly broad intended match.",
+            "These are design tests only; real issuer verification and cloud policy evaluation are explicitly deferred to the IAM implementation lessons."
+          ],
+          "expected": "The allowed synthetic case passes and every altered boundary is denied.",
+          "troubleshoot": "If a case is accepted, inspect which condition your draft omitted before writing cloud policy."
+        }
+      ],
+      "checkpoint": "Explain why decoding a JWT payload without verifying its signature would not authenticate anything."
+    }
+  ],
+  "failure": {
+    "title": "A broad environment scope exposes the sentinel to untrusted jobs",
+    "boundary": "Use only the non-secret sentinel. In GitLab temporarily remove its Protected restriction and set scope to private-staging as before. Rerun the unprotected MR probe; do not broaden any real credential.",
+    "inject": [
+      {
+        "code": "git switch -c practice/sentinel-scope || exit 1\ngit commit --allow-empty -m 'Exercise the non-secret scope probe'\ngit push -u origin practice/sentinel-scope",
+        "explain": [
+          "Create a separate unprotected branch and an explicit empty commit to trigger a new MR pipeline after the sentinel-only setting change.",
+          "Open an MR targeting main so the trust_probe rule applies.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+        ],
+        "expected": "trust_probe fails because the harmless sentinel became available in the untrusted path.",
+        "troubleshoot": "If the job is blocked by environment protection first, record that control and use the project settings audit as the scope evidence; do not weaken real protection to force the demo."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "git show --stat HEAD",
+        "explain": [
+          "Confirm the trigger did not alter application behavior. Inspect the sentinel's GitLab protection/scope settings and the test's exit status without printing its value."
+        ],
+        "expected": "The difference is credential availability, not a source-code defect.",
+        "troubleshoot": "A red probe is the desired detection signal; do not make it green by removing the assertion."
+      }
+    ],
+    "hints": [
+      "The sentinel's value is harmless; the path it demonstrates would be dangerous for a real deployment credential.",
+      "Masking would not fix this availability error."
+    ],
+    "answer": {
+      "explanation": [
+        "Restore the sentinel's Protected restriction and narrow environment scope. The untrusted job should no longer receive it. Review all real variables for the same mistake without exposing their values."
+      ],
+      "recover": [
+        {
+          "code": "git commit --allow-empty -m 'Recheck repaired sentinel protection'\ngit push",
+          "explain": [
+            "After restoring the GitLab setting, trigger a fresh MR run on the same branch so variable evaluation happens again."
+          ],
+          "expected": "The negative probe passes or is blocked by the intended environment control.",
+          "troubleshoot": "Retrying an old job may use configuration semantics you must inspect; a new pipeline provides clearer evidence of the current settings."
+        }
+      ],
+      "verification": {
+        "code": "git log --oneline -2",
+        "explain": [
+          "Record the before/after trigger commits and the corresponding allowed/denied job evidence. Rerun the protected positive probe as well."
+        ],
+        "expected": "Both denied untrusted access and allowed intended access are demonstrated.",
+        "troubleshoot": "A policy that denies everything is not yet a working deployment trust design."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why doesn't masking stop a malicious job using a token?",
+      "hint": "Does the process still receive the value?",
+      "answer": "Yes. Masking changes selected log rendering, not the process's access. Code can use the token directly or transform it. Restrict which reviewed code receives authority."
+    },
+    {
+      "prompt": "Why check audience as well as issuer?",
+      "hint": "Can one issuer mint tokens for different recipients?",
+      "answer": "Yes. Issuer identifies the signer; audience identifies the intended relying party. A token minted for another recipient must not be accepted merely because the signer is trusted."
+    },
+    {
+      "prompt": "What remains unproved by the synthetic claim exercise?",
+      "hint": "Which cryptographic/provider steps were absent?",
+      "answer": "It does not verify a signature, key rotation, expiry or actual cloud trust/permission evaluation. Weeks 20 and 39 must demonstrate real allowed and denied federation outcomes."
+    }
+  ],
+  "exercise": {
+    "brief": "Write a threat model and trust/permission draft for the future deployment role, including a negative-access matrix.",
+    "constraints": [
+      "No long-lived cloud key or real-secret exposure.",
+      "Record actual feature availability and procedural fallbacks."
+    ],
+    "deliverables": [
+      "Boundary diagram, sentinel before/after evidence, claim contract and least-privilege action/resource list."
+    ],
+    "acceptance": [
+      "Wrong project, audience and ref are denied in the intended design.",
+      "Untrusted MR jobs do not receive the deployment scope.",
+      "The design distinguishes identity verification from permissions and from deployment approval."
+    ],
+    "hints": [
+      "Include a malicious dependency or modified helper script in the threat model."
+    ],
+    "solution": [
+      "Review every input to protected jobs, narrow identity and resource conditions, and define both positive and negative real-federation checks for the later cloud lab."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "git switch main\ngit status --short",
+      "explain": [
+        "Return to the known branch. Remove the non-secret DEPLOY_SENTINEL variable in GitLab after retaining the evidence, or leave it correctly protected only while the capstone uses the probes.",
+        "Never remove or alter unrelated project variables during this cleanup."
+      ],
+      "expected": "No real secrets created, and the sentinel is absent or correctly scoped.",
+      "troubleshoot": "Keep the trust draft under review; it is not proof of a deployed IAM policy."
+    }
+  ],
+  "references": [
+    {
+      "title": "GitLab variable security",
+      "url": "https://docs.gitlab.com/ci/variables/",
+      "usedFor": "Protected/masked variables and environment scopes."
+    },
+    {
+      "title": "GitLab ID tokens",
+      "url": "https://docs.gitlab.com/ci/secrets/id_token_authentication/",
+      "usedFor": "Issuer, audience and job identity claims."
+    },
+    {
+      "title": "AWS federation from GitLab",
+      "url": "https://docs.gitlab.com/ci/cloud_services/aws/",
+      "usedFor": "Provider trust design and later real federation."
+    },
+    {
+      "title": "External workload federation on GCP",
+      "url": "https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines",
+      "usedFor": "Separating external identity mapping from service-account authorization."
+    },
+    {
+      "title": "GitLab ID-token claim payload",
+      "url": "https://docs.gitlab.com/ci/secrets/id_token_authentication/",
+      "usedFor": "Verified default subject syntax, claim types and provider-specific availability during the command audit."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "The claim exercise is intentionally synthetic. It must not be presented as a passing real AWS/GCP federation test."
+  ]
+}

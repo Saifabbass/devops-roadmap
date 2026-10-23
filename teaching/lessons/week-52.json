@@ -1,0 +1,337 @@
+{
+  "week": 52,
+  "introduction": [
+    "The final test is whether another engineer can understand and operate the system without relying on your memory. A clear handoff makes its promises, evidence, recovery options and remaining risks visible.",
+    "Use a teammate when available. Otherwise start from a fresh environment and label the result a self-review. A year of practice and a strong lab portfolio demonstrate specific skills; they do not automatically establish seniority or production reliability.",
+    "Completion requires every mandatory gate to have adequate evidence or be explicitly incomplete. Resolve critical failures before presenting the capstone as ready; then build the next-quarter plan from the weaknesses the review actually exposed."
+  ],
+  "prerequisites": [
+    "Weeks 49–51 brief, candidate, incident/performance evidence and rollback/restore results.",
+    "A clean recipient machine/VM or fresh local directory, with documented prerequisites and private access to required credentials.",
+    "A sanitized source/evidence package: no.env, private keys, cloud credentials, database dumps with private data or unredacted personal records."
+  ],
+  "concepts": [
+    {
+      "title": "Handoff is an independent usability test",
+      "paragraphs": [
+        "The receiver needs purpose, requirements, architecture, ownership, prerequisites, commands, configuration locations and failure recovery. Screenshots do not replace executable instructions.",
+        "Observe without supplying undocumented hints during the first attempt. Each question reveals a missing assumption. Correct the document and repeat that step in a fresh context."
+      ],
+      "example": "If the operator asks which directory to use, the runbook is incomplete even if you know the answer immediately.",
+      "judgment": "A successful coached run proves collaboration, not independent handoff. Label the evidence accurately."
+    },
+    {
+      "title": "A portfolio claim is bounded by its proof",
+      "paragraphs": [
+        "A defensible narrative states problem, constraints, choice, evidence, failure, recovery and limits. Local recovery proves its actual tested boundary; cloud execution needs actual provider evidence.",
+        "Scores cannot average away a critical authorization or data-loss defect. Mandatory controls pass individually. Unfinished gates remain visible rather than being renamed out of scope at the end."
+      ],
+      "example": "\"Restored synthetic tasks into a separate local DB in 11 minutes, verified ownership through HTTP\" is stronger than \"production-ready and bulletproof.\"",
+      "judgment": "The next-quarter plan should name a demonstrated gap, a practice exercise, a success criterion and a review date."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Create a navigable handoff index",
+      "purpose": "Link actual evidence and write known limitations first.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nmkdir -p evidence/handoff\ncat > evidence/handoff/README.md <<'MD'\n# Taskboard handoff\nPurpose and users: ../capstone/service-brief.md\nAcceptance and mandatory controls: ../capstone/acceptance.md\nApplication commands and prerequisites: ../../app/taskboard/README.md\nOwnership and escalation: ../../app/taskboard/SUPPORT.md\nRelease record: ../../app/taskboard/reports/release/release.json\nRecovery: week42/week44 records; identify actual retained artifacts and private credential-access procedure.\nIncidents/performance: week51 evidence, including failed hypotheses and retested fixes.\nKnown limits: synthetic authentication,1000-task unpaginated contract, actual tested failure boundary, unexecuted provider/cluster checks.\nReview mode: peer handoff or fresh-environment self-review.\nCritical open issues: list explicitly; do not declare readiness until resolved.\nMD\ncat evidence/handoff/README.md",
+          "explain": [
+            "The index points to supplied runbooks and your actual evidence. Replace week references with your actual report filenames and accessible sanitized locations.",
+            "Keep credential access instructions private and separate from the public portfolio. A broken link is a handoff defect to fix now."
+          ],
+          "expected": "A recipient can find each operating concern from one index.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Verify every referenced artifact exists and is meaningful."
+    },
+    {
+      "title": "2 · Perform the clean rebuild without informal help",
+      "purpose": "Repeat the source-only template onboarding from week 47 on the receiver's environment.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\npython tools/doctor.py --stage 07\npython -m pytest tests/unit tests/contract -q\ndocker compose up --build -d app\ndocker compose --profile test run --build --rm integration\ndocker compose --profile test run --build --rm system",
+          "explain": [
+            "The receiver follows documented setup and supplies their own generated labcredentials. doctor checks configuration; tests prove distinct boundaries.",
+            "This rebuild verifies source instructions. Release deployment is separate: select the previously tested immutable artifact with the week 50 no-build procedure, then compare runtime identity. Rebuilding is not a substitute for immutable promotion."
+          ],
+          "expected": "Fresh-environment checks pass or reveal specific missing instructions.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Record elapsed time and each blocked/misleading instruction, without coaching it away."
+    },
+    {
+      "title": "3 · Recover and audit every gate",
+      "purpose": "Use the already-taught bounded operations, then review evidence scope.",
+      "commands": [
+        {
+          "code": "python tools/compose_drill.py\npython tools/restore_check.py\npython tools/release_gate.py reports/release/release.json",
+          "explain": [
+            "The receiver exercises restart/dependency behavior and an isolated data restore; complete the restored HTTP check from week 42.",
+            "The release gate checks evidence completeness and JUnit outcomes. Human review must still establish authenticity, coverage, currentness and approval."
+          ],
+          "expected": "Recovery can be performed from documents; unresolved evidence blocks readiness.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Mark gates4/8/12/16/20/24/28/32/36/40/44/48/52 individually, preserving incomplete ones."
+    },
+    {
+      "title": "4 · Write a measured portfolio and a next-quarter plan",
+      "purpose": "Make claims another engineer can verify.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\ncat > evidence/handoff/portfolio-outline.md <<'MD'\n# Evidence-based portfolio\nProblem and users:\nConstraints and operating budget:\nChosen architecture and rejected alternatives:\nSource/artifact/config/schema trace:\nTest boundaries and actual results:\nSecurity controls and remaining risks:\nRecovery scenario, measuredRTO/RPO and scope:\nWorkload, errors, throughput, latency and observation window:\nOne incident, failed hypothesis, fix and retest:\nHandoff mode and operator feedback:\nKnown incomplete gates and limitations:\nNext90days: gap → exercise → measurable success → owner/review date.\nMD",
+          "explain": [
+            "Complete each field with real measurements/artifact links. Do not replace unknown values with confident adjectives.",
+            "The final plan selects demonstrated weaknesses, not a new list of fashionable tools."
+          ],
+          "expected": "A concise reusable narrative and a specific practice plan.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "A reader can separate what was built, what was tested and what remains uncertain."
+    }
+  ],
+  "failure": {
+    "title": "The receiver needs an undocumented path",
+    "boundary": "Only a copy of the handoff index.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-lab\ncp evidence/handoff/README.md evidence/handoff/README.review.md\npython3 - <<'PY'\nfrom pathlib import Path\np=Path(\"evidence/handoff/README.review.md\");p.write_text(p.read_text().replace(\"../../app/taskboard/README.md\",\"missing-runbook.md\"))\nPY",
+        "explain": [
+          "Create a review copy with a deliberately broken runbook link. Original evidence stays intact."
+        ],
+        "expected": "The recipient cannot locate the operating instructions.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "test -f evidence/handoff/missing-runbook.md\ntest -f app/taskboard/README.md",
+        "explain": [
+          "Test the referenced path and the actual source location instead of supplying the answer verbally."
+        ],
+        "expected": "Broken reference fails; real runbook exists.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "Relative paths are interpreted from the document location.",
+      "A correct file elsewhere does not make a wrong link usable."
+    ],
+    "answer": {
+      "explanation": [
+        "Fix the index and re-run that step without informal guidance. This is a documentation defect with an observable user consequence, not operator incompetence."
+      ],
+      "recover": [
+        {
+          "code": "cp evidence/handoff/README.md evidence/handoff/README.review.md",
+          "explain": [
+            "Restore the correct index copy, then have the receiver retry from it."
+          ],
+          "expected": "The documented path resolves.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "test -f evidence/handoff/../../app/taskboard/README.md",
+        "explain": [
+          "Resolve the exact relative path from the index location."
+        ],
+        "expected": "Exit 0.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "When may an unfinished gate be called passed?",
+      "hint": "Does an adjacent green check cover it?",
+      "answer": "Only when evidence directly covers its required scope. Otherwise keep it incomplete with the missing work named."
+    },
+    {
+      "prompt": "What makes the handoff independent?",
+      "hint": "How much undocumented help did the receiver need?",
+      "answer": "They perform rebuild/deploy/diagnose/recover from documents. If you supplied missing steps, fix the runbook and repeat; label a self-review accurately."
+    },
+    {
+      "prompt": "What belongs in the next-quarter plan?",
+      "hint": "Which weakness was demonstrated?",
+      "answer": "A concrete gap, bounded practice, measurable acceptance, owner and review date. Prioritize risks exposed by review rather than adding tools for appearance."
+    }
+  ],
+  "exercise": {
+    "brief": "Give the complete package to an operator and revise it using observed friction.",
+    "constraints": [
+      "No informal coaching during the first attempt.",
+      "Critical security/data failures block readiness.",
+      "Public evidence contains no secrets."
+    ],
+    "deliverables": [
+      "Sanitized portfolio, handoff report, gate scorecard and 90-day plan."
+    ],
+    "acceptance": [
+      "All mandatory gates have evidence or explicit incomplete status.",
+      "The recipient can explain risks and execute recovery.",
+      "Claims are limited to actual tested conditions."
+    ],
+    "hints": [
+      "Ask the operator to narrate what they think each command does."
+    ],
+    "solution": [
+      "Observe, record friction, repair the smallest missing explanation and repeat in a fresh context; preserve honest proof limits."
+    ]
+  },
+  "capstone": {
+    "title": "Gate 13 · another engineer can operate it",
+    "scenario": "Your service must outlive your direct involvement. Another operator receives source, release evidence and runbooks and must rebuild, select the tested artifact, diagnose and recover.",
+    "startingPoint": "Use the week 49 acceptance contract, week 50 candidate and week 51 incident dossier; no new scope reduction at the finish.",
+    "requirements": [
+      "Fresh-environment rebuild and exact-artifact deployment are both demonstrated.",
+      "Unit, real integration, real system, security and meaningful restore evidence are reviewed.",
+      "Known critical defects are resolved and retested.",
+      "Every earlier gate is passed with scoped evidence or visibly incomplete.",
+      "Portfolio and next-quarter plan describe measured strengths and remaining limits."
+    ],
+    "acceptance": [
+      "Operator succeeds using documentation or the exercise is explicitly labeled self-review.",
+      "Useful data and ownership survive the tested recovery.",
+      "No unsupported seniority, public-auth or production-reliability claims."
+    ],
+    "runbook": [
+      {
+        "code": "python tools/release_gate.py reports/release/release.json",
+        "explain": [
+          "Run the mechanical evidence gate, then review scope/authenticity."
+        ],
+        "expected": "No missing/failed core evidence.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      },
+      {
+        "code": "python tools/compose_drill.py\npython tools/restore_check.py",
+        "explain": [
+          "Receiver performs bounded recovery from the runbook."
+        ],
+        "expected": "Actual meaningful recovery evidence retained.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "An unresolved core security defect cannot be offset by a high overall score.",
+      "Record exactly where a human still supplied hidden knowledge."
+    ],
+    "solution": [
+      "Reproduce the environment, select the verified artifact, validate behavior/data, conduct a documented fault and recovery, then audit all gates against direct evidence.",
+      "Publish only defensible measured claims and schedule targeted exercises for the gaps."
+    ],
+    "rubric": [
+      {
+        "criterion": "Reproducibility",
+        "evidence": "Fresh environment/runtime identity",
+        "pass": "No critical undocumented step."
+      },
+      {
+        "criterion": "Behavior/security",
+        "evidence": "Three test levels and negative ownership",
+        "pass": "No critical failed or skipped core condition."
+      },
+      {
+        "criterion": "Recovery",
+        "evidence": "Known data/HTTP/timing",
+        "pass": "Declared scenario recovered and limits stated."
+      },
+      {
+        "criterion": "Handoff honesty",
+        "evidence": "Operator report/gate scorecard",
+        "pass": "Incomplete scope remains visible."
+      },
+      {
+        "criterion": "Continued learning",
+        "evidence": "90 day plan",
+        "pass": "Specific exercises and measurable review criteria."
+      }
+    ],
+    "stretch": [
+      "Repeat with a second operator or a different supported platform without changing the contract."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "cd ~/dev-opps-lab/app/taskboard\ndocker compose --profile test stop",
+      "explain": [
+        "Stop the disposable lab while retaining deliberate data/evidence. Follow earlier provider-specific teardown and billing verification if you created paid resources."
+      ],
+      "expected": "Local processes stopped; retained artifacts inventoried.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    },
+    {
+      "code": "cd ~/dev-opps-lab\nrm -- evidence/handoff/README.review.md",
+      "explain": [
+        "Remove only the deliberately faulty review copy. Keep the final runbook and sanitized evidence."
+      ],
+      "expected": "Final handoff package remains.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "DevOps roadmap",
+      "url": "https://roadmap.sh/devops",
+      "usedFor": "Gap mapping after demonstrated practice."
+    },
+    {
+      "title": "DevOps exercises",
+      "url": "https://github.com/bregman-arie/devops-exercises",
+      "usedFor": "Targeted independent retesting."
+    },
+    {
+      "title": "SRE postmortem practice",
+      "url": "https://sre.google/sre-book/postmortem-culture/",
+      "usedFor": "Actionable learning from failures."
+    },
+    {
+      "title": "Google SRE objectives",
+      "url": "https://sre.google/sre-book/service-level-objectives/",
+      "usedFor": "Honest boundaries for reliability claims."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "A map locates skill; evidence proves competence",
+      "application": "Trace requests through DNS, transport, TLS, routing, application and storage; trace changes through Git, tests, images, deployment and observation. The map locates lessons for these boundaries. Alternatives are choices, not an installation list. Completion means you can explain, operate and recover a boundary with evidence. Practice: After each level, label three nodes explain, built, repaired or operated. Attach one local evidence artifact to each claim and repeat the weakest exercise.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    },
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Questions reveal missing mental models",
+      "application": "Answer before revealing a solution. Predict output or the failing layer, then experiment in the lab. If observations disagree, correct the explanation and retain evidence. Revisit with changed conditions so recalled wording cannot replace understanding. Practice: Hide answers to three questions matching the week. Record predictions and run a safe experiment for uncertain answers. Reattempt the weakest next week.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    },
+    {
+      "repo": "milanm/DevOps-Roadmap",
+      "principle": "Review capabilities rather than collecting tools",
+      "application": "Use a second roadmap to check balance among software practice, systems, delivery, cloud, security and operations. Turn missing evidence into a specific exercise, such as restoration or denied access. Do not add a platform just because it appears on another map. Requirements and observed weaknesses decide the next work. Practice: During quarterly review, choose one weak capability, define an acceptance check and complete it before adding optional tooling.",
+      "url": "https://github.com/milanm/DevOps-Roadmap"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability is a measured promise",
+      "application": "Define a useful user action and measure success within a meaningful latency threshold. An SLO states the target over a window; an error budget describes allowed bad events. This makes release tradeoffs explicit. Alert on actionable conditions, write symptom runbooks and examine contributing conditions after incidents. Practice: Define a Taskboard SLI from success counts and latency. Calculate good/total from a sample, inject a brief failure and connect the alert to a runbook.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    },
+    {
+      "repo": "wmariuss/awesome-devops",
+      "principle": "Make a reviewable tool decision",
+      "application": "A decision record states problem, constraints, alternatives, chosen approach and reconsideration evidence. Include permissions, cost, maintenance and recovery. Keep research bounded so it becomes a tested service improvement instead of a bookmark collection. Practice: Compare two candidates for one real course problem, perform an acceptance test with the choice and specify a reassessment trigger.",
+      "url": "https://github.com/wmariuss/awesome-devops"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

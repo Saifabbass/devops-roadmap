@@ -1,0 +1,308 @@
+{
+  "week": 48,
+  "introduction": [
+    "An independent review tests whether your reasoning transfers when the exact tutorial path changes. You will diagnose two interacting client faults, answer unfamiliar questions, and simplify an architecture with explicit tradeoffs.",
+    "A peer can prepare the incident and keep its cause hidden. Without a peer, use the provided case but label the result a prepared self-review. Reading the injected fault first makes it a practice drill, not a blind investigation; both are useful when reported honestly."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash; learner application at ~/dev-opps-lab/app/taskboard, copied and explained in week 3.",
+    "Docker Engine with Linux containers and Compose v2; the authenticated stage 07 lab from weeks 6–8 is working. Verify docker version shows a server.",
+    "Use only synthetic tasks in the private local lab. Record prior evidence; do not mark unrun checks passed.",
+    "Weeks 41–47 evidence and the supplied tools/incident_probe.py.",
+    "A reviewer if available; otherwise a fresh-terminal self-review with answers hidden until your attempt."
+  ],
+  "concepts": [
+    {
+      "title": "Facts, hypotheses and tests have different roles",
+      "paragraphs": [
+        "A fact is an observed response or process state. A hypothesis explains it and predicts another observation. A diagnostic test should distinguish alternatives. Record all three instead of writing a story only after finding the answer.",
+        "Two faults can mask one another. A connection failure prevents the server from ever evaluating a bad token. Repairing the port can reveal 401 rather than mean your repair failed."
+      ],
+      "example": "Connection refused→listener/target evidence; then 401→credential evidence; then 200 with wrong data→application/state evidence.",
+      "judgment": "Do not change five variables at once: you lose the ability to explain which observation supported the fix."
+    },
+    {
+      "title": "Architecture review is requirement matching",
+      "paragraphs": [
+        "A team serving a small private task list may not need active-active regions, a queue and three clusters. Every component adds credentials, upgrades, network paths, cost and recovery work. Remove complexity only after preserving the requirement it was meant to meet.",
+        "The repository comparisons give alternatives, not a checklist to install. A deployment platform still owns routing/backup/patching; a workflow retry still needs idempotency; source-control recovery still needs more than a Git clone."
+      ],
+      "example": "A single private service plus tested backup can be more defensible than an untested distributed design for a modest internal workload.",
+      "judgment": "Simplification is a tradeoff, not an excuse to ignore measured availability, security or recovery requirements."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Establish an independent evidence record",
+      "purpose": "Do not start by guessing the culprit.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nmkdir -p ../../evidence/week-48\ndate -u +%FT%TZ > ../../evidence/week-48/review-start.txt\ndocker compose ps\ncurl --max-time 3 -i http://127.0.0.1:8000/livez\npython -m pytest tests/unit -q",
+          "explain": [
+            "Record start UTC, process state and a bounded health request. Unit checks provide one baseline but do not establish network/data behavior."
+          ],
+          "expected": "Known working service baseline and a new review record.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Write three plausible failure boundaries before seeing the case."
+    },
+    {
+      "title": "2 · Let a reviewer prepare two interacting faults",
+      "purpose": "The preparation command is for the reviewer; self-review readers should disclose that they saw it.",
+      "commands": [
+        {
+          "code": "umask 077\npython - <<'PY'\nimport json\nfrom pathlib import Path\nPath('reports').mkdir(exist_ok=True)\nPath('reports/review-client.json').write_text(json.dumps({'base_url':'http://127.0.0.1:8017','token':'invalid-synthetic-token'}))\nPY\npython tools/incident_probe.py reports/review-client.json",
+          "explain": [
+            "The private JSON changes only this diagnostic client, not the service or host. It combines an incorrect local port and bad synthetic token.",
+            "The probe prints boundary/status/request ID without printing the token. A reviewer may choose a different unused local port or only one fault."
+          ],
+          "expected": "Connection errors mask the credential fault.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Diagnose from observations before opening the answer."
+    },
+    {
+      "title": "3 · Score transferable reasoning",
+      "purpose": "Separate factual recall from demonstrated action.",
+      "commands": [
+        {
+          "code": "cat > ../../evidence/week-48/scorecard.md <<'MD'\n# Independent review\nFor each item: prediction, observation, explanation, confidence, remediation, retest.\nLinux: distinguish absent process, absent listener and permission failure.\nCloud: explain principal, trust policy, resource permission and cost boundary.\nTerraform: explain drift versus intended plan and state access.\nKubernetes: separate readiness, scheduling, identity and volume recovery.\nSRE: calculate user-visible error fraction and measure useful-service recovery.\nDesign: justify each component of a private 1000-task service; remove unjustified complexity.\nReview mode: peer review or prepared self-review; record honestly.\nMD\ncat ../../evidence/week-48/scorecard.md",
+          "explain": [
+            "Write an evidence-oriented scorecard, not a confidence-only rating. Each wrong explanation becomes a new bounded exercise and retest."
+          ],
+          "expected": "A review plan spanning the original course domains.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Explain the same incident to a developer and a nontechnical stakeholder."
+    }
+  ],
+  "failure": {
+    "title": "Fixing one boundary reveals the second fault",
+    "boundary": "Only reports/review-client.json.",
+    "inject": [
+      {
+        "code": "python tools/incident_probe.py reports/review-client.json",
+        "explain": [
+          "Observe the prepared case without modifying the service."
+        ],
+        "expected": "Connection errors at all routes.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "docker compose ps\nss -ltn\npython - <<'PY'\nimport json\nfrom pathlib import Path\np=Path(\"reports/review-client.json\"); v=json.loads(p.read_text()); print(\"Configured endpoint:\",v[\"base_url\"])\nPY",
+        "explain": [
+          "Compare the actual loopback listener with client endpoint. Inspect only the endpoint field, not credential values."
+        ],
+        "expected": "The service listens on 8000; the client targets an unused port.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "A connection failure occurs before authentication.",
+      "After correcting transport, check whether tasks still return 401."
+    ],
+    "answer": {
+      "explanation": [
+        "Correct the endpoint first. The subsequent 401 is new evidence of the second fault, not proof the endpoint repair failed. Restore the expected synthetic credential from the controlled configuration and rerun the same probe."
+      ],
+      "recover": [
+        {
+          "code": "python - <<'PY'\nimport json\nfrom pathlib import Path\np=Path('reports/review-client.json'); v=json.loads(p.read_text()); v['base_url']='http://127.0.0.1:8000'; p.write_text(json.dumps(v))\nPY\npython tools/incident_probe.py reports/review-client.json",
+          "explain": [
+            "Change only the endpoint, then observe health 200 and task 401."
+          ],
+          "expected": "Transport repaired; authentication still fails.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        },
+        {
+          "code": "python - <<'PY'\nimport json\nfrom pathlib import Path\nenv=dict(line.split('=',1) for line in Path('.env').read_text().splitlines() if line and not line.startswith('#'))\np=Path('reports/review-client.json'); v=json.loads(p.read_text()); v['token']=env['LAB_ALICE_TOKEN']; p.write_text(json.dumps(v))\nPY",
+          "explain": [
+            "Read the controlled local.env and replace only this diagnostic client token without printing it."
+          ],
+          "expected": "Expected identity restored.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "python tools/incident_probe.py reports/review-client.json",
+        "explain": [
+          "Repeat the same observation after both repairs."
+        ],
+        "expected": "Health/readiness/tasks return 200.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why did 401 appear only after the port was fixed?",
+      "hint": "Which boundary sees a request first?",
+      "answer": "The original request never reached the server. Correct transport exposed the independent credential failure."
+    },
+    {
+      "prompt": "How do you report a wrong hypothesis?",
+      "hint": "Can it still improve the investigation?",
+      "answer": "Record its predicted observation, the test and contradicting result. That rules out a path and makes your reasoning reviewable."
+    },
+    {
+      "prompt": "When should a component be removed?",
+      "hint": "Which requirement would be lost?",
+      "answer": "When no measured requirement justifies its operational cost, or a simpler design satisfies that requirement with explicit accepted tradeoffs."
+    }
+  ],
+  "exercise": {
+    "brief": "Have a reviewer choose two known faults in an unfamiliar combination and critique a proposed three-cluster task service.",
+    "constraints": [
+      "Only disposable local resources.",
+      "Record whether the scenario was actually blind.",
+      "No claim of independence from a rehearsed command sequence."
+    ],
+    "deliverables": [
+      "Diagnostic timeline, two explanations and a simplified design decision."
+    ],
+    "acceptance": [
+      "Facts and hypotheses remain separate.",
+      "Every failed answer produces a remedial exercise.",
+      "The design preserves stated security/recovery requirements."
+    ],
+    "hints": [
+      "A reviewer can vary client configuration versus a stopped disposable DB."
+    ],
+    "solution": [
+      "Observe one boundary at a time, change one cause, and verify user behavior; simplify architecture by tracing each component to a requirement."
+    ]
+  },
+  "capstone": {
+    "title": "Gate 12 · independent engineering review",
+    "scenario": "A reviewer gives you a service symptom, an incomplete design and unfamiliar questions from earlier domains.",
+    "startingPoint": "Use your template and runbooks, but no informal assistance during the first diagnosis attempt.",
+    "requirements": [
+      "Answer unseen questions then verify against primary documentation.",
+      "Diagnose two bounded unfamiliar combinations of known faults.",
+      "Explain technical impact and stakeholder impact separately.",
+      "Simplify an overcomplicated design with explicit risks and alternatives."
+    ],
+    "acceptance": [
+      "An observer can reproduce the reasoning from evidence.",
+      "Incorrect answers become actionable exercises with retests.",
+      "No unsupported claim is disguised as measured fact."
+    ],
+    "runbook": [
+      {
+        "code": "python tools/doctor.py --stage 07\npython tools/incident_probe.py reports/review-client.json",
+        "explain": [
+          "Run preflight and actual boundary observation; explain the different proof each supplies."
+        ],
+        "expected": "Configuration checks and HTTP observations are recorded.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "Score the explanation as well as final service status.",
+      "A recovery achieved by random edits is incomplete evidence."
+    ],
+    "solution": [
+      "Identify the failed boundary, form a prediction, gather discriminating evidence and apply a scoped repair.",
+      "Record knowledge gaps honestly and select next practice by consequence, not tool popularity."
+    ],
+    "rubric": [
+      {
+        "criterion": "Diagnosis",
+        "evidence": "Timeline/predictions",
+        "pass": "Two faults explained from evidence."
+      },
+      {
+        "criterion": "Communication",
+        "evidence": "Developer/stakeholder summaries",
+        "pass": "Impact and uncertainty are clear."
+      },
+      {
+        "criterion": "Judgment",
+        "evidence": "Design critique",
+        "pass": "Complexity tied to requirements and tradeoffs."
+      }
+    ],
+    "stretch": [
+      "Use a real peer unfamiliar with the implementation."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "rm -- reports/review-client.json",
+      "explain": [
+        "Remove only the private client case containing a labtoken; retain the sanitized timeline."
+      ],
+      "expected": "No diagnostic credential copy remains.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "DevOps exercises",
+      "url": "https://github.com/bregman-arie/devops-exercises",
+      "usedFor": "Unseen question selection and gap review."
+    },
+    {
+      "title": "Google SRE troubleshooting",
+      "url": "https://sre.google/sre-book/effective-troubleshooting/",
+      "usedFor": "Hypothesis-led diagnosis."
+    },
+    {
+      "title": "AWS Well-Architected",
+      "url": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html",
+      "usedFor": "Requirements/tradeoff design critique."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "kestra-io/kestra",
+      "principle": "A retry is another execution",
+      "application": "A workflow connects actions, but a green run only says the actions returned successfully. If a network reply is lost after an upload completed, retrying can duplicate it. Give the operation a stable identifier, check its recorded result before repeating a side effect, set a timeout and cap attempts. Keep the original failure and each retry in the timeline. Practice: Model source and destination backups with two local files. Run the copy twice using one backup identifier; compare checksums. Introduce a missing source and record a bounded failure.",
+      "url": "https://github.com/kestra-io/kestra"
+    },
+    {
+      "repo": "go-gitea/gitea",
+      "principle": "A repository clone is not a platform backup",
+      "application": "Code hosting stores more than commits. Issues, accounts, attachments, packages, settings and credentials can live outside repositories. Recovery must preserve relationships among those stores. Snapshots taken at unrelated moments can leave an issue pointing to a missing attachment. Define the consistency boundary and test actual user operations after restoration. Practice: Draw the GitLab service dependencies. Record each recovery owner, backup location, restoration order and a user action that proves recovery. A disposable Gitea restore is an optional extension.",
+      "url": "https://github.com/go-gitea/gitea"
+    },
+    {
+      "repo": "Dokploy/dokploy",
+      "principle": "The platform owns the work its button hides",
+      "application": "A deploy button groups image building, credentials, routing, supervision and persistence. Someone still owns patching, restoration, diagnosis and upgrades. Trace one release and one failure through the platform. A simple managed deployment may reduce operational work; a larger platform is justified by requirements it meets and evidence that the team can operate it. Practice: Compare a VM, managed container service and Dokploy using the course diagram. Give each a host-loss recovery owner and rollback procedure; select by requirements.",
+      "url": "https://github.com/Dokploy/dokploy"
+    },
+    {
+      "repo": "theonedev/onedev",
+      "principle": "Trace requirements to deployed artifacts",
+      "application": "A platform should preserve the chain from a reported need through review, tests, artifact and deployment. A release record must answer which change was approved, which checks passed and exactly what was deployed. Evidence connected to an artifact is stronger than a screenshot of a green pipeline. Practice: Record one Taskboard issue, commit, merge request, test report, image digest and deployment result. Find and repair a missing link.",
+      "url": "https://github.com/theonedev/onedev"
+    },
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "A map locates skill; evidence proves competence",
+      "application": "Trace requests through DNS, transport, TLS, routing, application and storage; trace changes through Git, tests, images, deployment and observation. The map locates lessons for these boundaries. Alternatives are choices, not an installation list. Completion means you can explain, operate and recover a boundary with evidence. Practice: After each level, label three nodes explain, built, repaired or operated. Attach one local evidence artifact to each claim and repeat the weakest exercise.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    },
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Questions reveal missing mental models",
+      "application": "Answer before revealing a solution. Predict output or the failing layer, then experiment in the lab. If observations disagree, correct the explanation and retain evidence. Revisit with changed conditions so recalled wording cannot replace understanding. Practice: Hide answers to three questions matching the week. Record predictions and run a safe experiment for uncertain answers. Reattempt the weakest next week.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    },
+    {
+      "repo": "wmariuss/awesome-devops",
+      "principle": "Make a reviewable tool decision",
+      "application": "A decision record states problem, constraints, alternatives, chosen approach and reconsideration evidence. Include permissions, cost, maintenance and recovery. Keep research bounded so it becomes a tested service improvement instead of a bookmark collection. Practice: Compare two candidates for one real course problem, perform an acceptance test with the choice and specify a reassessment trigger.",
+      "url": "https://github.com/wmariuss/awesome-devops"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

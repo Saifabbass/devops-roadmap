@@ -1,0 +1,291 @@
+{
+  "week": 32,
+  "introduction": [
+    "A successful final rollout can conceal a minute of failed requests. Release engineering measures the transition, records the artifact and knows how to restore a compatible earlier state.",
+    "This capstone integrates storage, probes, resource budgets and GitOps. You will preserve healthy capacity during a deliberately unready release and recover through Git. The same-host kind cluster cannot demonstrate zone survival, and its single database remains a known dependency."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Week31 Application and environment repository with tested digest; healthy PostgreSQL/PVC, app-database behavior and explicit sync policy. No HPA owns replicas."
+  ],
+  "concepts": [
+    {
+      "title": "Rollout capacity and disruption budgets",
+      "paragraphs": [
+        "maxUnavailable limits desired unavailability during a Deployment rolling update; maxSurge allows extra replicas while new ones start. minReadySeconds requires a readiness period before a new replica counts as available.",
+        "A PodDisruptionBudget constrains voluntary eviction through the eviction API. It does not prevent a node dying, a process crashing, every container failing a probe, or a Deployment controller making a bad rollout."
+      ],
+      "example": "For2replicas, maxUnavailable0/maxSurge1 keeps old capacity while testing one new Pod, if the node has resources for the surge.",
+      "judgment": "A budget is not redundancy. If all replicas and the database share a laptop, its failure defeats the entire service."
+    },
+    {
+      "title": "Recovery has two state machines",
+      "paragraphs": [
+        "Git/Deployment state can return to a prior artifact while database state remains changed. A safe release plan states schema compatibility and what happens to writes made after the update.",
+        "Measure user requests, rollout status and image identity together. Passing system tests on the exact artifact strengthens the release decision but does not prove every production dependency."
+      ],
+      "example": "An additive nullable column may permit old and new code; dropping a column before rollback removes that compatibility.",
+      "judgment": "Use expand/migrate/contract deliberately. A rollback command without a data compatibility decision is incomplete."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Declare bounded rolling behavior",
+      "purpose": "Commit the policy before introducing a faulty version.",
+      "commands": [
+        {
+          "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\ncd \"$HOME/dev-opps-lab/environments/devopps\"\nkubectl patch --local -f env/devopps/taskboard.yaml --type=strategic -p '{\"spec\":{\"replicas\":2,\"minReadySeconds\":5,\"progressDeadlineSeconds\":90,\"strategy\":{\"type\":\"RollingUpdate\",\"rollingUpdate\":{\"maxUnavailable\":0,\"maxSurge\":1}}}}' -o yaml > env/devopps/taskboard-next.yaml\nmv env/devopps/taskboard-next.yaml env/devopps/taskboard.yaml\ngit add env/devopps/taskboard.yaml\ngit commit -m 'Bound rollout capacity and progress deadline'\ngit push\nkubectl -n argocd patch application devopps --type=merge -p '{\"operation\":{\"sync\":{}}}'\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "The local patch records2replicas,5seconds stable readiness, a90-second progress deadline and0unavailable/1surge. Review/commit/push change the source of truth; sync applies it."
+          ],
+          "expected": "2healthy replicas under the recorded rollout policy.",
+          "troubleshoot": "Insufficient capacity for a third Pod blocks rollout; inspect FailedScheduling rather than reducing protections blindly."
+        }
+      ],
+      "checkpoint": "Record the extra CPU/memory needed for one surge replica."
+    },
+    {
+      "title": "Add a voluntary-disruption budget",
+      "purpose": "Keep its ownership explicit because the week31 AppProject permits only Deployment/Service.",
+      "commands": [
+        {
+          "code": "cat > \"$HOME/dev-opps-lab/k8s/pdb.yaml\" <<'YAML'\napiVersion: policy/v1\nkind: PodDisruptionBudget\nmetadata: {name: taskboard, namespace: devopps}\nspec:\n  minAvailable: 1\n  selector: {matchLabels: {app: taskboard}}\nYAML\nkubectl apply -f \"$HOME/dev-opps-lab/k8s/pdb.yaml\"\nkubectl -n devopps get pdb taskboard",
+          "explain": [
+            "The local platform-owned policy selects app Pods and asks voluntary eviction to preserve1available replica. It is not silently inserted into a GitOps project that lacks permission for this kind."
+          ],
+          "expected": "With2healthy replicas, allowed disruptions is typically1.",
+          "troubleshoot": "If0, check current available count and matching labels; do not infer a dead node is protected by this object."
+        }
+      ],
+      "checkpoint": "List failures this PDB does not cover."
+    },
+    {
+      "title": "Run a release observation window",
+      "purpose": "Start in terminal2 before the faulty commit.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps run release-observer --image=busybox:1.37 --restart=Never --command -- sh -c 'i=0; while [ \"$i\" -lt 180 ]; do date -u +%FT%TZ; wget -T 2 -qO- http://taskboard/readyz || echo REQUEST_FAILED; i=$((i+1)); sleep 1; done'\nkubectl -n devopps logs -f pod/release-observer",
+          "explain": [
+            "The independent in-cluster observer records180 attempts with timestamps and2-second deadlines. Follow logs while another terminal changes the release; retain failures rather than restarting the observer."
+          ],
+          "expected": "A continuous record across update and recovery.",
+          "troubleshoot": "If the observer cannot start, resolve its image/network prerequisites before claiming a release measurement."
+        }
+      ],
+      "checkpoint": "Keep the original observer alive through the failure and recovery."
+    }
+  ],
+  "failure": {
+    "title": "A new release never becomes ready",
+    "boundary": "Change only the readiness path through the environment repository; no schema change.",
+    "inject": [
+      {
+        "code": "cd \"$HOME/dev-opps-lab/environments/devopps\"\nkubectl patch --local -f env/devopps/taskboard.yaml --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"readinessProbe\":{\"httpGet\":{\"path\":\"/intentionally-missing\",\"port\":\"http\"}}}]}}}}' -o yaml > env/devopps/taskboard-next.yaml\nmv env/devopps/taskboard-next.yaml env/devopps/taskboard.yaml\ngit add env/devopps/taskboard.yaml\ngit commit -m 'Lab fault: release fails readiness'\ngit push\nkubectl -n argocd patch application devopps --type=merge -p '{\"operation\":{\"sync\":{}}}'\nkubectl -n devopps rollout status deployment/taskboard --timeout=120s",
+        "explain": [
+          "Commit and reconcile an invalid readiness contract. rollout status is expected to return nonzero when progress fails; do not treat that as a reason to kill healthy old replicas."
+        ],
+        "expected": "New replica unready; old replicas remain serving when surge capacity exists.",
+        "troubleshoot": "Read readiness events and progress condition to distinguish the deliberate404 from image or scheduling failures."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n devopps get pods\nkubectl -n devopps describe deployment taskboard\nkubectl -n devopps get events --sort-by=.metadata.creationTimestamp",
+        "explain": [
+          "Inspect new/old readiness, rollout condition and recent probe events."
+        ],
+        "expected": "Failed readiness404 and eventual progress deadline; request observer shows actual impact.",
+        "troubleshoot": "Check the observer timestamps instead of guessing zero downtime."
+      }
+    ],
+    "hints": [
+      "Did the new Pod ever become eligible for Service traffic?",
+      "Which revision still has available replicas?"
+    ],
+    "answer": {
+      "explanation": [
+        "The release is syntactically valid but violates readiness. The controller must preserve the old serving population. Reverting the source avoids an emergency change being overwritten by reconciliation."
+      ],
+      "recover": [
+        {
+          "code": "cd \"$HOME/dev-opps-lab/environments/devopps\"\ngit revert --no-edit HEAD\ngit push\nkubectl -n argocd patch application devopps --type=merge -p '{\"operation\":{\"sync\":{}}}'\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "Run only when HEAD is the single deliberately bad release commit made in this lesson. revert creates an auditable compensating commit; push updates source, and explicit sync reconciles it."
+          ],
+          "expected": "Last known-good image/probe configuration returns.",
+          "troubleshoot": "Inspect git log before reverting. If another commit followed the bad one, select its exact hash rather than reverting unrelated work."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps get deployment taskboard\nkubectl -n argocd get application devopps\nkubectl -n devopps logs release-observer",
+        "explain": [
+          "Confirm healthy replica count, converged source and observed request history."
+        ],
+        "expected": "Recovered2/2 and Synced/Healthy; preserve any REQUEST_FAILED lines.",
+        "troubleshoot": "A clean final state cannot erase failures already recorded."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Does a PDB prevent a failed rollout?",
+      "hint": "Which operation does it constrain?",
+      "answer": "It constrains voluntary evictions; Deployment rollout settings and readiness govern this update. Involuntary failures also remain outside its guarantee."
+    },
+    {
+      "prompt": "Why revert source instead of kubectl set image?",
+      "hint": "Who owns desired state?",
+      "answer": "Argo can overwrite manual changes. A source revert is reviewable and durable; emergency controller pauses require explicit incident handling."
+    },
+    {
+      "prompt": "What still blocks safe rollback?",
+      "hint": "Consider database writes.",
+      "answer": "An incompatible schema or destructive migration can make the old image unusable. This drill changes no schema, so it proves configuration recovery only."
+    }
+  ],
+  "exercise": {
+    "brief": "Write a release record someone else can audit.",
+    "constraints": [
+      "Use actual timestamps and failures",
+      "State schema compatibility"
+    ],
+    "deliverables": [
+      "Image digest and pipeline evidence",
+      "Source commit before/bad/recovery",
+      "Request window summary"
+    ],
+    "acceptance": [
+      "All three revisions are traceable",
+      "Observed impact and limitations are explicit"
+    ],
+    "hints": [
+      "Attach both status and request evidence."
+    ],
+    "solution": [
+      "Record attempted, successful and failed requests; compare the duration of degraded rollout state to actual serving impact. Keep the prior digest and configuration commit for recovery."
+    ]
+  },
+  "capstone": {
+    "title": "Release and recover the persistent Kubernetes service",
+    "scenario": "Promote a tested Taskboard artifact, observe user behavior, survive an unready update and return to known-good desired state.",
+    "startingPoint": "Week31 persistent service, registry digest, GitOps repository and retained local database.",
+    "requirements": [
+      "Promote a real system-tested digest from a newer source commit through Git; preserve exact test and artifact identity.",
+      "Run the supplied authenticated system tests against the forwarded service before and after promotion.",
+      "Maintain the in-cluster observer during the bad-readiness release and source revert.",
+      "Verify a task created before the release still exists after recovery.",
+      "Explain surge capacity, PDB coverage, replica placement and the single local database failure point."
+    ],
+    "acceptance": [
+      "New known-good digest becomes Ready and system tests pass.",
+      "Bad release is detected within the chosen progress deadline.",
+      "Recovery returns2ready replicas with the good image and preserved task.",
+      "Measured request failures are reported honestly; no zone-resilience claim."
+    ],
+    "runbook": [
+      {
+        "code": "kubectl -n devopps run release-observer --image=busybox:1.37 --restart=Never --command -- sh -c 'i=0; while [ \"$i\" -lt 180 ]; do date -u +%FT%TZ; wget -T 2 -qO- http://taskboard/readyz || echo REQUEST_FAILED; i=$((i+1)); sleep 1; done'\nkubectl -n devopps logs -f pod/release-observer",
+        "explain": [
+          "The independent in-cluster observer records180 attempts with timestamps and2-second deadlines. Follow logs while another terminal changes the release; retain failures rather than restarting the observer."
+        ],
+        "expected": "A continuous record across update and recovery.",
+        "troubleshoot": "If the observer cannot start, resolve its image/network prerequisites before claiming a release measurement."
+      },
+      {
+        "code": "cd \"$HOME/dev-opps-lab/app/taskboard\"\nexport TASKBOARD_BASE_URL=http://127.0.0.1:18000\nexport LAB_ALICE_TOKEN=$(kubectl -n devopps get secret taskboard-env -o jsonpath='{.data.LAB_ALICE_TOKEN}' | base64 --decode)\nexport LAB_BOB_TOKEN=$(kubectl -n devopps get secret taskboard-env -o jsonpath='{.data.LAB_BOB_TOKEN}' | base64 --decode)\n. .venv/bin/activate\npython -m pytest tests/system -p no:cacheprovider --junitxml=\"$HOME/dev-opps-lab/evidence/w32-system.xml\"",
+        "explain": [
+          "With week29 port-forward running, export the matching local test identities, activate the existing virtual environment and run real HTTP system tests. -p no:cacheprovider avoids incidental cache writes; JUnit records evidence."
+        ],
+        "expected": "System tests pass against the actual service.",
+        "troubleshoot": "If identities differ, correct the test environment; never disable authorization to make the tests green."
+      },
+      {
+        "code": "cd \"$HOME/dev-opps-lab/environments/devopps\"\ngit revert --no-edit HEAD\ngit push\nkubectl -n argocd patch application devopps --type=merge -p '{\"operation\":{\"sync\":{}}}'\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+        "explain": [
+          "Run only when HEAD is the single deliberately bad release commit made in this lesson. revert creates an auditable compensating commit; push updates source, and explicit sync reconciles it."
+        ],
+        "expected": "Last known-good image/probe configuration returns.",
+        "troubleshoot": "Inspect git log before reverting. If another commit followed the bad one, select its exact hash rather than reverting unrelated work."
+      }
+    ],
+    "hints": [
+      "Complete the good digest promotion first; then inject readiness failure.",
+      "The database is not rolled back by git revert."
+    ],
+    "solution": [
+      "Use the week31 promotion procedure with tested-digest.txt from a new successful pipeline. Observe readiness and system behavior. Commit the bad probe path separately, preserve evidence, revert that exact commit and sync. Verify existing data and run the same tests afterward."
+    ],
+    "rubric": [
+      {
+        "criterion": "Artifact traceability",
+        "evidence": "Pipeline, digest, configuration commit, Pod imageID",
+        "pass": "All identities linked without mutable-tag ambiguity"
+      },
+      {
+        "criterion": "Recovery",
+        "evidence": "Failure signal and source revert",
+        "pass": "Healthy service restored without broadening access"
+      },
+      {
+        "criterion": "User impact",
+        "evidence": "Continuous request record and retained task",
+        "pass": "Failure count and persistence verified"
+      },
+      {
+        "criterion": "Judgment",
+        "evidence": "Architecture limitations",
+        "pass": "PDB, data compatibility and same-host limitations explained"
+      }
+    ],
+    "stretch": [
+      "Design topology spread across real zones and explain the database failover/restore dependencies; do not claim the local test proves it."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n devopps delete pod release-observer --ignore-not-found\nkubectl -n devopps get deployment taskboard\nkubectl -n argocd get application devopps",
+      "explain": [
+        "Remove observer only after saving logs. Leave source recovered and keep the persistent service for observability."
+      ],
+      "expected": "No observer; healthy service and converged source.",
+      "troubleshoot": "If ending the cluster, export needed data/evidence first; kind deletion removes its local volumes."
+    }
+  ],
+  "references": [
+    {
+      "title": "Deployments",
+      "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+      "usedFor": "Rolling strategy and deadlines"
+    },
+    {
+      "title": "Disruption budgets",
+      "url": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/",
+      "usedFor": "Voluntary/involuntary boundaries"
+    },
+    {
+      "title": "Argo sync policy",
+      "url": "https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/",
+      "usedFor": "Source ownership and repair"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "argoproj/argo-cd",
+      "principle": "Restore approved desired state and account separately for data.",
+      "application": "Recover via a reviewed revert while proving a preexisting task still survives.",
+      "url": "https://github.com/argoproj/argo-cd"
+    },
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "Evidence proves operation.",
+      "application": "Attach the release dossier to the Kubernetes operation milestone rather than marking completion from installation alone.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    }
+  ],
+  "notes": [
+    "Release and cloud/container execution are unverified on the authoring host; the learner must collect the stated results."
+  ],
+  "phase": "Kubernetes operations",
+  "title": "Gate 8 · release and recover on Kubernetes",
+  "outcome": "Operate your service through a controlled update, failure and recovery."
+}

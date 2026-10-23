@@ -1,0 +1,11 @@
+{
+  "lessons": 52,
+  "capstones": 13,
+  "repositorySyntheses": 40,
+  "commandBlocks": 545,
+  "bashSyntaxChecks": 542,
+  "embeddedPythonChecks": 40,
+  "bashAvailable": true,
+  "errors": [],
+  "scope": "Coverage, required teaching fields, encoding, embedded payload identity and command syntax only. Does not execute infrastructure or prove teaching outcomes."
+}

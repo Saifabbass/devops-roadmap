@@ -1,0 +1,294 @@
+{
+  "week": 15,
+  "phase": "AWS foundations",
+  "title": "Storage, databases and recovery",
+  "outcome": "Choose among object storage, block storage and managed relational databases.",
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: Storage choices answer different questions. An object store retrieves complete objects by key; a disk presents blocks to a filesystem; a relational database manages structured records and transactions. Today you will protect one private S3 object and restore a deliberately deleted Taskboard record into a separate PostgreSQL database.",
+    "Optional provider lab: Durability describes retaining data, availability describes serving requests and recoverability describes getting an acceptable state back. A replica can faithfully copy a mistake. The lab uses only synthetic data and never overwrites the original database during restoration."
+  ],
+  "prerequisites": [
+    "Week 13 AWS session and cost boundary; a sandbox provisioning role permitted to manage only your lab S3 bucket. Real AWS execution is optional when unavailable, but local restoration remains required and AWS access/version behavior must be marked pending.",
+    "Weeks 6–8 Taskboard Compose stack at ~/dev-opps-lab/app/taskboard, Docker/Compose v2, a working stage07 .env and the generated local synthetic credentials. Pause other writers during backup and comparison."
+  ],
+  "concepts": [
+    {
+      "title": "Object identity and versions",
+      "paragraphs": [
+        "S3 addresses an object by bucket and key. Versioning adds a version identifier whenever the key changes. A normal deletion in a versioned bucket creates a delete marker; an earlier version can still exist.",
+        "Private access is an authorization decision. Encryption at rest protects stored bytes under a key; it does not grant or deny an authenticated caller by itself. Keep public access blocks enabled and test both an allowed read and an unsigned denial."
+      ],
+      "example": "The key lesson.txt can have a current delete marker while an explicit version read still returns the original bytes.",
+      "judgment": "Versioning increases stored history and cost. It is useful recovery evidence, but separate permissions, retention and account failure still matter."
+    },
+    {
+      "title": "A restore must prove contents",
+      "paragraphs": [
+        "A logical PostgreSQL dump captures database contents in a recoverable format. Restoration into another database avoids destroying the evidence you are comparing against. Check record fields and application behavior, not only row count.",
+        "RDS moves selected infrastructure and database maintenance responsibilities to AWS. You still own data correctness, access, schema compatibility, backup settings and restore validation. A managed service is not a substitute for a recovery exercise."
+      ],
+      "example": "Five restored rows with the wrong titles are not a successful business recovery.",
+      "judgment": "The Databasus pattern is to automate only after a manual restore is understood. Replication/failover handles different failures from an independently recoverable historical copy."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Verify context and create a private object",
+      "purpose": "Use this paid-provider branch only after estimating small storage/request charges. The local backup steps below are independent.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nmkdir -p evidence/week-15\nexport AWS_PROFILE=devopps-provisioner AWS_REGION=us-east-1 AWS_PAGER=\"\"\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\nACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)\nBUCKET=\"devopps-w15-$ACCOUNT_ID-$(date +%s)\"\naws s3api create-bucket --bucket \"$BUCKET\" --region \"$AWS_REGION\"\naws s3api put-public-access-block --bucket \"$BUCKET\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true\naws s3api put-bucket-versioning --bucket \"$BUCKET\" --versioning-configuration Status=Enabled\nprintf \"A private Dev Opps recovery object.\\n\" > evidence/week-15/lesson.txt\nOBJECT_VERSION=$(aws s3api put-object --bucket \"$BUCKET\" --key lesson.txt --body evidence/week-15/lesson.txt --query VersionId --output text)\naws s3api get-object --bucket \"$BUCKET\" --key lesson.txt evidence/week-15/downloaded.txt\ncmp evidence/week-15/lesson.txt evidence/week-15/downloaded.txt",
+          "explain": [
+            "Identity is checked before creation. The account plus timestamp makes a globally distinctive bucket name. This create-bucket form is specifically for us-east-1; other Regions require a LocationConstraint.",
+            "All four public access block controls stay enabled. Versioning retains earlier object versions. put-object uploads a local file under an explicit key and captures its version ID.",
+            "get-object writes downloaded bytes. cmp exits zero without output only when both files match."
+          ],
+          "expected": "Private bucket created, non-null version ID returned, and cmp succeeds.",
+          "troubleshoot": "Stop on AccessDenied; check the intended role and resource permission. BucketAlreadyExists needs a new unique suffix, not deletion of someone else's bucket. Do not proceed if VersionId is null; verify versioning first.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record bucket, Region, version ID and object checksum without credentials."
+    },
+    {
+      "title": "Check the authorization boundary",
+      "purpose": "The unsigned call intentionally omits credentials.",
+      "commands": [
+        {
+          "code": "aws s3api get-object --no-sign-request --bucket \"$BUCKET\" --key lesson.txt evidence/week-15/unsigned.txt\naws s3api get-public-access-block --bucket \"$BUCKET\"",
+          "explain": [
+            "--no-sign-request makes an anonymous read. A private bucket should deny it; the destination file must not be treated as proof of success.",
+            "The second call uses your authenticated profile to inspect all four public access blocks."
+          ],
+          "expected": "Unsigned read returns AccessDenied; public blocks are true.",
+          "troubleshoot": "If unsigned access succeeds, stop and inspect bucket policy/access points before continuing. A signed success and unsigned denial test different identities.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Save the denial and distinguish it from a missing object error."
+    },
+    {
+      "title": "Make a known application record and backup",
+      "purpose": "All commands now run locally in the provided Taskboard copy. Use its own .env only.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .env\nEVIDENCE=\"$HOME/dev-opps-lab/evidence/week-15\"\nTASK_ID=$(curl --fail --max-time 5 -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" -H \"Content-Type: application/json\" -d '{\"title\":\"Week 15 restore specimen\"}' http://127.0.0.1:8000/tasks | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"id\"])')\npython3 -c 'import uuid,sys; print(uuid.UUID(sys.argv[1]))' \"$TASK_ID\"\ncurl --fail --max-time 5 -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID\" > \"$EVIDENCE/before.json\"\numask 077\ndocker compose exec -T db pg_dump -U taskboard -d taskboard -Fc > \"$EVIDENCE/taskboard.dump\"\nsha256sum \"$EVIDENCE/taskboard.dump\"",
+          "explain": [
+            "source loads the generated local variables. curl creates one synthetic Alice task; the pipe sends JSON to Python to extract its actual ID. UUID parsing rejects an unexpected value before later SQL uses it.",
+            "The second request saves the exact pre-failure task. umask restricts the backup file. exec -T runs without a terminal so dump bytes are not corrupted; pg_dump -Fc writes custom archive format, and > saves its bytes locally.",
+            "The checksum identifies this backup; it does not establish that restoration works."
+          ],
+          "expected": "One UUID, a before.json file containing its title/owner-visible data and a nonempty dump.",
+          "troubleshoot": "Check each command's exit status. A failed dump can still leave an empty redirected file; never infer success from the filename. Ensure the app and db are healthy before backup.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record backup start/end, schema version and the deliberate pause on concurrent writers."
+    },
+    {
+      "title": "Observe S3 history without destroying it",
+      "purpose": "Return to your AWS terminal; BUCKET and OBJECT_VERSION remain set there.",
+      "commands": [
+        {
+          "code": "DELETE_MARKER=$(aws s3api delete-object --bucket \"$BUCKET\" --key lesson.txt --query VersionId --output text)\naws s3api get-object --bucket \"$BUCKET\" --key lesson.txt evidence/week-15/current.txt\naws s3api get-object --bucket \"$BUCKET\" --key lesson.txt --version-id \"$OBJECT_VERSION\" evidence/week-15/recovered-version.txt\ncmp evidence/week-15/lesson.txt evidence/week-15/recovered-version.txt",
+          "explain": [
+            "A versioned delete adds a marker and captures that marker's version ID. The ordinary current read now fails as expected.",
+            "Specifying the original version retrieves historical bytes. cmp proves their equality to the local original."
+          ],
+          "expected": "Current read is missing; version-specific read and byte comparison succeed.",
+          "troubleshoot": "If VersionId was not recorded, inspect list-object-versions for this exact key. Do not remove all versions as a recovery method.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Explain why the delete marker and original object are separate stored versions."
+    }
+  ],
+  "failure": {
+    "title": "Delete only the known synthetic record",
+    "boundary": "The single validated Taskboard UUID created above; backup already exists and original DB is never overwritten.",
+    "inject": [
+      {
+        "code": "python3 -c 'import uuid,sys; uuid.UUID(sys.argv[1])' \"$TASK_ID\" || exit 1\ndocker compose exec -T db psql -U taskboard -d taskboard -v ON_ERROR_STOP=1 -c \"DELETE FROM tasks WHERE id = '$TASK_ID'::uuid;\"\ncurl --max-time 5 -i -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:8000/tasks/$TASK_ID\"",
+        "explain": [
+          "UUID validation is mandatory before interpolating the identifier. SQL's WHERE condition restricts deletion to this synthetic record; ON_ERROR_STOP makes SQL errors fail the command. The explicit || exit 1 stops the copied command block if validation fails; a failed validation alone would not stop an interactive shell from running the next line.",
+          "curl -i shows HTTP status after deletion without changing any other task."
+        ],
+        "expected": "DELETE 1 and an authenticated 404 response.",
+        "troubleshoot": "If DELETE 0, inspect the recorded ID rather than broadening the WHERE clause. If more than one row is reported, stop: the command differs from the supplied primary-key condition.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "docker compose exec -T db pg_restore --list < \"$EVIDENCE/taskboard.dump\"\ncat \"$EVIDENCE/before.json\"",
+        "explain": [
+          "pg_restore --list inspects archive metadata without applying it; stdin redirection supplies the saved dump. cat recalls the known pre-failure task."
+        ],
+        "expected": "Archive entries include tasks and migration metadata; before.json identifies the missing task.",
+        "troubleshoot": "An unreadable archive is a failed backup candidate. Do not overwrite the live database trying to repair it.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "Restore into a new database with a name distinct from taskboard.",
+      "Compare the exact title, ownership and completion fields; a row count alone is insufficient."
+    ],
+    "answer": {
+      "explanation": [
+        "Replication would preserve the deletion too. The pre-deletion dump is a historical copy. A separate restored database lets you verify recovery before deciding how to reintroduce data."
+      ],
+      "recover": [
+        {
+          "code": "RESTORE_DB=\"taskboard_restore_w15_$(date +%s)\"\nSTART_SECONDS=$SECONDS\ndocker compose exec -T db createdb -U taskboard \"$RESTORE_DB\"\ndocker compose exec -T db pg_restore -U taskboard -d \"$RESTORE_DB\" --exit-on-error < \"$EVIDENCE/taskboard.dump\"\nprintf \"Restore elapsed seconds: %s\\n\" \"$((SECONDS-START_SECONDS))\"\ndocker compose exec -T db psql -U taskboard -d \"$RESTORE_DB\" -v ON_ERROR_STOP=1 -c \"SELECT id, owner_id, title, completed, created_at, completed_at FROM tasks WHERE id = '$TASK_ID'::uuid;\"",
+          "explain": [
+            "The generated name is a new restoration destination. createdb makes it; pg_restore stops on the first error and writes only to that destination.",
+            "SECONDS is Bash's elapsed timer; subtraction measures this procedure, not a guaranteed production RTO. SELECT reads every important task field for comparison."
+          ],
+          "expected": "Restored task matches its recorded data, including owner and completion state.",
+          "troubleshoot": "If restore fails, preserve the new database and error output for diagnosis. Do not retry against the original database.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "docker compose run -d --rm --no-deps --name devopps-w15-restore -p 127.0.0.1:18015:8000 -e \"DATABASE_URL=postgresql://taskboard:$POSTGRES_PASSWORD@db:5432/$RESTORE_DB\" app python -m uvicorn reference.stage07:app --host 0.0.0.0 --port 8000 --no-access-log\ncurl --retry 10 --retry-connrefused --retry-delay 1 --fail-with-body -sS http://127.0.0.1:18015/readyz\ncurl --fail-with-body -sS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:18015/tasks/$TASK_ID\" > \"$EVIDENCE/restored.json\"\npython3 - \"$EVIDENCE\" <<'PY'\nimport json,sys\nfrom pathlib import Path\np=Path(sys.argv[1])\nassert json.loads((p/'before.json').read_text()) == json.loads((p/'restored.json').read_text()), 'Restored fields differ'\nprint('Restored record matches through a real HTTP listener')\nPY\ndocker stop devopps-w15-restore",
+        "explain": [
+          "The one-off runtime container uses only the restored database and publishes a separate loopback port. --no-deps leaves the normal stack untouched; --rm removes this container after stopping. No test-only package is required inside the runtime image.",
+          "Readiness is retried with a bounded delay, then the actual known UUID is read with Alice’s identity. Python compares every recorded task field through the real HTTP response. The final stop closes only this named temporary server."
+        ],
+        "expected": "Known record equality through the restored application; original app remains connected to its original database.",
+        "troubleshoot": "If the temporary name already exists, inspect it before reuse. If a check fails, stop devopps-w15-restore after collecting evidence; never weaken ownership filtering.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "How does replication differ from recovery history?",
+      "hint": "Consider a valid but unwanted DELETE.",
+      "answer": "A replica can copy that deletion. Historical backups/version retention allow recovery before the mistake, assuming access and integrity remain available."
+    },
+    {
+      "prompt": "What does encryption not decide?",
+      "hint": "Who may read is separate.",
+      "answer": "Encryption protects stored bytes under a key. Authorization determines whether a caller may retrieve/decrypt them; a public authorized path can still expose encrypted-at-rest data."
+    },
+    {
+      "prompt": "Why restore somewhere else?",
+      "hint": "Preserve comparison and rollback options.",
+      "answer": "It avoids overwriting surviving data and lets you validate contents and app compatibility before selecting a recovery approach."
+    }
+  ],
+  "exercise": {
+    "brief": "Produce a storage decision and a repeatable recovery report.",
+    "constraints": [
+      "Use only synthetic data; restore to a distinct destination.",
+      "Do not deploy RDS unless a fresh estimate fits your ceiling. If deferred, label managed-service execution pending."
+    ],
+    "deliverables": [
+      "Object/block/relational choice for artifacts, host filesystem and tasks.",
+      "Measured restore duration, exact restored fields, application check and maximum data-loss explanation.",
+      "RDS comparison covering backup retention, Multi-AZ, patch ownership, connection limits and cost."
+    ],
+    "acceptance": [
+      "A deleted known record is proven recoverable.",
+      "S3 access and version observations are labeled executed or pending.",
+      "The report does not confuse failover, durability and backup."
+    ],
+    "hints": [
+      "Use request-level assertions after storage checks.",
+      "For optional RDS practice: create only a private sandbox instance, take a snapshot, restore that snapshot as a new private instance, run the same record checks through a controlled tunnel, then remove both instances and retained lab snapshots according to your inventory."
+    ],
+    "solution": [
+      "Choose object storage for archives, block storage for a VM filesystem and PostgreSQL for transactional tasks. Explain the query/update pattern behind each choice.",
+      "State what the restore actually proved and which point-in-time, zone and cloud-service behaviors were not exercised."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "case \"$RESTORE_DB\" in taskboard_restore_w15_*) ;; *) printf \"Refusing unexpected restore name\\n\"; exit 1;; esac\ndocker compose exec -T db dropdb -U taskboard \"$RESTORE_DB\"\nunset LAB_ALICE_TOKEN LAB_BOB_TOKEN POSTGRES_PASSWORD",
+      "explain": [
+        "After inspection, remove only the generated taskboard_restore_w15_ database; verify its prefix before running. Keep the original database and evidence. unset clears credentials from this terminal."
+      ],
+      "expected": "Only the isolated restore database is removed.",
+      "troubleshoot": "Never substitute taskboard. If unsure of the value, print RESTORE_DB and compare it with the recorded create step first.",
+      "shell": "bash"
+    },
+    {
+      "code": "aws s3api delete-object --bucket \"$BUCKET\" --key lesson.txt --version-id \"$DELETE_MARKER\"\naws s3api delete-object --bucket \"$BUCKET\" --key lesson.txt --version-id \"$OBJECT_VERSION\"\naws s3api delete-bucket --bucket \"$BUCKET\"",
+      "explain": [
+        "Run in the AWS terminal after checking identity. Delete only the recorded marker and object version, then the now-empty lab bucket."
+      ],
+      "expected": "Bucket removal succeeds.",
+      "troubleshoot": "BucketNotEmpty means another version/object remains; list this exact bucket and reconcile the inventory instead of using broad forced deletion.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "S3 create-bucket",
+      "url": "https://docs.aws.amazon.com/cli/latest/reference/s3api/create-bucket.html",
+      "usedFor": "Region-specific bucket creation."
+    },
+    {
+      "title": "S3 versioning",
+      "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html",
+      "usedFor": "Versions and delete markers."
+    },
+    {
+      "title": "PostgreSQL SQL dumps",
+      "url": "https://www.postgresql.org/docs/current/backup-dump.html",
+      "usedFor": "Logical backup and separate restore."
+    },
+    {
+      "title": "Databasus",
+      "url": "https://github.com/databasus/databasus",
+      "usedFor": "Restore validation, historical copies and key recovery."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "databasus/databasus",
+      "principle": "A backup is proven through restoration",
+      "application": "The drill validates fields and an application read in a distinct database.",
+      "url": "https://github.com/databasus/databasus"
+    },
+    {
+      "repo": "floci-io/floci",
+      "principle": "Real provider access differs from emulation",
+      "application": "The signed/unsigned AWS checks are separate from local database recovery.",
+      "url": "https://github.com/floci-io/floci"
+    }
+  ],
+  "notes": [
+    "Cloud and Docker/PostgreSQL procedures require learner execution; authoring did not create provider resources or claim a live restore pass."
+  ],
+  "freeTrack": {
+    "title": "Restore real local data into a separate database",
+    "objective": "Prove backup content and recovery without buying object storage.",
+    "prerequisites": [
+      "Complete the local Taskboard lessons through week 8. Use Ubuntu Bash and your existing course workspace.",
+      "Use only generated lab identities and synthetic data. No cloud account or payment card is needed.",
+      "Docker and the existing Compose stage-07 app are running; pause other synthetic task writers."
+    ],
+    "commands": [
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\ndocker compose up -d app\npython3 tools/restore_check.py\ncat reports/restore.json",
+        "explain": [
+          "Compose starts the existing private lab and its database dependencies.",
+          "restore_check streams a real PostgreSQL backup into a separately named restore database, then compares IDs, owners, titles and completion timestamps.",
+          "Read the generated report, including the actual destination. A successful process exit alone is weaker than a content comparison."
+        ],
+        "expected": "The report identifies a taskboard_restore_ destination and matching source/restored content.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Keep at least one known task before the backup and show it in the restored content.",
+      "Explain why a backup copy on the same laptop cannot survive losing that laptop.",
+      "Write a retention and independent-copy proposal without opening a paid account."
+    ],
+    "limits": "This proves a local logical restore. S3 authorization, object versioning, lifecycle, cross-account recovery and provider durability remain untested.",
+    "cleanup": "Inspect the actual taskboard_restore_ name in reports/restore.json, then follow the guarded restore cleanup in the Taskboard README. Keep the original taskboard database."
+  }
+}

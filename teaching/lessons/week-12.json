@@ -1,0 +1,303 @@
+{
+  "week": 12,
+  "introduction": [
+    "Continuous delivery means a change is ready for a controlled release decision. A passing test pipeline is necessary evidence, but the target's configuration, schema and network can still differ from the test environment.",
+    "This capstone connects the tested digest to a real private staging VM. You will run business smoke checks, exercise a configuration failure with healthy process liveness, reject an outdated deployment and recover a known-good image/configuration pair. Public identity integration remains a separate requirement before public exposure."
+  ],
+  "prerequisites": [
+    "Complete weeks 9–11 with actual passing GitLab lint, integration, image and system jobs.",
+    "Use a separate disposable Ubuntu staging VM with Python 3, Docker/Compose and GitLab Runner installed using the earlier lessons. Keep it private; all application traffic binds 127.0.0.1.",
+    "Create a project-locked Protected shell-executor runner with tag private-staging-shell and untagged jobs disabled. This runner controls this VM's Docker daemon; no untrusted MR may run there.",
+    "Record schema compatibility between current and previous releases before approving each deploy or rollback. The helper requires SCHEMA_COMPATIBLE=yes as an explicit review acknowledgment, not as an automated proof."
+  ],
+  "concepts": [
+    {
+      "title": "A target is code, configuration, schema and authority",
+      "paragraphs": [
+        "The runtime image was tested by digest, but deployment also selects a Compose configuration, credentials, database and host. The helper records the image, commit and Compose text together. The target's private .env stays on the target and is never uploaded as an artifact.",
+        "The shell runner executes directly on its dedicated VM. Docker access gives substantial authority over that VM. Project locking, protected-ref rules, code review and private networking are therefore essential boundaries of this teaching setup."
+      ],
+      "example": "The same tested image can fail business operations if its staging database hostname is wrong, while /livez remains healthy.",
+      "judgment": "Treat configuration changes as releases with evidence. Do not assume an image test covered every target-specific setting."
+    },
+    {
+      "title": "Serialization does not reject stale releases",
+      "paragraphs": [
+        "resource_group allows one deployment job for this environment at a time. That prevents simultaneous mutation, but an older queued job can still run after a newer job unless you reject it separately.",
+        "The helper takes a host file lock and compares the real GitLab pipeline ID with a persisted watermark. It records approval before modifying the target. Lower pipeline IDs are rejected; the same pipeline cannot substitute a different candidate image. GitLab's Prevent outdated deployment jobs setting is an additional control."
+      ],
+      "example": "Pipeline 200 succeeds, then an old manual job from pipeline 199 is started. It must fail before changing the target, even though no other job is running.",
+      "judgment": "Test ordering and stale rejection separately. A queue that serializes perfectly can still deploy the wrong version last."
+    },
+    {
+      "title": "Recovery selects compatible known-good state",
+      "paragraphs": [
+        "The helper retains a successful release and a previous successful release. After a failed attempt, rollback restores the last successful image/configuration. After a successful release, rollback selects the previous successful pair. It does not restore or delete the database.",
+        "A migration compatibility review must precede recovery. The helper does not infer whether removed columns, changed semantics or lost rows are safe for an old binary. If compatibility is absent, choose a forward fix or a deliberate isolated restore procedure."
+      ],
+      "example": "Reverting a wrong database hostname needs the old Compose configuration as well as the old image digest.",
+      "judgment": "A recovery tool should preserve evidence and fail clearly when it lacks a known-good state, rather than guessing an artifact."
+    },
+    {
+      "title": "Record recovery state atomically and verify the running artifact",
+      "paragraphs": [
+        "The helper stores the approval watermark, current good release, previous release, attempted operation and recovery target in one private state.json ledger. Replacing that one file commits the related records together. If a deploy is interrupted before success, recovery selects the recorded good release. If recovery itself fails or is interrupted, a retry keeps its recorded destination instead of stepping back again.",
+        "The approval watermark advances before runtime changes. An older queued pipeline remains stale even if the newer deployment fails. A retry at the same pipeline ID cannot substitute another digest. These local guards supplement the protected runner, manual review and GitLab resource group; they do not authenticate an arbitrary caller who already controls the runner host.",
+        "Before starting runtime services, the helper resolves Compose privately, requires the exact tested image for both app and migration, enforces the bundled loopback/private database layout, and removes build directives from its temporary deployment model. It then compares the running container image ID with the image resolved by Docker from the pulled digest. Version metadata and real task/ownership checks must also pass. The resolved model contains credentials and is deleted with the temporary registry configuration."
+      ],
+      "example": "Pipeline 101 passes with image A. Pipeline 102 starts image B but fails a task check. Recovery returns to A; if that recovery is interrupted, retry still selects A. Pipeline 101 cannot later deploy over pipeline 102’s recorded approval.",
+      "judgment": "This is a single-host lab controller with a Linux file lock, not a distributed deployment service. A compatible image cannot repair an incompatible database change, and copying its state files elsewhere does not reproduce the running environment."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Prepare the dedicated staging target",
+      "purpose": "On the staging VM, register its new Protected project runner interactively with executor shell and description devopps-staging-runner. In GitLab set tag private-staging-shell and disable untagged jobs. Copy your reviewed Taskboard source into a local operator directory first; the following commands run from that application directory.",
+      "commands": [
+        {
+          "code": "read -r -p 'Reviewed Taskboard source directory on this staging VM: ' STAGING_SOURCE\ncd \"$STAGING_SOURCE\" || exit 1\ntest -f tools/init_lab.py || { printf '%s\\n' 'The reviewed application files are not in this directory.'; exit 1; }\nsudo test ! -e /opt/devopps-staging || { printf '%s\\n' 'Staging target already exists: inspect its state instead of reinitializing it.'; exit 1; }\nsudo usermod -aG docker gitlab-runner || exit 1\nsudo install -d -m 0700 -o gitlab-runner -g gitlab-runner /opt/devopps-staging || exit 1\nsudo install -d -m 0700 -o gitlab-runner -g gitlab-runner /opt/devopps-staging/tools || exit 1\nsudo install -m 0755 tools/init_lab.py /opt/devopps-staging/tools/init_lab.py || exit 1\nsudo -u gitlab-runner python3 /opt/devopps-staging/tools/init_lab.py || exit 1\nsudo systemctl restart gitlab-runner || exit 1\nsudo -u gitlab-runner docker version || exit 1",
+          "explain": [
+            "Add only this dedicated runner account to the VM's Docker group. This is deployment authority, not harmless read-only access.",
+            "install creates a private target and tools directory owned by the runner, then copies the reviewed credential initializer.",
+            "Running the initializer as the runner creates the target's .env with random lab credentials and stage 07. It refuses to overwrite an existing file.",
+            "Restart refreshes group membership. The final command verifies Docker client/server access as the actual deployment user.",
+            "Choose the actual source folder on this VM. The existing-target guard prevents a setup rerun from changing an established deployment ledger or private credentials.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "A private target .env exists without printing its values, and the runner can use Docker.",
+          "troubleshoot": "If the target already belongs to another service, stop and use a fresh dedicated VM. Do not change unrelated directory ownership."
+        }
+      ],
+      "checkpoint": "Record the environment owner, runner restrictions and private access path."
+    },
+    {
+      "title": "Add the included deployment helper and jobs",
+      "purpose": "On your development machine in ~/dev-opps-delivery, copy the helper from the extracted course. Its source is part of your review, not an opaque remote script.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-delivery\ngit switch -c delivery/private-staging || exit 1\nread -r -p 'Actual extracted Dev Opps course directory: ' COURSE_DIR\ntest -f \"$COURSE_DIR/labs/delivery/deploy_private.py\" || exit 1\ncp \"$COURSE_DIR/labs/delivery/deploy_private.py\" tools/deploy_private.py || exit 1\ncat tools/deploy_private.py\ncat >> .gitlab-ci.yml <<'YAML'\n\ndeploy_private:\n  stage: promote\n  tags: [private-staging-shell]\n  before_script: []\n  needs:\n    - job: system\n      artifacts: true\n  rules:\n    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == \"true\"'\n      when: manual\n  allow_failure: false\n  environment:\n    name: private-staging\n  resource_group: private-staging\n  script:\n    - python3 tools/deploy_private.py deploy --image-file tested-digest.txt\nrollback_private:\n  stage: promote\n  tags: [private-staging-shell]\n  before_script: []\n  needs: []\n  rules:\n    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == \"true\"'\n      when: manual\n  allow_failure: true\n  environment:\n    name: private-staging\n  resource_group: private-staging\n  script:\n    - python3 tools/deploy_private.py rollback\nYAML\ngit add tools/deploy_private.py .gitlab-ci.yml\ngit commit -m 'Deploy tested artifacts to private staging with recovery checks'\ngit push -u origin delivery/private-staging",
+          "explain": [
+            "Verify the actual course path and copy its reviewed helper. sed displays the implementation before it receives deployment authority.",
+            "deploy_private needs system's tested-digest artifact, is manual on the protected default branch and uses the dedicated shell runner. It shares resource_group with rollback.",
+            "rollback_private is an optional manual recovery job with no dependency on the failed candidate's tests. It can only select a recorded known-good release. Its allow_failure=true keeps an unused recovery button from blocking every pipeline; always inspect its actual result when used.",
+            "Both jobs name the same GitLab environment. before_script=[] avoids the Docker-image job's dependency installation on the shell target.",
+            "The helper validates exact project-registry digests, locks the target, rejects stale IDs, logs into the registry using a temporary private Docker config, pulls without rebuilding, waits for PostgreSQL, migrates explicitly, recreates app, and tests real HTTP behavior. It records sanitized outcomes and clears temporary registry credentials.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Reviewed jobs and helper are committed. Merge after ordinary tests and human review.",
+          "troubleshoot": "Confirm the helper contains no credentials and the target path remains the fixed /opt/devopps-staging. Do not run this shell job on a shared development server."
+        }
+      ],
+      "checkpoint": "In GitLab Settings → CI/CD, enable Prevent outdated deployment jobs. Restrict environment deployment permissions if available; record any manual owner-control fallback."
+    },
+    {
+      "title": "Deploy and inspect actual business evidence",
+      "purpose": "In the successful protected default-branch pipeline, open the manual deploy job. After reviewing schema compatibility, supply SCHEMA_COMPATIBLE=yes for that job and run it. Do not store this acknowledgment as an unconditional permanent project variable.",
+      "commands": [
+        {
+          "code": "sudo -u gitlab-runner python3 -c \"import json; from pathlib import Path; s=json.loads(Path('/opt/devopps-staging/state.json').read_text()); print(json.dumps({k:s[k] for k in ('attempt','watermark')},indent=2))\"\ncurl --fail --show-error --max-time 5 http://127.0.0.1:8000/version\ncurl --fail --show-error --max-time 5 http://127.0.0.1:8000/livez",
+          "explain": [
+            "On the staging VM, read the sanitized attempt and watermark records. They contain artifact IDs, status, timing and a synthetic smoke task ID, not bearer tokens.",
+            "The helper's business smoke creates as Alice, checks read/list, denies Bob's read/update, verifies unchanged state, completes and repeats completion, and compares the running commit.",
+            "The direct reads establish current version/liveness; the passed business_checks record adds the stronger task behavior evidence."
+          ],
+          "expected": "The actual job passes; attempt.json reports business_checks=passed, the expected digest and measured duration.",
+          "troubleshoot": "If the job fails, inspect its sanitized report and private service state. A healthy /livez cannot override failed readiness or task checks."
+        }
+      ],
+      "checkpoint": "Record the tested digest, running commit and target configuration as one release."
+    }
+  ],
+  "failure": {
+    "title": "Healthy process, broken staging task endpoint",
+    "boundary": "Use only this private target. The deliberate release changes app's database hostname; it does not change or delete the database. The CI system job uses its explicit known database configuration, so this target-specific fault demonstrates why post-deploy checks matter.",
+    "inject": [
+      {
+        "code": "cd ~/dev-opps-delivery\ngit switch -c practice/staging-db-host || exit 1\npython3 - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('compose.yaml')\ns = p.read_text()\nold = '  app:\\n    <<: *application\\n'\nassert s.count(old) == 1\nnew = old + '    environment:\\n      <<: *appenv\\n      DATABASE_URL: postgresql://taskboard:${POSTGRES_PASSWORD}@wrong-db:5432/taskboard\\n'\np.write_text(s.replace(old, new))\nPY\ngit add compose.yaml\ngit commit -m 'Practice a staging-only database configuration fault'\ngit push -u origin practice/staging-db-host",
+        "explain": [
+          "The asserted edit adds an app-only environment override with a nonexistent host; the migration service and real database retain their correct configuration.",
+          "Review and merge this intentional private-lab change. After the candidate's required tests pass and schema compatibility is confirmed, run its manual deployment.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+        ],
+        "expected": "Process liveness can be 200 while readiness and task operations fail; the deployment job's business verification fails and retains the previous good record.",
+        "troubleshoot": "Do not mark the deployment successful because its image tests passed. Compare the target-specific configuration boundary."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "curl --include --max-time 5 http://127.0.0.1:8000/livez\ncurl --include --max-time 5 http://127.0.0.1:8000/readyz\nsudo -u gitlab-runner python3 -c \"import json; from pathlib import Path; s=json.loads(Path('/opt/devopps-staging/state.json').read_text()); print(json.dumps({k:s[k] for k in ('attempt','watermark')},indent=2))\"",
+        "explain": [
+          "Compare process-only liveness with dependency readiness and the helper's failed attempt record.",
+          "The target's previous successful release remains recorded because this candidate did not pass smoke checks."
+        ],
+        "expected": "Liveness responds; readiness fails; the attempt is failed with no successful business result.",
+        "troubleshoot": "If the app never started, inspect its container logs privately; do not assume you observed the intended dependency-only fault."
+      }
+    ],
+    "hints": [
+      "The previous image alone is insufficient if the wrong Compose configuration remains selected.",
+      "A rollback is permitted only after reviewing current schema compatibility."
+    ],
+    "answer": {
+      "explanation": [
+        "Run rollback_private from the same or a newer protected pipeline with SCHEMA_COMPATIBLE=yes after review. The helper restores the recorded good image and Compose text, preserves the database and repeats real HTTP smoke checks. Then repair the source configuration through an MR so the next deployment does not reintroduce the fault."
+      ],
+      "recover": [
+        {
+          "code": "cd ~/dev-opps-delivery\ngit switch -c repair/staging-db-host || exit 1\npython3 - <<'PY' || exit 1\nfrom pathlib import Path\np = Path('compose.yaml')\ns = p.read_text()\nfault = '    environment:\\n      <<: *appenv\\n      DATABASE_URL: postgresql://taskboard:${POSTGRES_PASSWORD}@wrong-db:5432/taskboard\\n'\nassert s.count(fault) == 1\np.write_text(s.replace(fault, ''))\nPY\ngit add compose.yaml\ngit commit -m 'Restore the reviewed staging database configuration'\ngit push -u origin repair/staging-db-host",
+          "explain": [
+            "This source repair removes only the deliberate override and submits it for review. It complements the operational rollback; a Git commit by itself does not change the running target.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "The recovery job passes and the repaired source is reviewed before the next release.",
+          "troubleshoot": "If no recorded good release exists, the helper refuses recovery. Use the initial working release procedure instead of inventing a digest."
+        }
+      ],
+      "verification": {
+        "code": "sudo -u gitlab-runner python3 -c \"import json; from pathlib import Path; s=json.loads(Path('/opt/devopps-staging/state.json').read_text()); print(json.dumps({k:s[k] for k in ('attempt','watermark')},indent=2))\"\ncurl --fail --show-error http://127.0.0.1:8000/readyz\ncurl --fail --show-error http://127.0.0.1:8000/version",
+        "explain": [
+          "On staging, verify the actual rollback mode/status, successful business checks, readiness and expected previous version."
+        ],
+        "expected": "A passed recovery report with measured duration and the known-good version.",
+        "troubleshoot": "A manual recovery job configured as optional may not turn the whole pipeline red on failure. Inspect its own status and evidence explicitly."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why are resource_group and the pipeline watermark both needed?",
+      "hint": "Can sequential jobs still be ordered incorrectly?",
+      "answer": "Serialization prevents overlapping mutations. The watermark rejects a lower pipeline ID after newer approval. Without it, an older queued job can run last and overwrite a newer release."
+    },
+    {
+      "prompt": "Why did CI miss the wrong staging hostname?",
+      "hint": "Which configuration did system testing use?",
+      "answer": "The system job started the tested image with its own known database URL. The staging Compose override was a different deployment input. Post-deploy checks test that target boundary; broader configuration validation can reduce the gap."
+    },
+    {
+      "prompt": "When is rolling forward safer than rolling back?",
+      "hint": "Consider irreversible data/schema changes.",
+      "answer": "When the old binary is incompatible with the current schema or the incident changed data that an image replacement cannot restore. A compatible forward fix can preserve newer valid writes; an isolated restore needs an explicit recovery-point/data-loss decision."
+    }
+  ],
+  "exercise": {
+    "brief": "Complete the delivery capstone below.",
+    "constraints": [
+      "Private synthetic service only."
+    ],
+    "deliverables": [
+      "Delivery/recovery evidence."
+    ],
+    "acceptance": [
+      "Capstone rubric passes."
+    ],
+    "hints": [
+      "Test stale ordering separately."
+    ],
+    "solution": [
+      "Use the full evidence chain."
+    ]
+  },
+  "capstone": {
+    "title": "Release, reject stale work, and recover through GitLab",
+    "scenario": "A release owner must deliver a tested private Taskboard artifact, stop a bad target configuration, reject an old queued deployment and hand off an exercised recovery path.",
+    "startingPoint": "The exact-digest pipeline, dedicated private staging target, reviewed schema history and two successful candidate pipelines with distinct real pipeline IDs.",
+    "requirements": [
+      "Prove a failed pre-release check cannot reach the documented deploy path.",
+      "Deploy a known-good candidate and capture actual business smoke evidence.",
+      "Queue or retain an older manual deployment, deploy a newer approved candidate first, then attempt the older job.",
+      "Inject the target-specific business failure and exercise recorded compatible rollback.",
+      "Record environment owner, access scope, recovery duration and schema limits."
+    ],
+    "acceptance": [
+      "Build/system/target identify the intended immutable runtime artifact.",
+      "A stale job is rejected before target mutation; running version and good record remain unchanged.",
+      "Concurrent jobs share the resource group; this is demonstrated separately from stale rejection.",
+      "The failed staging configuration cannot be marked successful by liveness alone.",
+      "Recovery restores the recorded image/configuration and passes ownership and task-state checks."
+    ],
+    "runbook": [
+      {
+        "code": "sudo -u gitlab-runner cat /opt/devopps-staging/watermark.json\nsudo -u gitlab-runner python3 -c \"import json; from pathlib import Path; s=json.loads(Path('/opt/devopps-staging/state.json').read_text()); print(json.dumps({k:s[k] for k in ('attempt','watermark')},indent=2))\"\ncurl --fail --show-error http://127.0.0.1:8000/version",
+        "explain": [
+          "Capture these records before and after trying the older manual job.",
+          "Use the actual two pipeline IDs; do not fabricate CI_PIPELINE_ID in a production job to force a result."
+        ],
+        "expected": "After stale rejection, the newer watermark and running version remain unchanged.",
+        "troubleshoot": "If GitLab's built-in outdated-job control rejects it before the script, record that result and separately review the helper's lower-ID guard. Do not disable the real control merely to claim both ran."
+      }
+    ],
+    "hints": [
+      "Measure recovery from the first failing smoke result to the successful recovered business check.",
+      "Review data compatibility before pressing rollback."
+    ],
+    "solution": [
+      "Establish good state, compare artifact identities, then run the newer-before-older ordering drill.",
+      "Use the private configuration fault to exercise post-deploy detection and recovery.",
+      "Hand another reviewer the pipeline links, sanitized target records, access model and decisions; have them explain where the evidence is incomplete."
+    ],
+    "rubric": [
+      {
+        "criterion": "Release chain",
+        "evidence": "Commit, tested digest, target report",
+        "pass": "The actual tested artifact is selected without rebuilding."
+      },
+      {
+        "criterion": "Concurrency and freshness",
+        "evidence": "Separate overlap and stale-job observations",
+        "pass": "One mutation at a time; older accepted IDs cannot overwrite newer state."
+      },
+      {
+        "criterion": "Business recovery",
+        "evidence": "Failed smoke and successful rollback report",
+        "pass": "Task behavior and ownership pass after compatible image/configuration recovery."
+      },
+      {
+        "criterion": "Handoff",
+        "evidence": "Owner, private access, limitations and timing",
+        "pass": "Another engineer can operate the release path without hidden credentials or assumptions."
+      }
+    ],
+    "stretch": [
+      "Design a real public identity integration with maintained issuer/audience/expiry verification and authorization tests before considering public service exposure."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "sudo -u gitlab-runner docker compose --project-name devopps-staging --env-file /opt/devopps-staging/.env --file /opt/devopps-staging/compose.yaml stop\nsudo gitlab-runner stop",
+      "explain": [
+        "On this dedicated staging VM, stop only its named Compose project, preserving the database volume and evidence.",
+        "Pause this project runner in GitLab and stop its service when the exercise is finished. Export sanitized reports before retiring the disposable VM."
+      ],
+      "expected": "No running staging service or active deployment worker. Data is retained for deliberate later cleanup.",
+      "troubleshoot": "Do not add --volumes or remove the target's state files to get around stale-job protection."
+    }
+  ],
+  "references": [
+    {
+      "title": "GitLab deployment safety",
+      "url": "https://docs.gitlab.com/ci/environments/deployment_safety/",
+      "usedFor": "Serialization, outdated deployment controls and recovery considerations."
+    },
+    {
+      "title": "GitLab resource groups",
+      "url": "https://docs.gitlab.com/ci/resource_groups/",
+      "usedFor": "One deployment job at a time for a named target."
+    },
+    {
+      "title": "GitLab environments",
+      "url": "https://docs.gitlab.com/ci/environments/",
+      "usedFor": "Target ownership and deployment records."
+    },
+    {
+      "title": "Docker Compose resolved configuration",
+      "url": "https://docs.docker.com/reference/cli/docker/compose/config/",
+      "usedFor": "Canonical JSON configuration used for private pre-deployment image, network and volume checks."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "The helper's state rules and Python syntax are reviewable locally. Full GitLab-to-Linux staging deployment, real PostgreSQL smoke and rollback require the dedicated learner environment and are not claimed as executed by the authoring host.",
+    "The deployment control-flow tests replace Docker subprocesses and HTTP calls; the authoring Windows host also stubs Linux fcntl on import. They exercise stale/substitution guards, private configuration validation, image mismatch, failed/interrupted recovery and atomic ledger transitions, but do not prove Linux locking, Compose execution or a live GitLab deployment."
+  ]
+}

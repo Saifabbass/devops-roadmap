@@ -1,0 +1,306 @@
+{
+  "week": 8,
+  "introduction": [
+    "A release is more than a tag. It includes an identifiable artifact, compatible configuration and schema, test evidence, and a recovery procedure another person can execute.",
+    "This capstone packages the complete private Taskboard stack, records its exact artifact identity, restores a saved backup into a separate database and recovers from a bad image selection. You will prove the boundaries you have learned rather than install another tool."
+  ],
+  "prerequisites": [
+    "Finish unit, real-PostgreSQL integration and authenticated HTTP system tests from weeks 6–7.",
+    "Use the learner Taskboard folder and private .env with TASKBOARD_STAGE=07.",
+    "Reserve time for a clean-checkout rehearsal and restoration. Do not delete the development volume or replace its database."
+  ],
+  "concepts": [
+    {
+      "title": "Release identity includes more than source",
+      "paragraphs": [
+        "A source commit identifies code, but the running result also depends on the image, configuration and schema. Record the local image ID now and a registry digest once you publish in the next level. A mutable tag alone is insufficient evidence.",
+        "The release dossier connects commit, base/dependency pins, migration versions, selected artifact, test results and known limitations. Your recovery procedure should select an existing tested artifact instead of rebuilding and hoping it matches."
+      ],
+      "example": "The same old commit can produce a different image if an unpinned dependency changes between builds.",
+      "judgment": "Use a complete evidence chain. Do not equate a familiar tag name with tested content."
+    },
+    {
+      "title": "A backup is useful only through a tested restore",
+      "paragraphs": [
+        "A successful dump command proves it produced an artifact, not that the artifact restores correctly. Restore into a new database, verify counts and contents, and retain the original untouched until the result is understood.",
+        "This logical backup covers the selected database's schema and data, with ownership/grants intentionally omitted for the lab. It is not point-in-time recovery and does not establish recovery of every cluster-global object or external dependency."
+      ],
+      "example": "Matching row counts can hide changed titles or owner IDs. Compare all six stored task fields in stable order.",
+      "judgment": "Define what recovery must preserve, test that claim directly, and state what your backup does not cover."
+    },
+    {
+      "title": "Application rollback cannot reverse every data change",
+      "paragraphs": [
+        "Replacing an app image changes executable code. It does not undelete a removed column or recover rows overwritten by a bad migration. A previous binary may be incompatible with the current schema.",
+        "Before rollback, check whether both old and new versions can use the current schema. Compatible additive changes permit more options. Destructive changes may require a forward fix or an isolated restore and a deliberate data-loss decision."
+      ],
+      "example": "An old image expecting a removed title column cannot be repaired merely by changing its tag.",
+      "judgment": "Treat schema compatibility as part of the release decision rather than discovering it during an incident."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Run and record the three evidence levels",
+      "purpose": "Use the actual commands before wrapping them in automation.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nmkdir -p reports\npython -m pytest tests/unit tests/contract --junitxml=reports/week08-unit.xml || exit 1\ndocker compose up -d app\ndocker compose --profile test run --build --rm integration || exit 1\ndocker compose --profile test run --build --rm system || exit 1",
+          "explain": [
+            "The local pytest command records a JUnit report for unit/adapter tests.",
+            "Compose starts the private stack. The two one-off services exercise real PostgreSQL and HTTP respectively.",
+            "Each command must exit zero. A report file's existence does not override a failing test exit.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Passing checks for all three boundaries with actual outputs retained.",
+          "troubleshoot": "Do not continue release approval when a required suite fails or silently skips its intended boundary."
+        }
+      ],
+      "checkpoint": "Record which tests ran against which application and database stage."
+    },
+    {
+      "title": "Build and identify the candidate",
+      "purpose": "Use a clean committed source state. If git status shows intended changes, review and commit them before recording the release.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard || exit 1\nif test -f compose.week06-fault.yaml; then\n  test ! -e reports/week06-fault.yaml || { printf '%s\\n' 'Inspect the existing archived fault before moving another copy.'; exit 1; }\n  mv -- compose.week06-fault.yaml reports/week06-fault.yaml || exit 1\nfi\ngit add .gitignore .dockerignore .env.example Dockerfile compose.yaml pytest.ini requirements.lock requirements-dev.lock reference starter migrations tests tools ci README.md\ngit diff --cached --stat\ngit diff --cached --check",
+          "explain": [
+            "Work in the copied application. Move only the deliberately created week-6 override into ignored evidence, after refusing to overwrite an older copy.",
+            "git add stages the named intended application inputs, excluding credentials, reports and the local venv. Inspect the staged list and whitespace check before running the next block.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Only intended application inputs are staged; no .env, backup, venv or generated report is included.",
+          "troubleshoot": "If unrelated work is already staged in the parent learner repository, inspect and unstage it deliberately before making this release commit."
+        },
+        {
+          "code": "if ! git diff --cached --quiet; then git commit -m 'Record the reviewed week 8 application release' || exit 1; fi\ngit status --short\ntest -z \"$(git status --porcelain --untracked-files=normal -- .)\" || { printf '%s\\n' 'Review and commit intended application inputs; archive temporary faults under ignored reports before building.'; exit 1; }\ngit rev-parse HEAD > reports/week08-commit.txt\ndocker build --target runtime --build-arg GIT_SHA=\"$(git rev-parse HEAD)\" -t devopps-taskboard:week08 . || exit 1\ndocker image inspect devopps-taskboard:week08 --format '{{.Id}}' > reports/week08-image-id.txt || exit 1\nGOOD_IMAGE=$(cat reports/week08-image-id.txt)\nTASKBOARD_IMAGE=\"$GOOD_IMAGE\" docker compose up -d --no-build app\nTASKBOARD_IMAGE=\"$GOOD_IMAGE\" docker compose --profile test run --rm system || exit 1\ncurl --fail --show-error http://127.0.0.1:8000/version",
+          "explain": [
+            "git status reveals uncommitted inputs; rev-parse records the exact commit.",
+            "build packages runtime with that commit as version metadata. image inspect records the actual local image ID.",
+            "The command-local TASKBOARD_IMAGE value selects that artifact without editing .env. --no-build forbids rebuilding during selection.",
+            "The system suite checks the candidate actually running; /version connects its metadata to the recorded commit.",
+            "Commit the reviewed staged inputs if needed. The explicit clean-application guard stops a build whose source would differ from its recorded commit; it includes untracked files within this app folder.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "The tested runtime is the recorded local image ID and reports the intended commit.",
+          "troubleshoot": "If Compose cannot select a local image ID in your installed engine, use the week08 tag and verify its resolved ID equals the saved ID before proceeding; do not claim a registry digest that has not been pushed."
+        }
+      ],
+      "checkpoint": "Write the release identity, migration versions and remaining private-lab limitations."
+    },
+    {
+      "title": "Restore the saved backup into a separate destination",
+      "purpose": "Pause other writers while creating and comparing the snapshot. Include at least one incomplete and one completed task from the prior system tests.",
+      "commands": [
+        {
+          "code": "mkdir -p reports\ndocker compose exec -T db pg_dump -U taskboard -d taskboard --format=custom --no-owner --no-privileges > reports/week08.dump || exit 1\nRESTORE_DB=taskboard_restore_$(python -c \"from uuid import uuid4; print(uuid4().hex[:12])\")\nprintf '%s\\n' \"$RESTORE_DB\" > reports/week08-restore-name.txt\ndocker compose exec -T db createdb -U taskboard \"$RESTORE_DB\" || exit 1\ndocker compose exec -T db pg_restore -U taskboard -d \"$RESTORE_DB\" --exit-on-error --no-owner --no-privileges < reports/week08.dump || exit 1",
+          "explain": [
+            "mkdir prepares reports. exec -T avoids a pseudo-terminal corrupting the binary dump. pg_dump creates a custom-format logical backup; redirection writes its bytes to a file.",
+            "The UUID suffix creates a fresh destination name and records it. createdb must succeed for this new destination; never reuse the source name.",
+            "pg_restore reads the saved dump from stdin, stops on error, and does not attempt to restore ownership/grant statements. Source taskboard remains untouched.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "A nonempty dump and a new independent restored database.",
+          "troubleshoot": "Pause task writers before the snapshot/comparison. On dump/restore error, stop and inspect it; do not overwrite a working database to simplify recovery."
+        },
+        {
+          "code": "RESTORE_DB=$(cat reports/week08-restore-name.txt) || exit 1\npython -c \"import re,sys; sys.exit(0 if re.fullmatch(r'taskboard_restore_[0-9a-f]{12}', sys.argv[1]) else 1)\" \"$RESTORE_DB\" || { printf '%s\\n' 'Refused an invalid disposable restore database name.'; exit 1; }\nQUERY='COPY (SELECT id,owner_id,title,completed,created_at,completed_at FROM tasks ORDER BY id) TO STDOUT WITH CSV HEADER'\ndocker compose exec -T db psql -U taskboard -d taskboard -c \"$QUERY\" > reports/week08-source.csv || exit 1\ndocker compose exec -T db psql -U taskboard -d \"$RESTORE_DB\" -c \"$QUERY\" > reports/week08-restored.csv || exit 1\ndiff -u reports/week08-source.csv reports/week08-restored.csv",
+          "explain": [
+            "Read the actual saved destination and validate its exact disposable-name pattern before using it.",
+            "QUERY selects all six stored fields in stable ID order. COPY emits CSV including a header; each psql command writes one comparison file.",
+            "diff -u prints differences and exits nonzero if content differs. A silent zero exit means these snapshots match.",
+            "Validation uses an explicit exit code and the shell stops on failure, so a failed name check cannot fall through into a query or dropdb. It also remains active under Python optimization.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "No differences for a nonempty stable task dataset.",
+          "troubleshoot": "If writers changed the source after backup, the comparison is invalid as a snapshot-equality test. Quiesce the lab and repeat with a fresh named destination; do not dismiss unexplained differences."
+        }
+      ],
+      "checkpoint": "Keep the dump, restored destination name and complete comparison evidence. Explain why matching count alone was insufficient."
+    }
+  ],
+  "failure": {
+    "title": "Select an image name that does not exist",
+    "boundary": "This changes only the selected image for one command. It may fail before replacing the healthy container; observe actual state rather than claiming an outage.",
+    "inject": [
+      {
+        "code": "TASKBOARD_IMAGE=devopps-taskboard:deliberately-missing docker compose up -d --no-build --pull never app",
+        "explain": [
+          "A command-local variable supplies a bad image tag. --no-build prevents a fallback build and --pull never prevents a registry lookup."
+        ],
+        "expected": "A missing-image failure. Existing container behavior must be inspected separately.",
+        "troubleshoot": "If that tag happens to exist locally, select a verified absent lab tag; do not remove unrelated images."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "docker compose ps\ncurl --include --max-time 5 http://127.0.0.1:8000/version\ncat reports/week08-image-id.txt",
+        "explain": [
+          "ps and the HTTP read establish whether the previous service remained available.",
+          "The saved image ID identifies the tested recovery artifact independent of a movable tag."
+        ],
+        "expected": "A clear record of deployment failure versus actual availability, plus the known-good artifact ID.",
+        "troubleshoot": "A failed deployment command alone does not prove users saw downtime."
+      }
+    ],
+    "hints": [
+      "Separate 'new release did not start' from 'old service stopped'.",
+      "Recovery should not invoke docker build."
+    ],
+    "answer": {
+      "explanation": [
+        "The selection points to no local artifact. Re-select the recorded tested image and verify behavior. Avoid rebuilding an old commit as a substitute for identifying the previous artifact."
+      ],
+      "recover": [
+        {
+          "code": "GOOD_IMAGE=$(cat reports/week08-image-id.txt)\nTASKBOARD_IMAGE=\"$GOOD_IMAGE\" docker compose up -d --no-build app",
+          "explain": [
+            "Load the previously recorded image ID and select it for this controlled deployment without a build."
+          ],
+          "expected": "The known-good artifact is selected.",
+          "troubleshoot": "Review current schema compatibility before applying this pattern to later migrations."
+        }
+      ],
+      "verification": {
+        "code": "TASKBOARD_IMAGE=\"$GOOD_IMAGE\" docker compose --profile test run --rm system || exit 1\ncurl --fail --show-error http://127.0.0.1:8000/version",
+        "explain": [
+          "Run the business contract checks and compare version metadata after recovery.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+        ],
+        "expected": "The same intended artifact passes system checks.",
+        "troubleshoot": "A healthy liveness endpoint alone is not sufficient recovery evidence."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why is rebuilding an old commit weaker recovery evidence?",
+      "hint": "Which inputs could change?",
+      "answer": "Dependencies, base tags, build tooling and build context may differ. Selecting the original tested artifact preserves the bytes you actually approved; rebuilding requires a new test and evidence chain."
+    },
+    {
+      "prompt": "What did the restore comparison prove?",
+      "hint": "Name the fields and the snapshot boundary.",
+      "answer": "For the quiesced synthetic dataset, the saved logical dump restored all six task fields into a distinct database. It did not prove point-in-time recovery, external-service recovery or public identity configuration."
+    },
+    {
+      "prompt": "When can image rollback make an incident worse?",
+      "hint": "Consider schema compatibility.",
+      "answer": "If the old binary assumes a schema or data representation no longer present, rollback adds errors. A compatible forward fix or isolated recovery may be safer; test that decision against the actual migration history."
+    }
+  ],
+  "exercise": {
+    "brief": "Complete the level capstone below.",
+    "constraints": [
+      "Preserve source database."
+    ],
+    "deliverables": [
+      "Release dossier."
+    ],
+    "acceptance": [
+      "Rubric passes."
+    ],
+    "hints": [
+      "Use measured evidence."
+    ],
+    "solution": [
+      "Follow the independent handoff below."
+    ]
+  },
+  "capstone": {
+    "title": "Release and recover Taskboard v0.2",
+    "scenario": "A teammate must start the complete private stack from your release, verify user isolation, recover its data and return to a known-good artifact after an incorrect deployment selection.",
+    "startingPoint": "Your committed Taskboard source, private generated lab configuration, pinned dependencies and the procedures above.",
+    "requirements": [
+      "Document clean-checkout environment setup and all three test commands.",
+      "Record source commit, image ID, base/dependency pins, migration versions and exact test results.",
+      "Restore the saved dump into a fresh database and verify full task content.",
+      "Measure the bad-selection detection and recovery time.",
+      "Document schema rollback limits and private teaching-auth limitations."
+    ],
+    "acceptance": [
+      "A fresh checkout builds without using your source mounts or existing Python venv.",
+      "Unit, real database and real HTTP checks pass against the identified candidate.",
+      "At least one incomplete and one completed task match after restore, including owner and timestamps.",
+      "Recovery selects the same tested artifact without rebuilding it.",
+      "Another person can follow the runbook and explain one limitation."
+    ],
+    "runbook": [
+      {
+        "code": "RESTORE_DB=$(cat reports/week08-restore-name.txt) || exit 1\npython -c \"import re,sys; sys.exit(0 if re.fullmatch(r'taskboard_restore_[0-9a-f]{12}', sys.argv[1]) else 1)\" \"$RESTORE_DB\" || { printf '%s\\n' 'Refused an invalid disposable restore database name.'; exit 1; }\nQUERY='COPY (SELECT id,owner_id,title,completed,created_at,completed_at FROM tasks ORDER BY id) TO STDOUT WITH CSV HEADER'\ndocker compose exec -T db psql -U taskboard -d taskboard -c \"$QUERY\" > reports/week08-source.csv || exit 1\ndocker compose exec -T db psql -U taskboard -d \"$RESTORE_DB\" -c \"$QUERY\" > reports/week08-restored.csv || exit 1\ndiff -u reports/week08-source.csv reports/week08-restored.csv",
+        "explain": [
+          "Read the actual saved destination and validate its exact disposable-name pattern before using it.",
+          "QUERY selects all six stored fields in stable ID order. COPY emits CSV including a header; each psql command writes one comparison file.",
+          "diff -u prints differences and exits nonzero if content differs. A silent zero exit means these snapshots match.",
+          "Validation uses an explicit exit code and the shell stops on failure, so a failed name check cannot fall through into a query or dropdb. It also remains active under Python optimization.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+        ],
+        "expected": "No differences for a nonempty stable task dataset.",
+        "troubleshoot": "If writers changed the source after backup, the comparison is invalid as a snapshot-equality test. Quiesce the lab and repeat with a fresh named destination; do not dismiss unexplained differences."
+      }
+    ],
+    "hints": [
+      "The database backup must survive outside the container.",
+      "Do not copy .env into Git to make a clean checkout easier."
+    ],
+    "solution": [
+      "Rehearse from a new working folder with a fresh generated .env and an isolated Compose project if running alongside the original.",
+      "Run the three suites, record the candidate identity and test that candidate through HTTP.",
+      "Restore to a new database, compare content, inject the bad image selection and record a measured recovery.",
+      "Have a reviewer identify the artifact and explain why an image rollback does not undo every migration."
+    ],
+    "rubric": [
+      {
+        "criterion": "Reproducible release",
+        "evidence": "Clean-checkout transcript and artifact identity",
+        "pass": "No hidden host source mount or unrecorded dependency is required."
+      },
+      {
+        "criterion": "Data recovery",
+        "evidence": "Saved dump and full-field comparison",
+        "pass": "Distinct destination matches the stable source dataset."
+      },
+      {
+        "criterion": "Operational recovery",
+        "evidence": "Failed selection, timeline and final system checks",
+        "pass": "Known-good artifact restored without rebuilding or damaging source data."
+      }
+    ],
+    "stretch": [
+      "Create a small Taskfile only after you can explain every command it wraps; keep failure exit codes intact."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "RESTORE_DB=$(cat reports/week08-restore-name.txt) || exit 1\npython -c \"import re,sys; sys.exit(0 if re.fullmatch(r'taskboard_restore_[0-9a-f]{12}', sys.argv[1]) else 1)\" \"$RESTORE_DB\" || { printf '%s\\n' 'Refused an invalid disposable restore database name.'; exit 1; }\ndocker compose exec -T db dropdb -U taskboard \"$RESTORE_DB\" || exit 1\ndocker compose --profile test stop",
+      "explain": [
+        "Read and validate the exact disposable restore name. Only after preserving its comparison evidence, drop that separate database.",
+        "Stop the course containers while retaining the source database volume, dump and reports.",
+        "Validation uses an explicit exit code and the shell stops on failure, so a failed name check cannot fall through into a query or dropdb. It also remains active under Python optimization.",
+        "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+      ],
+      "expected": "Only the temporary restored database is removed; the source data remains.",
+      "troubleshoot": "If the name check fails, stop. Never substitute taskboard into the cleanup command."
+    }
+  ],
+  "references": [
+    {
+      "title": "PostgreSQL logical backups",
+      "url": "https://www.postgresql.org/docs/17/backup-dump.html",
+      "usedFor": "Dump/restore scope and recovery limitations."
+    },
+    {
+      "title": "pg_restore",
+      "url": "https://www.postgresql.org/docs/17/app-pgrestore.html",
+      "usedFor": "Custom-format restoration into a separate database."
+    },
+    {
+      "title": "Docker image inspection",
+      "url": "https://docs.docker.com/reference/cli/docker/image/inspect/",
+      "usedFor": "Recording actual local image identity."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "Docker/restore procedures are supplied for execution in the learner lab; they are not reported as passed on the authoring host."
+  ]
+}

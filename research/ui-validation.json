@@ -1,0 +1,33 @@
+{
+  "reviewed_at": "2026-10-20",
+  "method": "Installed REA playwright-core driving isolated headless Microsoft Edge 155.0.4283.45 against the actual file URL.",
+  "initialArtifactSha256": "0150564751f541511d5185676d257bbb8162e8d9be5d5158fee7f1d81e9ccf7e",
+  "summary": {
+    "passed": 10,
+    "failed": 0,
+    "page_errors": 0
+  },
+  "checks": [
+    "All 52 weekly routes and navigation entries rendered with correct titles.",
+    "30 repository cards; role filters Core 5, Focused 9, Reference 7, Optional 7, Defer 2; name search and empty state passed.",
+    "All nine then-current handbook/research chapters rendered.",
+    "Global RTO search returned seven matches, navigation worked, and unmatched query showed an empty state.",
+    "Proved required evidence; saved note and status survived reload.",
+    "Actual progress download contained valid schemaVersion 1 JSON and the saved week.",
+    "Actual import restored the exported record and removed subsequent edits, persisting after reload.",
+    "Malformed JSON, week 53, and a Proved record with an empty note were rejected without changing saved progress.",
+    "Desktop routes home/week1/repos/glossary/progress fit 1440px viewport.",
+    "Mobile routes home/week1/repos/glossary/progress fit 390px viewport; progress interaction passed."
+  ],
+  "screenshots": [
+    "fieldbook-desktop.png",
+    "fieldbook-mobile.png"
+  ],
+  "cleanup": "Browser process and both disposable contexts closed; no user profile used.",
+  "recoveryNote": "The original full report was read by root after successful completion. C: became full during a later metadata append and that report was truncated. This summary reconstructs the verified results from the retained tool output. The screenshots remain unchanged. Final updated artifact receives a separate targeted check.",
+  "limitations": [
+    "Upstream lab assignments and cloud deployments were not executed.",
+    "Results are specific to the tested Edge version.",
+    "Original check preceded addition of the project-spec chapter and migration to D:."
+  ]
+}

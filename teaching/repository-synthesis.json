@@ -1,0 +1,2308 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-10-20",
+  "purpose": "Self-contained teaching synthesis of all requested repositories; not an instruction to install forty tools.",
+  "learner": "Entry level. Earlier assumptions of CS/Linux/Git familiarity are superseded by the new objective.",
+  "selectionAudit": {
+    "findarepoUrl": "https://findarepo.com/categories/devops/",
+    "findarepoCount": 30,
+    "findarepoPageDate": "2026-10-18",
+    "learningUrl": "https://devops-daily.com/posts/top-github-devops-learning-repos-2026",
+    "learningCount": 10,
+    "learningPageDate": "2026-05-05",
+    "uniqueRepositories": 40,
+    "method": "Compared live tables with stored identities and reopened all forty primary repository URLs. Availability does not imply every file or upstream test was rerun."
+  },
+  "repositories": [
+    {
+      "repo": "kestra-io/kestra",
+      "url": "https://github.com/kestra-io/kestra",
+      "selection": "findarepo-30",
+      "title": "A retry is another execution",
+      "weeks": [
+        43,
+        47,
+        48
+      ],
+      "levels": [
+        11,
+        12
+      ],
+      "teaching": "A workflow connects actions, but a green run only says the actions returned successfully. If a network reply is lost after an upload completed, retrying can duplicate it. Give the operation a stable identifier, check its recorded result before repeating a side effect, set a timeout and cap attempts. Keep the original failure and each retry in the timeline.",
+      "question": "An upload times out. Is it safe to repeat immediately?",
+      "answer": "First determine whether the destination accepted it. Reuse an idempotency key or unique object identity and verify content. A timeout describes the client's observation, not whether the server completed the action.",
+      "beginnerExercise": "Model source and destination backups with two local files. Run the copy twice using one backup identifier; compare checksums. Introduce a missing source and record a bounded failure.",
+      "extendedExercise": "Build a disposable backup-validation workflow with an explicit timeout, bounded retries and a failure notification to a local test receiver. Trigger the same input twice and prove it cannot overwrite a good backup or create duplicate side effects. Produce a workflow diagram and failure timeline.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Do not copy the quick start into production: it uses mutable image tags, sample database credentials and Docker socket access. Enterprise features and community features differ. Workflow success is not proof that the business result is correct.",
+      "primarySources": [
+        {
+          "url": "https://github.com/kestra-io/kestra",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/kestra-io/kestra/develop/docker-compose.yml",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README describes YAML workflows and retry/error-handling primitives. The sampled Compose file uses PostgreSQL, persistent storage and a health dependency; its comments explicitly identify root access to the Docker socket as a development configuration.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "databasus/databasus",
+      "url": "https://github.com/databasus/databasus",
+      "selection": "findarepo-30",
+      "title": "Restore is the test of a backup",
+      "weeks": [
+        15,
+        24,
+        42,
+        44
+      ],
+      "levels": [
+        4,
+        6,
+        11
+      ],
+      "teaching": "A backup is a candidate recovery artifact. A restore test is evidence that it can recover the application. Record a known task and timestamp, take a backup, restore into a separate empty database and check contents through the application. Recovery time includes finding the backup, obtaining credentials and validating the result. Data loss is the gap between committed data and what the restored service contains.",
+      "question": "A backup job is green. What is still unproven?",
+      "answer": "Whether its file is readable, decryption keys are available, schema and application are compatible, expected records exist and recovery finishes within the required time.",
+      "beginnerExercise": "Restore five synthetic tasks into a separate database name. Check all titles and completion states, not only the count. Measure elapsed time and retain the source until verification finishes.",
+      "extendedExercise": "Seed a disposable database with known records, back it up, deliberately remove only the lab database, restore into a separate clean instance, and run application-level assertions. Record measured recovery time, missing transactions, retention behavior and encryption-key recovery steps.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "A successful restore job or row count does not prove application consistency. Protect backup credentials and encryption keys separately; keep tests isolated from real data. CI/security assurances in the README were read, not independently reproduced.",
+      "primarySources": [
+        {
+          "url": "https://github.com/databasus/databasus",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/databasus/databasus/main/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README documents logical and physical backups, WAL/PITR support, retention settings and restore verification. It also warns that the application's encryption key must be backed up to recover encrypted backups.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "floci-io/floci",
+      "url": "https://github.com/floci-io/floci",
+      "selection": "findarepo-30",
+      "title": "An emulator proves only its tested contract",
+      "weeks": [
+        7,
+        13,
+        15,
+        16
+      ],
+      "levels": [
+        2,
+        4
+      ],
+      "teaching": "An emulator is a local substitute for a cloud API. Configure the application endpoint so the same storage code can address the emulator or AWS. A local object round trip can prove how code handles names and missing data. It cannot establish real account permissions, regional limits, routing or charges. Run a separate check in a disposable cloud scope before trusting those boundaries.",
+      "question": "Why can local S3 tests pass while the real upload is denied?",
+      "answer": "The emulator may accept fake credentials while AWS evaluates the real principal and policies. Endpoint compatibility and permission correctness are different questions.",
+      "beginnerExercise": "Run the same synthetic object round trip locally and later in one temporary AWS bucket. Record missing-object behavior and a deliberately unauthorized identity; compare differences.",
+      "extendedExercise": "Write upload/download and missing-object tests against isolated S3 emulation. Inject the endpoint through configuration, use fake local credentials and clean up fixtures. Later run the same contract suite against a temporary AWS bucket, including an explicit access-denied case, and document differences.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Passing emulator tests does not validate real IAM, regional behavior, quotas, networking, billing or managed-service availability. Do not claim complete AWS parity from the supported-service list. Avoid mounting the Docker socket unless the chosen test requires it.",
+      "primarySources": [
+        {
+          "url": "https://github.com/floci-io/floci",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/floci-io/floci/main/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README includes AWS SDK endpoint configuration and Python, Java and Node Testcontainers examples. It says default credentials can be arbitrary non-empty values unless stricter checks are enabled, and some service modes start real Docker containers.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "rorkai/App-Store-Connect-CLI",
+      "url": "https://github.com/rorkai/App-Store-Connect-CLI",
+      "selection": "findarepo-30",
+      "title": "Release automation needs a deliberate boundary",
+      "weeks": [
+        12,
+        47
+      ],
+      "levels": [
+        3,
+        12
+      ],
+      "teaching": "Release tools demonstrate a useful pattern outside mobile development: validate inputs, prepare an immutable artifact, authenticate with a restricted identity, publish, then verify what users receive. Separate preparation from publication. A machine-readable result helps distinguish an accepted request from a completed release. Temporary signing or access material belongs only in the job that needs it.",
+      "question": "Why does a successful build not mean release to users?",
+      "answer": "The artifact still requires policy checks, approval, deployment and user-facing verification. Building and publishing are distinct operations with different authority.",
+      "beginnerExercise": "Identify the GitLab build, test, promotion and verification jobs. Add a release record with commit, digest and approver; do not publish a mobile app.",
+      "extendedExercise": "Read the release workflow and draft a generic GitLab release-job checklist: validate inputs, pin dependencies, use machine-readable output, protect signing material, require a release approval and clean temporary credentials. Apply those principles to the existing container release.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Real mobile signing and release work has platform/account prerequisites and can publish externally. The inspected CI snippets use floating refs; pin reviewed versions in your own examples. The README documents default usage telemetry.",
+      "primarySources": [
+        {
+          "url": "https://github.com/rorkai/App-Store-Connect-CLI",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/rorkai/App-Store-Connect-CLI/main/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/rorkai/App-Store-Connect-CLI/main/docs/CI_CD.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README documents structured output, authentication diagnostics and release automation. The CI guide includes GitLab components, fresh macOS-runner signing steps and an AWS workload-identity example for object storage.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "go-gitea/gitea",
+      "url": "https://github.com/go-gitea/gitea",
+      "selection": "findarepo-30",
+      "title": "A repository clone is not a platform backup",
+      "weeks": [
+        42,
+        47,
+        48
+      ],
+      "levels": [
+        11,
+        12
+      ],
+      "teaching": "Code hosting stores more than commits. Issues, accounts, attachments, packages, settings and credentials can live outside repositories. Recovery must preserve relationships among those stores. Snapshots taken at unrelated moments can leave an issue pointing to a missing attachment. Define the consistency boundary and test actual user operations after restoration.",
+      "question": "You recovered every branch. Why might the platform still be unusable?",
+      "answer": "Authentication, database records, packages, attachments or configuration can be missing. Repository history is one dependency, not the whole service.",
+      "beginnerExercise": "Draw the GitLab service dependencies. Record each recovery owner, backup location, restoration order and a user action that proves recovery. A disposable Gitea restore is an optional extension.",
+      "extendedExercise": "Write a source-control service recovery plan covering repositories, database, attachments, configuration and credentials. Optionally restore a throwaway instance and prove a clone, commit history and issue attachment survive. Compare the maintenance burden with the GitLab service used in the course.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "A Git repository mirror is not a complete platform backup. Gitea Actions syntax and runner behavior do not teach GitLab CI directly. Avoid expanding this comparison into a second permanent CI platform.",
+      "primarySources": [
+        {
+          "url": "https://github.com/go-gitea/gitea",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://docs.gitea.com/administration/backup-and-restore/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README describes an integrated development service with GitHub-Actions-compatible CI. The backup documentation explains that database, files and repositories can become inconsistent and instructs stopping the instance for its documented consistent backup procedure.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "netdata/netdata",
+      "url": "https://github.com/netdata/netdata",
+      "selection": "findarepo-30",
+      "title": "Correlate slow requests with saturation",
+      "weeks": [
+        4,
+        30,
+        33,
+        36
+      ],
+      "levels": [
+        1,
+        8,
+        9
+      ],
+      "teaching": "A host chart is useful when it answers a question about users. Compare request latency with CPU, memory pressure, disk delay and network activity over the same interval. Two rising measurements suggest a hypothesis, not causation. Change one lab condition, repeat the same request and check whether the predicted metric and latency both change.",
+      "question": "Memory rises while requests slow. Does that prove insufficient RAM?",
+      "answer": "No. Caching may be normal while a database query becomes slower. Check pressure, paging, traces and a controlled repeat before changing capacity.",
+      "beginnerExercise": "Collect a quiet baseline, then run a short CPU-bound process in the disposable VM. Observe bounded requests before, during and after load; compare native counters with a dashboard if installed.",
+      "extendedExercise": "Create controlled CPU pressure and a slow-disk scenario inside a disposable VM. Correlate latency with CPU, memory, disk and network charts and verify the diagnosis with Linux tools. Write a two-page incident note containing the failed hypothesis as well as the final cause.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "A dashboard does not supply an SLO or prove causality. Measure collector overhead in the lab rather than accepting marketing performance claims. Review dashboard exposure, host access and telemetry settings; Agent, UI and Cloud have different licensing and service boundaries.",
+      "primarySources": [
+        {
+          "url": "https://github.com/netdata/netdata",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://learn.netdata.cloud/docs/security-and-privacy-design",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README describes collection, storage and alerting in the Agent and lists host/container monitoring. The security/privacy documentation distinguishes observability data from metadata sent to Cloud and documents anonymous usage statistics.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "Dokploy/dokploy",
+      "url": "https://github.com/Dokploy/dokploy",
+      "selection": "findarepo-30",
+      "title": "The platform owns the work its button hides",
+      "weeks": [
+        40,
+        47,
+        48
+      ],
+      "levels": [
+        10,
+        12
+      ],
+      "teaching": "A deploy button groups image building, credentials, routing, supervision and persistence. Someone still owns patching, restoration, diagnosis and upgrades. Trace one release and one failure through the platform. A simple managed deployment may reduce operational work; a larger platform is justified by requirements it meets and evidence that the team can operate it.",
+      "question": "What must be known before trusting a one-click deployment?",
+      "answer": "Who maintains the host, where secrets and data live, what a failed rollout does, how traffic is secured, how restoration works and what it costs.",
+      "beginnerExercise": "Compare a VM, managed container service and Dokploy using the course diagram. Give each a host-loss recovery owner and rollback procedure; select by requirements.",
+      "extendedExercise": "Trace the deployment of the capstone app on paper: source, image build, registry, secrets, routing, storage, health checks and recovery. Produce an architecture decision record comparing your GitLab/Terraform/Ansible path with Dokploy; optionally repeat on a disposable VM.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Swarm-based operation is not Kubernetes practice. One-click deployment does not establish backup correctness, least privilege or high availability. The installer is powerful host-changing code; inspect and pin a release before any future lab execution.",
+      "primarySources": [
+        {
+          "url": "https://github.com/Dokploy/dokploy",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/Dokploy/dokploy/canary/LICENSE.MD",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README describes Docker Compose, Docker Swarm multi-node operation, Traefik routing and backups. The inspected license file applies Apache 2.0 outside a proprietary-directory carve-out.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "getsentry/sentry",
+      "url": "https://github.com/getsentry/sentry",
+      "selection": "findarepo-30",
+      "title": "Make errors actionable without leaking data",
+      "weeks": [
+        34,
+        36,
+        50
+      ],
+      "levels": [
+        9,
+        13
+      ],
+      "teaching": "An error is easier to diagnose with release, environment, request identifier and failing operation. These connect a user-visible problem to a change. Raw bodies and headers can contain secrets. Redact at collection and inspect the exported event. After fixing the code, add a regression test so the same defect is detected before release.",
+      "question": "Why is deleting a secret from a dashboard after export too late?",
+      "answer": "It crossed a trust boundary and may persist downstream. Prevent collection or redact before export, then rotate any exposed real secret.",
+      "beginnerExercise": "Raise a controlled local exception with a fake token. Inspect serialized telemetry before transmission, prove the token is absent and attach the release identifier.",
+      "extendedExercise": "Introduce a controlled exception in staging, attach release/environment metadata, diagnose it from the recorded event, ship a fix and verify the regression test. Demonstrate that a fake password and access token are removed before telemetry leaves the process.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Do not treat the whole repository as permissively licensed open source. Error events can carry sensitive application data. The self-hosted documentation site was unavailable during this inspection; no resource sizing or deployment reliability was verified.",
+      "primarySources": [
+        {
+          "url": "https://github.com/getsentry/sentry",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/getsentry/sentry/master/LICENSE.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/getsentry/self-hosted/master/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README links language SDKs for error debugging. The self-hosted repository describes its package as intended for low-volume deployments and proofs of concept. The current main-repository license identifies FSL-1.1-Apache-2.0.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "nektos/act",
+      "url": "https://github.com/nektos/act",
+      "selection": "findarepo-30",
+      "title": "Local CI cannot prove the hosted control plane",
+      "weeks": [
+        9,
+        11,
+        12
+      ],
+      "levels": [
+        3
+      ],
+      "teaching": "A CI job executes commands; the platform also decides which changes run, which credentials are available and who may release. Local execution helps debug a command but cannot automatically reproduce hosted identity, approvals and concurrency. Translate workflow intent into GitLab, then verify it on the actual runner and protected environment.",
+      "question": "A workflow passes locally. What release properties need GitLab evidence?",
+      "answer": "Merge-request rules, secret visibility, protected environments, cloud claims, artifact handling, approval policy and deployment serialization.",
+      "beginnerExercise": "Translate one GitHub test command into a GitLab job. Submit a failing lab merge request and show the release path is blocked under the intended policy.",
+      "extendedExercise": "Read one simple upstream GitHub workflow and translate its lint/test/build intent into GitLab jobs. Write a parity table for jobs, artifacts, caches, identity, approvals and concurrency. Optionally use act only on a reviewed workflow with fake credentials.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "act is not a GitLab CI emulator. A successful local run cannot validate hosted authorization, environment approvals or deployment concurrency. Workflows execute code with the access you grant the runner; inspect them before running.",
+      "primarySources": [
+        {
+          "url": "https://github.com/nektos/act",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://nektosact.com/not_supported.html",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README says act reads .github/workflows and runs through Docker. Its limitations page says job permissions, environment scoping, concurrency and several timeout behaviors are ignored, and OIDC URLs are not provided.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "argoproj/argo-cd",
+      "url": "https://github.com/argoproj/argo-cd",
+      "selection": "findarepo-30",
+      "title": "Reconciliation makes desired state executable",
+      "weeks": [
+        31,
+        32,
+        50,
+        51
+      ],
+      "levels": [
+        8,
+        13
+      ],
+      "teaching": "GitOps compares desired configuration in Git with cluster resources and reconciles differences. CI tests code and publishes an immutable image; a reviewed configuration change promotes that image. Drift correction, deletion and delivery are separate controls. An unrecorded emergency fix may be overwritten. Recovery should update desired state and separately account for database compatibility.",
+      "question": "Why did a manual replica change disappear with self-heal?",
+      "answer": "The controller restored Git's desired count. Change approved desired state or deliberately pause reconciliation while recording the emergency operation.",
+      "beginnerExercise": "In one namespace, change only replica count and compare self-heal off and on. Revert a bad image reference through Git. Keep pruning disabled until deletion effects are understood.",
+      "extendedExercise": "Have GitLab publish an immutable image and propose its digest in an environment repository. Review and merge, observe reconciliation, introduce a harmless replica-count drift, compare self-heal off/on, and revert a bad release through Git. Save timeline evidence and a rollback runbook.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Pruning can delete resources and self-heal can overwrite emergency manual edits. Start in an isolated namespace with restrictive access. A Git revert of application manifests does not reverse an incompatible database migration.",
+      "primarySources": [
+        {
+          "url": "https://github.com/argoproj/argo-cd",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README defines Argo CD as Kubernetes GitOps delivery. The auto-sync documentation distinguishes sync, self-healing and pruning; pruning is disabled by default, and direct rollback is unavailable while automated sync is enabled.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "pranshuparmar/witr",
+      "url": "https://github.com/pranshuparmar/witr",
+      "selection": "findarepo-30",
+      "title": "Find the process that owns the problem",
+      "weeks": [
+        1,
+        4,
+        28,
+        36
+      ],
+      "levels": [
+        1,
+        7,
+        9
+      ],
+      "teaching": "A PID identifies a running process, not the configuration that creates it. A service manager may restart a child after you kill it. Follow the socket to its process, inspect user and parent, then locate the owning service. Fixing the wrong port in that definition addresses the cause; repeatedly killing the child removes only a symptom. Verify helper reports with native tools.",
+      "question": "A process returns with a new PID after stopping. What next?",
+      "answer": "Inspect parent, service manager, restart policy and unit or container definition. The supervisor may be doing exactly what its configuration requests.",
+      "beginnerExercise": "Identify the lesson server with ss and ps. Record PID, user, parent and port, then stop only that lab process. Later compare a restarting systemd service with the helper report.",
+      "extendedExercise": "Create a harmless service that keeps restarting and a second service with a port conflict. Identify the owner and launch chain using ps, ss, lsof and systemctl, then compare witr's report. Deliver a runbook that fixes the service definition instead of repeatedly killing a child process.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Treat diagnostic output as sensitive because environment and process details may contain secrets. Use inspection operations only during the first exercise; TUI process actions are not read-only. Windows and WSL visibility differ from a Linux server.",
+      "primarySources": [
+        {
+          "url": "https://github.com/pranshuparmar/witr",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/pranshuparmar/witr/main/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README documents process/port/container tracing, JSON output and a TUI. Its platform matrix and permissions section describe visibility differences and elevated access requirements; the TUI also includes process actions.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "getsops/sops",
+      "url": "https://github.com/getsops/sops",
+      "selection": "findarepo-30",
+      "title": "Encryption is not authorization or revocation",
+      "weeks": [
+        11,
+        18,
+        22,
+        37,
+        39
+      ],
+      "levels": [
+        3,
+        5,
+        6,
+        10
+      ],
+      "teaching": "Encrypted configuration can live in Git while approved identities hold decryption authority. File, decryption authority and application secret are three separate things. Removing a recipient from today's file cannot erase yesterday's Git history or invalidate a secret already learned. When access changes, rotate the application credential as well as changing who may decrypt future configuration.",
+      "question": "Does removing a recipient revoke their already decrypted database password?",
+      "answer": "No. The database accepts it until rotated or disabled. Recipient changes control future decryption, not knowledge already obtained.",
+      "beginnerExercise": "Encrypt a dummy value for one local age identity and prove a second cannot decrypt it. Change recipients and rotate the dummy application value; check logs and Git for plaintext.",
+      "extendedExercise": "Encrypt fake configuration with age and prove an unauthorized key cannot decrypt it. Later use a tightly scoped cloud identity with KMS, test a denied identity, rotate a recipient, and recover using an approved backup identity. Verify plaintext never appears in CI logs or retained artifacts.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Encryption at rest does not protect plaintext after decryption. Removing a recipient cannot erase old Git history or revoke a secret already seen; rotate the actual secret when access is lost. Do not assume Argo CD automatically decrypts SOPS files without a reviewed integration.",
+      "primarySources": [
+        {
+          "url": "https://github.com/getsops/sops",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://getsops.io/docs/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://getsops.io/docs/usage/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://getsops.io/docs/security/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README lists structured formats and AWS KMS, GCP KMS, age and other key backends. The official docs expose usage and security-model sections; the repository includes examples and functional-test directories.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "SigNoz/signoz",
+      "url": "https://github.com/SigNoz/signoz",
+      "selection": "findarepo-30",
+      "title": "Connect three signals to one question",
+      "weeks": [
+        33,
+        34,
+        35,
+        36
+      ],
+      "levels": [
+        9
+      ],
+      "teaching": "Metrics show how frequently a class of requests fails. A trace shows where one request spent time. Logs explain selected events with context. Propagate an identifier to connect the views. More telemetry is not automatically better: unbounded labels, secrets and unlimited retention add cost and risk without necessarily improving diagnosis.",
+      "question": "Which evidence links a slow API request to a database call?",
+      "answer": "A trace with the database span, correlated log identifiers and latency metrics over the same interval. A host CPU chart alone does not locate that boundary.",
+      "beginnerExercise": "Delay one synthetic database operation, find its span and correlate a structured log. Record allowed exported attributes and a justified retention period.",
+      "extendedExercise": "Instrument an HTTP request and a database call, propagate a trace identifier, inject a slow query and locate the latency in a trace. Correlate the trace with a structured log and an error-rate metric, then set a justified sampling and retention policy.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Telemetry volume, retention and cardinality consume real storage and compute. Do not assume enterprise access controls exist in the community edition. Redact sensitive attributes before export and keep the ingestion endpoint private.",
+      "primarySources": [
+        {
+          "url": "https://github.com/SigNoz/signoz",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/SigNoz/signoz/main/LICENSE",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README describes an OpenTelemetry-based platform with logs, metrics, traces and alerts, with community and enterprise offerings. The license applies MIT terms outside specified enterprise directories and third-party components.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "TwiN/gatus",
+      "url": "https://github.com/TwiN/gatus",
+      "selection": "findarepo-30",
+      "title": "Check the contract, not merely a status code",
+      "weeks": [
+        7,
+        8,
+        33,
+        35
+      ],
+      "levels": [
+        2,
+        9
+      ],
+      "teaching": "HTTP 200 can carry wrong data. A synthetic check should validate status, selected body fields and a justified latency threshold for a user action. Run monitoring where it can still report when the application fails. Repeated alerts about the same outage add noise; track transitions into failure and recovery.",
+      "question": "Why can a green health endpoint coexist with broken task creation?",
+      "answer": "The endpoint may only prove the process answers. Creation may still fail on authorization, validation or the database.",
+      "beginnerExercise": "Check a task response's status and body. Substitute a wrong but valid 200 response, then stop the app in a separate run. Prove both are detected and recovery clears the failure.",
+      "extendedExercise": "Check status code, expected response content and a justified latency threshold. Break DNS, return a misleading HTTP 200 and stop the app in separate drills. Prove each failure is detected, recovery clears it, and notification thresholds avoid repeated noise.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Synthetic checks complement rather than replace unit, integration and whole-system tests. A monitor inside the same failed cluster may vanish with the app. Keep credentials out of public check output, and do not make alpha workflow suites a core dependency.",
+      "primarySources": [
+        {
+          "url": "https://github.com/TwiN/gatus",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/TwiN/gatus/master/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/TwiN/gatus/master/.github/workflows/test.yml",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README provides HTTP/TCP/DNS checks, conditions, alerts, authentication and deployment examples. The sampled GitHub test workflow builds the binary and runs Go tests with the race detector; ICMP testing requires elevation in that workflow.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "awesome-foss/awesome-sysadmin",
+      "url": "https://github.com/awesome-foss/awesome-sysadmin",
+      "selection": "findarepo-30",
+      "title": "Choose from an operating requirement",
+      "weeks": [
+        4,
+        16,
+        24,
+        47
+      ],
+      "levels": [
+        1,
+        4,
+        6,
+        12
+      ],
+      "teaching": "A directory helps after the problem is precise. Write required behavior, environment, access boundary, recovery expectation and budget before comparing products. Feature lists cannot show whether a team can operate a system. Include maintenance, permissions, backup format, integration work and exit cost. Choose the smallest option that demonstrates the acceptance criteria.",
+      "question": "What is missing from choosing a backup tool by stars?",
+      "answer": "Evidence that it supports the service's data, restoration requirements, permissions, budget and operating skills. Popularity is not a restore test.",
+      "beginnerExercise": "Compare two ways to monitor Taskboard using one requirement sheet. Reject one explicitly and prove the chosen check detects the known failure.",
+      "extendedExercise": "Choose a genuine requirement, such as configuration management or external monitoring. Compare three candidates on maintenance, licensing, access control, backup/recovery, resource costs and integration effort. Write a one-page decision record that explains why you rejected two.",
+      "expectedEvidence": "Prediction, observation, recovery check and explanation saved with lesson evidence.",
+      "doNotCopy": "Directory inclusion is not a security audit or proof that a project is still maintained. Follow the upstream documentation and verify the current license/version before adopting a tool. Limit browsing so it does not replace building and debugging.",
+      "primarySources": [
+        {
+          "url": "https://github.com/awesome-foss/awesome-sysadmin",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README groups projects into categories including configuration management, CI/CD, backup and monitoring; entries provide upstream links and license/language labels. It includes Ansible, GitLab CI and Argo CD in the inspected sections.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "bytebase/bytebase",
+      "url": "https://github.com/bytebase/bytebase",
+      "selection": "findarepo-30",
+      "title": "Schema changes must tolerate mixed app versions",
+      "weeks": [
+        42,
+        50,
+        51
+      ],
+      "levels": [
+        11,
+        13
+      ],
+      "teaching": "During a rolling release, old and new application versions coexist. Expand-and-contract first adds compatible schema, then backfills data, switches application use and later removes the old shape. Separate stages permit verification and forward repair. An approval process controls changes but cannot itself prove data is recoverable.",
+      "question": "Why can restoring an old image fail after dropping a column?",
+      "answer": "Old code still expects the removed schema. Application rollback and database recovery are different operations; destructive changes need staged compatibility.",
+      "beginnerExercise": "Add an optional field while retaining the old field. Test both app versions against expanded schema, backfill synthetic records and document the condition required before any removal.",
+      "extendedExercise": "Design an expand/contract database change for the capstone. In a disposable PostgreSQL environment, prove that old and new app versions work during the expansion stage, rehearse the data migration and a forward fix, and record who can approve versus execute a change. Inspect Bytebase's workflow; install it only if the required controls are available in the chosen edition.",
+      "expectedEvidence": "A migration runbook, compatibility test results and a review/execute permission matrix.",
+      "doNotCopy": "A migration rollback button is not proof that data can be recovered. Verify edition entitlements before depending on approval/access features. Avoid importing real database credentials into a learning installation.",
+      "primarySources": [
+        {
+          "url": "https://github.com/bytebase/bytebase",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/bytebase/bytebase/main/LICENSE",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README describes SQL review, GitLab integration, change workflows, RBAC and policy APIs. LICENSE separates enterprise paths and enablement code from the MIT-licensed remainder.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "kubernetes-sigs/headlamp",
+      "url": "https://github.com/kubernetes-sigs/headlamp",
+      "selection": "findarepo-30",
+      "title": "A dashboard is an API client",
+      "weeks": [
+        27,
+        28
+      ],
+      "levels": [
+        7
+      ],
+      "teaching": "A dashboard displays resources using an identity. Its permissions should match the task, like kubectl. Deployment to ReplicaSet to Pod shows workload ownership; Service selector to endpoints shows where traffic goes. Verify those relationships at the command line so the model remains useful when the UI is unavailable.",
+      "question": "Does read-only troubleshooting require cluster-admin?",
+      "answer": "No. Grant required read access in the lab namespace. Permission errors require a specific decision, not blanket administrator access.",
+      "beginnerExercise": "Inspect one Deployment with a restricted identity and repeat with kubectl. Prove that identity cannot edit workloads or read Secrets.",
+      "extendedExercise": "Use a namespace-scoped read-only identity in a disposable cluster. Trace Deployment to ReplicaSet to Pod and Service to endpoints in the UI, then reproduce every finding with kubectl. Confirm that the identity cannot edit workloads or read Secrets.",
+      "expectedEvidence": "A resource relationship sketch, matching CLI observations and denied-action evidence.",
+      "doNotCopy": "A GUI inherits the power of its credentials. Do not give it cluster-admin merely to remove permission errors; do not publicly expose an administrative dashboard. Choose this or Freelens for the first year, not both.",
+      "primarySources": [
+        {
+          "url": "https://github.com/kubernetes-sigs/headlamp",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/kubernetes-sigs/headlamp/main/SECURITY.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The README documents desktop and in-cluster modes, multi-cluster access, logs/exec, and actions governed by Kubernetes RBAC. SECURITY.md links Kubernetes disclosure and security announcements.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "cloudnative-pg/cloudnative-pg",
+      "url": "https://github.com/cloudnative-pg/cloudnative-pg",
+      "selection": "findarepo-30",
+      "title": "Failover and backup solve different failures",
+      "weeks": [
+        29,
+        42,
+        44
+      ],
+      "levels": [
+        8,
+        11
+      ],
+      "teaching": "An operator reconciles database resources and may promote another instance after primary failure. Replication can also copy accidental deletion to every replica. A backup plus transaction history recovers an earlier state. Test failover and restoration separately and measure data loss and recovery time. Multiple Pods on one laptop do not prove zone resilience.",
+      "question": "Can a healthy standby replace backups?",
+      "answer": "No. It may contain the same incorrect change as the primary. Replication and recoverable historical copies address different failures.",
+      "beginnerExercise": "Draw primary, standby and backup paths. In the optional operator lab, record timestamped tasks, trigger one primary Pod failure, then independently restore to a new cluster and check contents.",
+      "extendedExercise": "In a disposable cluster, follow a release-matched quickstart, write timestamped records, observe primary/standby roles, and simulate a primary Pod failure. Separately back up and restore to a new cluster, verify rows and measure recovery time and data loss. Compare ownership with AWS RDS and Cloud SQL before selecting a database architecture.",
+      "expectedEvidence": "Separate failover and restore reports with measured RTO/RPO, checksums or row assertions, and an operator-versus-managed-service decision.",
+      "doNotCopy": "Failover and backups solve different problems. A local multi-Pod cluster does not demonstrate availability-zone resilience. Do not copy deprecated backup fields from an old tutorial; match operator, plugin and PostgreSQL documentation to pinned releases.",
+      "primarySources": [
+        {
+          "url": "https://github.com/cloudnative-pg/cloudnative-pg",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/main/docs/src/backup.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README explains reconciliation, primary election and rolling updates. The backup documentation describes base backups plus WAL, restore measurement, separate secret protection, and the transition from native Barman integration to CNPG-I plugins beginning in 1.26.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "CISOfy/lynis",
+      "url": "https://github.com/CISOfy/lynis",
+      "selection": "findarepo-30",
+      "title": "A finding needs a threat and a verification",
+      "weeks": [
+        4,
+        23,
+        41
+      ],
+      "levels": [
+        1,
+        6,
+        11
+      ],
+      "teaching": "An audit reports evidence and suggestions. Explain the threat, asset and operational effect before changing configuration. Apply the change reproducibly, rerun the audit and verify the service. Some findings can be accepted with a reason. A higher score alone cannot establish security or compliance.",
+      "question": "A hardening change clears a warning but blocks deployment. Complete?",
+      "answer": "No. Preserve required operation or revise the deployment design. Record the tradeoff and test both security behavior and the service workflow.",
+      "beginnerExercise": "Choose one disposable-VM finding, explain it, apply an Ansible-managed fix and run the application smoke test. Keep before/after evidence and a recovery step.",
+      "extendedExercise": "Audit a disposable Linux VM, select three findings whose threat and operational effect you can explain, implement the chosen changes through Ansible, rerun the audit and application smoke tests, and document any intentionally accepted finding.",
+      "expectedEvidence": "Before/after findings, three explained fixes, an idempotent Ansible run and regression evidence.",
+      "doNotCopy": "The hardening index is not a security guarantee or compliance certificate. Prioritize threat relevance and service functionality over a perfect score. A container or WSL result does not stand in for a complete cloud VM audit.",
+      "primarySources": [
+        {
+          "url": "https://github.com/CISOfy/lynis",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/CISOfy/lynis/master/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://cisofy.com/documentation/lynis/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README describes host auditing and hardening guidance. The official usage guide documents audit system, profiles, warnings and suggestions.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "jenkinsci/jenkins",
+      "url": "https://github.com/jenkinsci/jenkins",
+      "selection": "findarepo-30",
+      "title": "Separate scheduling authority from build execution",
+      "weeks": [
+        9,
+        11,
+        12
+      ],
+      "levels": [
+        3
+      ],
+      "teaching": "A CI controller schedules work; workers execute repository-controlled code. A merge request can alter what a worker runs, so its credentials and host capabilities define a trust boundary. Isolate untrusted checks and keep deployment authority in a narrower approved path. This responsibility split transfers directly to GitLab Runner.",
+      "question": "Why avoid arbitrary builds on a CI controller?",
+      "answer": "Build scripts gain local access to the service that schedules other work. Isolating execution limits damage from compromised or untrusted jobs.",
+      "beginnerExercise": "Draw controller, runner, repository, registry and cloud identity. Mark credentials available to merge-request checks versus the protected deployment job.",
+      "extendedExercise": "Map a small Jenkins pipeline's stages, agent, credentials and artifacts onto the equivalent GitLab jobs, runner and variables. Write a short migration note identifying plugin dependencies and the trust boundary between orchestration and executing untrusted code.",
+      "expectedEvidence": "A one-page Jenkins-to-GitLab concept map and a runner isolation checklist.",
+      "doNotCopy": "Do not spend the main course administering a second CI platform. Installing plugins creates maintenance and security work; a tutorial's plugin list is not an architectural requirement.",
+      "primarySources": [
+        {
+          "url": "https://raw.githubusercontent.com/jenkinsci/jenkins/master/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://www.jenkins.io/doc/book/security/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "The primary README covers build/test/deploy automation and weekly versus LTS release lines. Jenkins security documentation says to isolate the controller and avoid executing builds on the built-in node.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "woodpecker-ci/woodpecker",
+      "url": "https://github.com/woodpecker-ci/woodpecker",
+      "selection": "findarepo-30",
+      "title": "Container execution does not erase host authority",
+      "weeks": [
+        10,
+        11,
+        12
+      ],
+      "levels": [
+        3
+      ],
+      "teaching": "A container is not a boundary against every host capability. A job with the Docker API may create privileged containers or access host data. Inspect sockets, volumes, credentials and network paths when evaluating runners. Isolation is a property of the full execution configuration, not a YAML label.",
+      "question": "Why is mounting the Docker socket a security decision?",
+      "answer": "It grants control of the Docker daemon and potentially the host and other workloads. Treat it as execution authority, not an ordinary file.",
+      "beginnerExercise": "Annotate mounts and credentials in a runner configuration. Propose disposable build workers and prove untrusted jobs cannot reach deployment credentials.",
+      "extendedExercise": "Read the server/agent Compose example and draw which component receives source, runs code and can access credentials. Compare this to GitLab Runner. Explain what mounting the Docker socket grants and propose isolation for untrusted merge requests.",
+      "expectedEvidence": "A CI trust-boundary diagram and three isolation controls transferable to GitLab.",
+      "doNotCopy": "The example is not a hardened deployment recipe. Docker socket access is a host-control trust decision; copying sample openness or administrator settings is inappropriate for shared runners.",
+      "primarySources": [
+        {
+          "url": "https://github.com/woodpecker-ci/woodpecker",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/woodpecker-ci/woodpecker/main/docker-compose.example.yaml",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README identifies the server/agent architecture and plugin ecosystem. docker-compose.example.yaml mounts /var/run/docker.sock in the agent and contains example server registration and admin settings.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "go-task/task",
+      "url": "https://github.com/go-task/task",
+      "selection": "findarepo-30",
+      "title": "A command interface must preserve failure",
+      "weeks": [
+        5,
+        8,
+        9,
+        47
+      ],
+      "levels": [
+        2,
+        3,
+        12
+      ],
+      "teaching": "A task runner names repeatable commands. It should expose the same test logic locally and in CI while preserving nonzero exit codes. Understand the underlying command first. Dependencies and caches need care: skipping a required test can make a release look green without fresh evidence.",
+      "question": "What must task test do when one test fails?",
+      "answer": "Return failure so the terminal or pipeline stops the release. Printing an error while exiting successfully breaks that contract.",
+      "beginnerExercise": "Wrap working unit, integration and system checks with named tasks. Introduce a failing assertion and confirm both local task and GitLab job fail.",
+      "extendedExercise": "Create named commands for format, lint, unit, integration, system smoke, build and local teardown. Keep actual logic in understandable scripts or test tools. Have GitLab call the same commands. Prove that a deliberately failing test returns failure to the pipeline and that cleanup stays within the lab.",
+      "expectedEvidence": "A documented Taskfile that works from a clean checkout and propagates failing exit codes.",
+      "doNotCopy": "Task is an orchestration convenience, not a replacement for shell knowledge or GitLab CI. Untrusted Taskfiles execute commands. A cache or up-to-date shortcut must not silently bypass required validation.",
+      "primarySources": [
+        {
+          "url": "https://github.com/go-task/task",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://taskfile.dev/docs/guide/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README identifies Task as a cross-platform build tool. Its guide covers dependencies, preconditions, output checks, platform shells, cleanup and remote Taskfile trust.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "theonedev/onedev",
+      "url": "https://github.com/theonedev/onedev",
+      "selection": "findarepo-30",
+      "title": "Trace requirements to deployed artifacts",
+      "weeks": [
+        12,
+        47,
+        48
+      ],
+      "levels": [
+        3,
+        12
+      ],
+      "teaching": "A platform should preserve the chain from a reported need through review, tests, artifact and deployment. A release record must answer which change was approved, which checks passed and exactly what was deployed. Evidence connected to an artifact is stronger than a screenshot of a green pipeline.",
+      "question": "Does yesterday's passing pipeline prove today's image was tested?",
+      "answer": "Only if tested and deployed artifact identities match. Mutable tags or rebuilt images can break the relationship.",
+      "beginnerExercise": "Record one Taskboard issue, commit, merge request, test report, image digest and deployment result. Find and repair a missing link.",
+      "extendedExercise": "Follow the documented lifecycle from issue to commit, protected review, successful test, package and deployment. Map each artifact to your GitLab workflow, and identify what must be backed up if the integrated platform is self-hosted.",
+      "expectedEvidence": "A traceability table for a single capstone release and a platform backup inventory.",
+      "doNotCopy": "The first-year learning value is lifecycle traceability. Operating another full development platform would duplicate GitLab study and add unrelated administration. Root licensing does not establish entitlements for every external plugin or hosted feature.",
+      "primarySources": [
+        {
+          "url": "https://github.com/theonedev/onedev",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/theonedev/onedev/blob/main/license.txt",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README describes conditional code-protection rules, CI executors, debugging, registries and issue/build linkage. The root license.txt inspected is MIT.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "apache/apisix",
+      "url": "https://github.com/apache/apisix",
+      "selection": "findarepo-30",
+      "title": "Limit release exposure while measuring behavior",
+      "weeks": [
+        26,
+        32,
+        43
+      ],
+      "levels": [
+        7,
+        8,
+        11
+      ],
+      "teaching": "A gateway can send some requests to a new version. Risk falls only when versions are compatible and signals reveal regressions. Define thresholds and stop conditions before traffic. Keep management access private and test authentication, throttling and upstream failure separately.",
+      "question": "Is ten-percent canary traffic automatically safe?",
+      "answer": "No. It can still corrupt shared data, and silent errors need meaningful checks. Compatibility and tested traffic rollback are required.",
+      "beginnerExercise": "Use two local versions and a small request sample. Record version, correctness and latency; restore all traffic to the known version after an injected defect.",
+      "extendedExercise": "Put two capstone versions behind a disposable gateway, route a small percentage of requests to the new version, enforce authentication and a rate limit, then test unauthorized, throttled, healthy and unavailable-upstream responses. Record latency before and after the gateway and rehearse rollback.",
+      "expectedEvidence": "Versioned route policy, automated HTTP assertions, a small latency comparison and rollback evidence.",
+      "doNotCopy": "A gateway adds another component to operate. Keep the management API private. Do not copy a remote shell quickstart into a production host; inspect and pin artifacts. Choose one gateway implementation for the exercise.",
+      "primarySources": [
+        {
+          "url": "https://github.com/apache/apisix",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/apache/apisix/master/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://apisix.apache.org/docs/apisix/admin-api/",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README describes dynamic routing, canary traffic, authentication and observability. The Admin API reference instructs operators to configure a secure admin key and review the admin IP allowlist.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "psviderski/uncloud",
+      "url": "https://github.com/psviderski/uncloud",
+      "selection": "findarepo-30",
+      "title": "Choose orchestration by required failure behavior",
+      "weeks": [
+        40,
+        45,
+        47
+      ],
+      "levels": [
+        10,
+        12
+      ],
+      "teaching": "Multiple hosts introduce placement, networking, identity and state convergence. State what happens when a host disappears or hosts cannot communicate. A platform moves responsibilities without removing them. Compare VM, managed service and cluster against requirements and the team's operating capacity.",
+      "question": "What matters beyond fast demo deployment?",
+      "answer": "Whether you can explain and recover host, network and state-store failures within recovery and cost limits.",
+      "beginnerExercise": "Write a Taskboard decision with a host-loss scenario. Compare recovery ownership for three deployment models and label untested claims.",
+      "extendedExercise": "Read the design document and compare a single VM, managed container service, Uncloud and Kubernetes for a small service. Discuss networking, placement, state convergence, a host failure and the operational work each option transfers to the engineer.",
+      "expectedEvidence": "An architecture decision record explaining when Kubernetes is unnecessary and what requirements would change that decision.",
+      "doNotCopy": "Treat the design document as design history and proposals, not proof that all described behavior is shipped. Verify current release behavior before relying on rescheduling or partition semantics. It does not replace learning Kubernetes for the stated career target.",
+      "primarySources": [
+        {
+          "url": "https://github.com/psviderski/uncloud",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/psviderski/uncloud/blob/main/misc/design.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README shows multi-host container deployment and machine bootstrap. misc/design.md discusses mesh networking, shared state, coordination and imperative versus declarative orchestration as design choices.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "semaphoreui/semaphore",
+      "url": "https://github.com/semaphoreui/semaphore",
+      "selection": "findarepo-30",
+      "title": "Run reviewed automation with limited authority",
+      "weeks": [
+        22,
+        24,
+        47
+      ],
+      "levels": [
+        6,
+        12
+      ],
+      "teaching": "An automation UI separates selecting a predefined operation from editing its code. An operator may need to execute a deployment without altering playbooks or credentials. Record playbook version, inventory and parameters. Verify CLI idempotence first; a polished interface cannot repair unsafe automation.",
+      "question": "Why separate template editing from execution?",
+      "answer": "Editing changes what a privileged job can do. Authoring and running are distinct authorities requiring different review.",
+      "beginnerExercise": "Document a reviewed Ansible operation, commit, fixed lab inventory and allowed inputs. Run twice at the CLI before optionally adding a UI template.",
+      "extendedExercise": "Wrap the already-tested Ansible hardening playbook in a task template for a disposable inventory. Separate an operator's execution permissions from configuration changes, run the job twice, and compare the logs with the CLI workflow.",
+      "expectedEvidence": "A repeatable task template, restricted lab identity and a second run with no unintended changes.",
+      "doNotCopy": "This is Semaphore UI, not the separate Semaphore CI product. Never reuse the README's example changeme password or unpinned latest image. A UI with execution credentials is a sensitive control surface; it does not replace playbook versioning or review.",
+      "primarySources": [
+        {
+          "url": "https://github.com/semaphoreui/semaphore",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://raw.githubusercontent.com/semaphoreui/semaphore/develop/SECURITY.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README documents projects, templates, schedules, inventories and variable groups. The security policy states scope and a private vulnerability-reporting process; its fetched supported-version table may lag releases.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "bunkerity/bunkerweb",
+      "url": "https://github.com/bunkerity/bunkerweb",
+      "selection": "findarepo-30",
+      "title": "Edge filtering complements application correctness",
+      "weeks": [
+        41,
+        43,
+        51
+      ],
+      "levels": [
+        11,
+        13
+      ],
+      "teaching": "A WAF recognizes selected request patterns. Ownership of a user's task is business context enforced by the application. Keep authorization tests, then add edge controls and test legitimate and suspicious requests. Tune narrow false positives instead of disabling all rules.",
+      "question": "Can a WAF replace a cross-user access test?",
+      "answer": "No. The application must enforce ownership regardless of filtering at the edge.",
+      "beginnerExercise": "Retain two-user access tests. Run a local request corpus with valid punctuation and controlled suspicious strings, tune one false positive and rerun allowed and denied cases.",
+      "extendedExercise": "Protect only your disposable capstone service. Create a small regression suite with legitimate requests and controlled malicious-looking inputs, observe false positives, make one narrow rule exception, and prove legitimate traffic works without disabling the entire rule set.",
+      "expectedEvidence": "A request/expected-result matrix, a justified narrow exception, relevant logs and a configuration rollback.",
+      "doNotCopy": "A WAF does not repair broken authorization, vulnerable code or exposed credentials. Test only owned lab endpoints, retain application tests, and evaluate edition/licensing requirements before adoption. The linked security-tuning page could not be retrieved in this audit.",
+      "primarySources": [
+        {
+          "url": "https://github.com/bunkerity/bunkerweb",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README describes ModSecurity with OWASP Core Rule Set, TLS and request controls; it explicitly recommends security tuning and false-positive management, and distinguishes AGPL community code from PRO features.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "OneUptime/oneuptime",
+      "url": "https://github.com/OneUptime/oneuptime",
+      "selection": "findarepo-30",
+      "title": "Incidents are a coordination loop",
+      "weeks": [
+        35,
+        36,
+        44,
+        51
+      ],
+      "levels": [
+        9,
+        11,
+        13
+      ],
+      "teaching": "Detection, acknowledgement, mitigation, communication and learning belong together. Alerts need user impact, evidence and a first safe diagnostic action. Record failure onset, detection, changes and verified recovery. Separate facts from hypotheses in status updates. Follow-up work needs an owner and a test proving improvement.",
+      "question": "Why is recovery not the final incident task?",
+      "answer": "Without a timeline, contributing conditions and verified improvements, the same confusion can recur.",
+      "beginnerExercise": "Run a ten-minute local outage drill. Write two status updates, restore the service and deliver one tested follow-up. Installing a complete incident platform is unnecessary.",
+      "extendedExercise": "Design a capstone incident flow: synthetic failure, actionable alert, acknowledgment, status update, recovery and postmortem. Read the sizing page and estimate how retention and telemetry rate affect storage. Implement the same flow in the lighter observability tools already used by the course.",
+      "expectedEvidence": "A timed incident exercise, draft status update, postmortem and telemetry-retention estimate.",
+      "doNotCopy": "A full self-hosted deployment should not be mandatory on an unknown laptop or cloud budget. Demonstrated features and automated-fix marketing are not evidence of diagnosis accuracy. Check current sizing and paid/external notification costs before a later trial.",
+      "primarySources": [
+        {
+          "url": "https://github.com/OneUptime/oneuptime",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/OneUptime/oneuptime/blob/master/packages/App/FeatureSet/Docs/Content/en/installation/sizing.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README lists monitoring, status pages, on-call, incidents, metrics/logs/traces and self-hosting. Its sizing document warns that Helm defaults are for trial installation and recommends 16 GB memory, 8 cores and 400 GB disk for the Compose deployment.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "k8sgpt-ai/k8sgpt",
+      "url": "https://github.com/k8sgpt-ai/k8sgpt",
+      "selection": "findarepo-30",
+      "title": "An automated diagnosis is a testable hypothesis",
+      "weeks": [
+        28,
+        32,
+        44
+      ],
+      "levels": [
+        7,
+        8,
+        11
+      ],
+      "teaching": "An assistant organizes symptoms, while cluster events, configuration and requests remain evidence. Diagnose before reading its explanation. Verify suggestions against the known fault and a disposable namespace. Minimize data and permissions exposed to analysis and keep automatic remediation out of the first exercise.",
+      "question": "How do you verify that a Service has no healthy targets?",
+      "answer": "Compare selectors and Pod labels, inspect endpoint readiness, then inspect probe events. Each observation tests a different cause.",
+      "beginnerExercise": "Inject a wrong image and a wrong selector in separate runs. Diagnose manually, compare analyzer output and record one incomplete or mistaken suggestion.",
+      "extendedExercise": "Create three known failures in a disposable namespace: bad image, incorrect Service selector and failed readiness probe. Write your diagnosis from events/logs first. Compare analyzer output and optional AI explanation, validate every claim against cluster evidence and record an incorrect or incomplete suggestion.",
+      "expectedEvidence": "A diagnosis comparison with ground truth, evidence, time taken and corrections.",
+      "doNotCopy": "An AI explanation is a hypothesis. External providers may receive cluster-derived information; anonymization is not proof that all sensitive content is removed. Use synthetic lab data, narrow read permissions and no automatic remediation.",
+      "primarySources": [
+        {
+          "url": "https://github.com/k8sgpt-ai/k8sgpt",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README documents analyzer scans, namespace/resource filters, JSON output, optional --explain providers and --anonymize.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "freelensapp/freelens",
+      "url": "https://github.com/freelensapp/freelens",
+      "selection": "findarepo-30",
+      "title": "Context is part of every cluster operation",
+      "weeks": [
+        25,
+        28,
+        46
+      ],
+      "levels": [
+        7,
+        12
+      ],
+      "teaching": "A kubeconfig identifies clusters, users and contexts. Convenient switching makes target verification essential. Use a restricted lab identity, inspect events and logs, then reproduce findings with kubectl. Connect symptoms to the correct resources in the intended cluster rather than memorizing a GUI path.",
+      "question": "What should be verified before acting on a displayed Pod?",
+      "answer": "Cluster/context, namespace, resource identity and permission scope. Similar names do not prove you are in the lab.",
+      "beginnerExercise": "Inspect the bad-image drill with one dashboard, record context and namespace, then reproduce image and event evidence with kubectl.",
+      "extendedExercise": "If a desktop UI suits you better, use a limited lab kubeconfig to inspect workloads, events and logs. Diagnose a deliberate bad image, then reproduce the diagnosis with kubectl. Verify the current context before each operation.",
+      "expectedEvidence": "A UI-to-kubectl diagnosis and a written context/credential handling habit.",
+      "doNotCopy": "Choose one dashboard, preserve CLI competence and protect kubeconfig credentials. Do not install unnecessary extensions or give broad permissions to simplify navigation. The linked security file was not retrievable in this audit, so no claim about its content is made.",
+      "primarySources": [
+        {
+          "url": "https://github.com/freelensapp/freelens",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "README identifies its desktop platforms, kubeconfig use, bundled tools and OpenLens ancestry. Its directory listing exposes development/test configuration, but those tests were not inspected or run.",
+      "upstreamCommit": null,
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "The-DevOps-Daily/devops-daily",
+      "url": "https://github.com/The-DevOps-Daily/devops-daily",
+      "selection": "devops-daily-10",
+      "title": "Turn tutorials into measured experiments",
+      "weeks": [
+        5,
+        6,
+        17,
+        19,
+        21,
+        22,
+        27,
+        30,
+        34
+      ],
+      "levels": [
+        2,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "teaching": "Predict, change one thing and check the result. For Docker, separate dependency installation from frequently changing source and compare rebuilds. For infrastructure, explain planned resources and ongoing cost before apply. For configuration, verify the second run and service behavior rather than accepting a completion message.",
+      "question": "What does a tutorial need beyond successful deployment?",
+      "answer": "A behavior check, intentional failure, diagnosis, recovery, repeat run and cleanup. These establish understanding beyond the happy path.",
+      "beginnerExercise": "Compare a code-only rebuild with a dependency-change rebuild, explain layer reuse, then break one input and diagnose the build log.",
+      "extendedExercise": "Read one relevant exercise, reproduce the concept in the continuing project, then extend it with a failure and acceptance checks.",
+      "expectedEvidence": "Measured image improvement; reviewed VPC plan; idempotent server configuration; deployment and cleanup evidence.",
+      "doNotCopy": "VPC example provisions NAT gateways per availability zone and repeatedly uses apply -auto-approve. Estimate cost and review saved plans before applying. Ansible example disables host-key checking and uses a latest version variable. Enroll trusted SSH host keys and use a tested update/version policy. Tutorial duration estimates are not competency gates. Verify current versions and provider behavior.",
+      "primarySources": [
+        {
+          "url": "https://github.com/The-DevOps-Daily/devops-daily/blob/4cd12767d34f51510bfd08b05536c10dbcc6958a/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/The-DevOps-Daily/devops-daily/blob/4cd12767d34f51510bfd08b05536c10dbcc6958a/content/exercises/docker-multi-stage-build.json",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/The-DevOps-Daily/devops-daily/blob/4cd12767d34f51510bfd08b05536c10dbcc6958a/content/exercises/terraform-aws-vpc.json",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/The-DevOps-Daily/devops-daily/blob/4cd12767d34f51510bfd08b05536c10dbcc6958a/content/exercises/ansible-web-server-automation.json",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Markdown guides plus JSON exercises, quizzes, flashcards and checklists; app source, Docker configuration and tests.",
+      "upstreamCommit": "4cd12767d34f51510bfd08b05536c10dbcc6958a",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "url": "https://github.com/nilbuild/developer-roadmap",
+      "selection": "devops-daily-10",
+      "title": "A map locates skill; evidence proves competence",
+      "weeks": [
+        1,
+        2,
+        4,
+        8,
+        12,
+        16,
+        20,
+        24,
+        28,
+        32,
+        36,
+        40,
+        44,
+        48,
+        52
+      ],
+      "levels": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "teaching": "Trace requests through DNS, transport, TLS, routing, application and storage; trace changes through Git, tests, images, deployment and observation. The map locates lessons for these boundaries. Alternatives are choices, not an installation list. Completion means you can explain, operate and recover a boundary with evidence.",
+      "question": "What separates recognizing Kubernetes from operating a workload?",
+      "answer": "Repeatable deployment, observed routing and probes, failed-rollout diagnosis and verified recovery. Recognition establishes none of these.",
+      "beginnerExercise": "After each level, label three nodes explain, built, repaired or operated. Attach one local evidence artifact to each claim and repeat the weakest exercise.",
+      "extendedExercise": "Review selected branches against evidence from completed labs, keeping alternative tools as optional awareness topics.",
+      "expectedEvidence": "Topic coverage with can-explain, built, broke-and-repaired and operated-with-evidence states.",
+      "doNotCopy": "Live legend explicitly indicates alternatives and nonstrict order; this is not a prerequisite-ordered course. GitLab node provides introduction and links; GitLab runner security, identity federation, rollback and test gates need dedicated labs. Add explicit unit/integration/system testing, recovery, costs, incident work and data migration threads. Do not infer website deployment identity from repository HEAD; retained source and live evidence are separate.",
+      "primarySources": [
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/readme.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/gitlab-ci@2KjSLLVTvl2G2KValw7S7.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/terraform@nUBGf1rp9GK_pbagWCP9g.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/ansible@h9vVPOmdUSeEGVQQaSTH5.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/kubernetes@hIBeTUiAI3zwUY6NgAO-A.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/google-cloud@zYrOxFQkl3KSe67fh3smD.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/aws@1ieK6B_oqW8qOC6bdmiJe.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/availability@JCe3fcOf-sokTJURyX1oI.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/data-management@5FN7iva4DW_lv-r1tijd8.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/secret-management@hcrPpjFxPi_iLiMdLKJrO.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/observability@wNguM6-YEznduz3MgBCYo.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/nilbuild/developer-roadmap/blob/46aa6a6b533feda20a8f36172188ddb4d7e82ed4/roadmaps/devops/content/ci--cd-tools@aQJaouIaxIJChM-40M3HQ.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "140 DevOps Markdown content files; live serialized graph 171 nodes including 139 topics/subtopics and 60 explicit display edges; live DOM 173 groups due to two additional legend items.",
+      "upstreamCommit": "46aa6a6b533feda20a8f36172188ddb4d7e82ed4",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "url": "https://github.com/bregman-arie/devops-exercises",
+      "selection": "devops-daily-10",
+      "title": "Questions reveal missing mental models",
+      "weeks": [
+        3,
+        4,
+        8,
+        12,
+        13,
+        14,
+        16,
+        18,
+        19,
+        20,
+        24,
+        28,
+        32,
+        37,
+        38,
+        40,
+        44,
+        48,
+        52
+      ],
+      "levels": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13
+      ],
+      "teaching": "Answer before revealing a solution. Predict output or the failing layer, then experiment in the lab. If observations disagree, correct the explanation and retain evidence. Revisit with changed conditions so recalled wording cannot replace understanding.",
+      "question": "How can a correct memorized answer be tested for transfer?",
+      "answer": "Change names, symptom or environment and require prediction plus observation. Understanding explains what changes and what remains true.",
+      "beginnerExercise": "Hide answers to three questions matching the week. Record predictions and run a safe experiment for uncertain answers. Reattempt the weakest next week.",
+      "extendedExercise": "Answer 5–10 questions after a matching lab without opening solutions. Reproduce every failed answer as an experiment.",
+      "expectedEvidence": "Answer, prediction, experiment output and corrected explanation for each misconception.",
+      "doNotCopy": "Some AWS exercises cost money, and the source explicitly notes this. Console answers can be translated into Terraform after learning the underlying service. CI examples include Jenkins; preserve learning objectives while implementing GitLab. Question count and recalled answers do not measure operating competence.",
+      "primarySources": [
+        {
+          "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/aws/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/gcp/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/terraform/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/bregman-arie/devops-exercises/blob/9e49ef97f16377d901db01f3562187394828ca6a/topics/cicd/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Topic directories with questions, practical exercises and some solutions; substantial AWS/Terraform content and smaller GCP sections.",
+      "upstreamCommit": "9e49ef97f16377d901db01f3562187394828ca6a",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "kelseyhightower/kubernetes-the-hard-way",
+      "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way",
+      "selection": "devops-daily-10",
+      "title": "Follow identity through the control plane",
+      "weeks": [
+        45,
+        46
+      ],
+      "levels": [
+        12
+      ],
+      "teaching": "The API server accepts requests; controllers reconcile; the scheduler chooses nodes; kubelet runs assigned workloads; etcd stores control-plane state. Certificates and kubeconfigs connect responsibilities to identities. Manual setup exposes these boundaries. A small single-control-plane exercise does not establish resilient production design.",
+      "question": "Why is replacing the API server a poor first response to one failed Pod?",
+      "answer": "The failure may involve scheduling, image retrieval, capacity, runtime or application startup. Locate the failed boundary with events and component health first.",
+      "beginnerExercise": "Draw the request and identity path for Pod creation. Explain each component credential and observe one controlled fault in the bounded internals lab.",
+      "extendedExercise": "After Kubernetes operational basics, bootstrap the training cluster and explain every identity, component and request boundary.",
+      "expectedEvidence": "Architecture and trust diagram, encryption/probe/service smoke-test evidence, one diagnosed fault and cleanup record.",
+      "doNotCopy": "Observed README uses Kubernetes v1.32.x, containerd v2.1.x, CNI v1.6.x and etcd v3.6.x. These are observed tutorial versions, not current production recommendations. Four Debian 12 ARM64/AMD64 machines are required; one control-plane server means this is not a highly available architecture. The README explicitly states its result is not production ready. Allow two weeks or extend the schedule if the learner cannot explain each step; do not rush by pasting commands.",
+      "primarySources": [
+        {
+          "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/52eb26dad1a3e9e8083a899bc854421eb4842a73/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/52eb26dad1a3e9e8083a899bc854421eb4842a73/docs/01-prerequisites.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/52eb26dad1a3e9e8083a899bc854421eb4842a73/docs/12-smoke-test.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Thirteen labs spanning machines, certificates, kubeconfig, encryption, etcd, controllers, workers, routing, smoke testing and cleanup.",
+      "upstreamCommit": "52eb26dad1a3e9e8083a899bc854421eb4842a73",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "MichaelCade/90DaysOfDevOps",
+      "url": "https://github.com/MichaelCade/90DaysOfDevOps",
+      "selection": "devops-daily-10",
+      "title": "Keep one service and a short learning loop",
+      "weeks": [
+        1,
+        2,
+        3,
+        5,
+        6,
+        8,
+        17,
+        18,
+        21,
+        22,
+        23,
+        33,
+        34,
+        41,
+        42
+      ],
+      "levels": [
+        1,
+        2,
+        5,
+        6,
+        9,
+        11
+      ],
+      "teaching": "A continuing app makes tools answer concrete needs: packaging handles environments, configuration automation replaces repeated setup, backups recover state. Journal predictions, changes, failures and proof. Revisit the same contracts as requirements grow. A calendar label is pacing, not mastery.",
+      "question": "Why improve one small app through the year?",
+      "answer": "It reduces unrelated business-code changes and exposes each operational layer's consequences. Contracts can be retested after packaging, deployment and recovery changes.",
+      "beginnerExercise": "Write prediction/change/failure/evidence notes. Identify one earlier check that must still pass after today's improvement.",
+      "extendedExercise": "Choose 2022 days 42–47 for containers, 56–62 for IaC, 63–69 for Ansible and selected monitoring/recovery chapters; use 2023 security, secrets, databases and operations sections.",
+      "expectedEvidence": "One applied change or tested hypothesis per selected chapter, recorded in the continuing project.",
+      "doNotCopy": "2022 cloud lessons focus on Azure; CI lessons focus on Jenkins/GitHub Actions. Substitute AWS/GCP and GitLab deliberately. The chapter indexes were inspected; individual day lessons were not all read or executed. Validate dated commands and versions against current project documentation. 90 days is the source author's structure, not this learner's deadline.",
+      "primarySources": [
+        {
+          "url": "https://github.com/MichaelCade/90DaysOfDevOps/blob/2941b895eaac2056ec9431a21f3d09a60a3752f8/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/MichaelCade/90DaysOfDevOps/blob/2941b895eaac2056ec9431a21f3d09a60a3752f8/2022.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/MichaelCade/90DaysOfDevOps/blob/2941b895eaac2056ec9431a21f3d09a60a3752f8/2023.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "2022 foundations, 2023 DevSecOps and 2024 community content, with translations and supporting assets.",
+      "upstreamCommit": "2941b895eaac2056ec9431a21f3d09a60a3752f8",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "milanm/DevOps-Roadmap",
+      "url": "https://github.com/milanm/DevOps-Roadmap",
+      "selection": "devops-daily-10",
+      "title": "Review capabilities rather than collecting tools",
+      "weeks": [
+        1,
+        13,
+        26,
+        39,
+        49,
+        52
+      ],
+      "levels": [
+        1,
+        4,
+        7,
+        10,
+        13
+      ],
+      "teaching": "Use a second roadmap to check balance among software practice, systems, delivery, cloud, security and operations. Turn missing evidence into a specific exercise, such as restoration or denied access. Do not add a platform just because it appears on another map. Requirements and observed weaknesses decide the next work.",
+      "question": "What determines next work when roadmaps disagree?",
+      "answer": "Current task prerequisites and demonstrated learner gaps. Teach a dependency before the tool that relies on it.",
+      "beginnerExercise": "During quarterly review, choose one weak capability, define an acceptance check and complete it before adding optional tooling.",
+      "extendedExercise": "Compare completed capability evidence with its major categories during quarterly review.",
+      "expectedEvidence": "A prioritized missing-capability list and one justification for a tool choice.",
+      "doNotCopy": "Its resource list is not a tested lab sequence. It includes paid and free learning resources; purchasing anything is optional. Keep software engineering practices and security in the main path rather than postponing them.",
+      "primarySources": [
+        {
+          "url": "https://github.com/milanm/DevOps-Roadmap/blob/d7499e6dabe2fc54be85a28952080c0b6be857b3/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Main resource README, roadmap image and PDF; twelve subject sections and DevSecOps additions.",
+      "upstreamCommit": "d7499e6dabe2fc54be85a28952080c0b6be857b3",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "ramitsurana/awesome-kubernetes",
+      "url": "https://github.com/ramitsurana/awesome-kubernetes",
+      "selection": "devops-daily-10",
+      "title": "An extension creates an operating obligation",
+      "weeks": [
+        25,
+        27,
+        29,
+        30,
+        40,
+        46
+      ],
+      "levels": [
+        7,
+        8,
+        10,
+        12
+      ],
+      "teaching": "Add-ons introduce APIs, privileges, configuration and upgrade dependencies. State the missing capability, maintainer, failure behavior and removal plan before installing. Shortlist using primary docs and supported versions. A local function test is separate from resilience and upgrade evidence.",
+      "question": "What proves a network policy solution works?",
+      "answer": "Supported cluster integration and a denied-traffic test. Creating a policy object without an enforcing network plugin proves nothing about blocked packets.",
+      "beginnerExercise": "For one add-on, record purpose, permissions, compatibility, failure signal, rollback and removal. Reject it if existing components already satisfy the requirement.",
+      "extendedExercise": "Start with one question, shortlist at most two options, and validate against their official documentation.",
+      "expectedEvidence": "A short architecture decision describing requirements, costs, maintenance and the rejected option.",
+      "doNotCopy": "Historical articles and platform names remain in the list. Directory inclusion does not establish maintenance, compatibility or security. Do not add service mesh, multiple ingress products and extra operators without a concrete need.",
+      "primarySources": [
+        {
+          "url": "https://github.com/ramitsurana/awesome-kubernetes/blob/485a5637cd17c4c73e55731720eb14c6c8c0702b/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/ramitsurana/awesome-kubernetes/blob/485a5637cd17c4c73e55731720eb14c6c8c0702b/docs/managed-kubernetes/managed-kubernetes.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Dedicated directories for learning resources, official resources, installers, projects and managed Kubernetes.",
+      "upstreamCommit": "485a5637cd17c4c73e55731720eb14c6c8c0702b",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "url": "https://github.com/dastergon/awesome-sre",
+      "selection": "devops-daily-10",
+      "title": "Reliability is a measured promise",
+      "weeks": [
+        30,
+        33,
+        35,
+        36,
+        42,
+        43,
+        44,
+        49,
+        50,
+        51,
+        52
+      ],
+      "levels": [
+        8,
+        9,
+        11,
+        13
+      ],
+      "teaching": "Define a useful user action and measure success within a meaningful latency threshold. An SLO states the target over a window; an error budget describes allowed bad events. This makes release tradeoffs explicit. Alert on actionable conditions, write symptom runbooks and examine contributing conditions after incidents.",
+      "question": "Why is average response time insufficient?",
+      "answer": "It hides a minority of slow requests. A threshold-based proportion or relevant percentile exposes the experience the objective protects.",
+      "beginnerExercise": "Define a Taskboard SLI from success counts and latency. Calculate good/total from a sample, inject a brief failure and connect the alert to a runbook.",
+      "extendedExercise": "Select one primary SRE chapter or operator case study, then apply it through an incident or measurement exercise.",
+      "expectedEvidence": "SLO specification, actionable alert, runbook, incident timeline, postmortem and verified follow-up improvement.",
+      "doNotCopy": "Reading is paired with the learner's own evidence. Some links are historical; use current primary destinations where available. Simulated on-call experience must be described as simulation.",
+      "primarySources": [
+        {
+          "url": "https://github.com/dastergon/awesome-sre/blob/e91ef69aa52129662164e54cc22272bc90e9b636/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Curated reading organized by culture, reliability, observability, on-call, postmortems, capacity, service levels and performance.",
+      "upstreamCommit": "e91ef69aa52129662164e54cc22272bc90e9b636",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "stefanprodan/podinfo",
+      "url": "https://github.com/stefanprodan/podinfo",
+      "selection": "devops-daily-10",
+      "title": "Separate platform faults from application faults",
+      "weeks": [
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34
+      ],
+      "levels": [
+        7,
+        8,
+        9
+      ],
+      "teaching": "A known service with health endpoints and fault controls helps isolate platform behavior. Prove routing and rollout there, then repeat with Taskboard. Readiness governs normal Service traffic; liveness restarts failed processes; startup protects initialization. A working reference app does not prove your business rules, database or migration.",
+      "question": "What does a working reference workload establish?",
+      "answer": "It exercises some shared platform paths, strengthening app-specific configuration and dependency hypotheses. It narrows diagnosis without proving the entire platform.",
+      "beginnerExercise": "Observe readiness failure and a bad-image rollout on the reference service, record events and endpoints, recover, then repeat on Taskboard.",
+      "extendedExercise": "Use it to isolate platform problems, then transfer its tested practices to the learner's business application.",
+      "expectedEvidence": "GitLab translation of relevant test stages; readiness and rollout experiments; a fault-injection incident with metrics and recovery evidence.",
+      "doNotCopy": "The app intentionally exposes /env, /configs, /panic and fault controls; keep it private with dummy values. Workflow labels use both integration and end-to-end terms; classify your tests by the actual boundary they exercise. Its ready-made application does not replace business-rule, database migration or recovery testing of the main project. Inspect the tested source revision rather than copying an unpinned latest chart.",
+      "primarySources": [
+        {
+          "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/.github/workflows/test.yml",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/.github/workflows/e2e.yml",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/charts/podinfo/templates/deployment.yaml",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        },
+        {
+          "url": "https://github.com/stefanprodan/podinfo/blob/3e0ff8ae123b710bc91de1315cba0f996a8896c2/pkg/api/http/health_test.go",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Go HTTP/gRPC APIs and tests, Helm/Kustomize deployment assets, CI workflows and cluster integration tests.",
+      "upstreamCommit": "3e0ff8ae123b710bc91de1315cba0f996a8896c2",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    },
+    {
+      "repo": "wmariuss/awesome-devops",
+      "url": "https://github.com/wmariuss/awesome-devops",
+      "selection": "devops-daily-10",
+      "title": "Make a reviewable tool decision",
+      "weeks": [
+        11,
+        12,
+        20,
+        24,
+        36,
+        40,
+        41,
+        43,
+        44,
+        47,
+        48,
+        52
+      ],
+      "levels": [
+        3,
+        5,
+        6,
+        9,
+        10,
+        11,
+        12,
+        13
+      ],
+      "teaching": "A decision record states problem, constraints, alternatives, chosen approach and reconsideration evidence. Include permissions, cost, maintenance and recovery. Keep research bounded so it becomes a tested service improvement instead of a bookmark collection.",
+      "question": "What makes a decision better than a feature list?",
+      "answer": "It connects the choice to service needs and records tradeoffs, ownership and reversal conditions for another engineer to assess.",
+      "beginnerExercise": "Compare two candidates for one real course problem, perform an acceptance test with the choice and specify a reassessment trigger.",
+      "extendedExercise": "Use a category to find two candidates for a real requirement and continue in primary project documentation.",
+      "expectedEvidence": "A decision record with the operational cost of adopting the chosen tool.",
+      "doNotCopy": "Tags and list membership do not verify license suitability, maintenance or secure defaults. Limit fault experiments to the owned lab and document scope and stop conditions. The selected stack remains stable unless evidence warrants a change.",
+      "primarySources": [
+        {
+          "url": "https://github.com/wmariuss/awesome-devops/blob/8421d19d3a9adf77d807fe348e02044103a7c594/README.md",
+          "verifiedDate": "2026-10-20",
+          "scope": "Prior source-file inspection retained in research; repository identity and availability rechecked during teaching audit."
+        }
+      ],
+      "originalInspectionEvidence": "Broad categorized directory including registries, CI/CD, observability, secrets, security, chaos and developer platforms.",
+      "upstreamCommit": "8421d19d3a9adf77d807fe348e02044103a7c594",
+      "integrationRule": "Display explanation and exercise inside matching lessons; source links are attribution and optional further reading."
+    }
+  ],
+  "weekMap": [
+    {
+      "week": 1,
+      "level": 1,
+      "title": "Own your Linux environment",
+      "repositories": [
+        "pranshuparmar/witr",
+        "nilbuild/developer-roadmap",
+        "MichaelCade/90DaysOfDevOps",
+        "milanm/DevOps-Roadmap"
+      ]
+    },
+    {
+      "week": 2,
+      "level": 1,
+      "title": "Follow one request through the network",
+      "repositories": [
+        "nilbuild/developer-roadmap",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 3,
+      "level": 1,
+      "title": "Build a small service you understand",
+      "repositories": [
+        "bregman-arie/devops-exercises",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 4,
+      "level": 1,
+      "title": "Gate 1 · operate a Linux service",
+      "repositories": [
+        "netdata/netdata",
+        "pranshuparmar/witr",
+        "awesome-foss/awesome-sysadmin",
+        "CISOfy/lynis",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises"
+      ]
+    },
+    {
+      "week": 5,
+      "level": 2,
+      "title": "Package the service with Docker",
+      "repositories": [
+        "go-task/task",
+        "The-DevOps-Daily/devops-daily",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 6,
+      "level": 2,
+      "title": "Add PostgreSQL and real integration tests",
+      "repositories": [
+        "The-DevOps-Daily/devops-daily",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 7,
+      "level": 2,
+      "title": "Prove whole-system behavior",
+      "repositories": [
+        "floci-io/floci",
+        "TwiN/gatus"
+      ]
+    },
+    {
+      "week": 8,
+      "level": 2,
+      "title": "Gate 2 · reproducible local release",
+      "repositories": [
+        "TwiN/gatus",
+        "go-task/task",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 9,
+      "level": 3,
+      "title": "Build your first GitLab pipeline",
+      "repositories": [
+        "nektos/act",
+        "jenkinsci/jenkins",
+        "go-task/task"
+      ]
+    },
+    {
+      "week": 10,
+      "level": 3,
+      "title": "Build once, test and promote",
+      "repositories": [
+        "woodpecker-ci/woodpecker"
+      ]
+    },
+    {
+      "week": 11,
+      "level": 3,
+      "title": "Design pipeline trust",
+      "repositories": [
+        "nektos/act",
+        "getsops/sops",
+        "jenkinsci/jenkins",
+        "woodpecker-ci/woodpecker",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 12,
+      "level": 3,
+      "title": "Gate 3 · controlled release and rollback",
+      "repositories": [
+        "rorkai/App-Store-Connect-CLI",
+        "nektos/act",
+        "jenkinsci/jenkins",
+        "woodpecker-ci/woodpecker",
+        "theonedev/onedev",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 13,
+      "level": 4,
+      "title": "Learn cloud identity and spending boundaries",
+      "repositories": [
+        "floci-io/floci",
+        "bregman-arie/devops-exercises",
+        "milanm/DevOps-Roadmap"
+      ]
+    },
+    {
+      "week": 14,
+      "level": 4,
+      "title": "Networking and a small EC2 deployment",
+      "repositories": [
+        "bregman-arie/devops-exercises"
+      ]
+    },
+    {
+      "week": 15,
+      "level": 4,
+      "title": "Storage, databases and recovery",
+      "repositories": [
+        "databasus/databasus",
+        "floci-io/floci"
+      ]
+    },
+    {
+      "week": 16,
+      "level": 4,
+      "title": "Gate 4 · review an AWS design",
+      "repositories": [
+        "floci-io/floci",
+        "awesome-foss/awesome-sysadmin",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises"
+      ]
+    },
+    {
+      "week": 17,
+      "level": 5,
+      "title": "Make infrastructure changes reviewable",
+      "repositories": [
+        "The-DevOps-Daily/devops-daily",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 18,
+      "level": 5,
+      "title": "State, modules and environment boundaries",
+      "repositories": [
+        "getsops/sops",
+        "bregman-arie/devops-exercises",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 19,
+      "level": 5,
+      "title": "Test drift, assumptions and changes",
+      "repositories": [
+        "The-DevOps-Daily/devops-daily",
+        "bregman-arie/devops-exercises"
+      ]
+    },
+    {
+      "week": 20,
+      "level": 5,
+      "title": "Gate 5 · deliver infrastructure through GitLab",
+      "repositories": [
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 21,
+      "level": 6,
+      "title": "Configure machines consistently",
+      "repositories": [
+        "The-DevOps-Daily/devops-daily",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 22,
+      "level": 6,
+      "title": "Idempotency, secrets and verification",
+      "repositories": [
+        "getsops/sops",
+        "semaphoreui/semaphore",
+        "The-DevOps-Daily/devops-daily",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 23,
+      "level": 6,
+      "title": "Harden and patch with evidence",
+      "repositories": [
+        "CISOfy/lynis",
+        "MichaelCade/90DaysOfDevOps"
+      ]
+    },
+    {
+      "week": 24,
+      "level": 6,
+      "title": "Gate 6 · rebuild the VM platform",
+      "repositories": [
+        "databasus/databasus",
+        "awesome-foss/awesome-sysadmin",
+        "semaphoreui/semaphore",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 25,
+      "level": 7,
+      "title": "Learn reconciliation on a local cluster",
+      "repositories": [
+        "freelensapp/freelens",
+        "ramitsurana/awesome-kubernetes",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 26,
+      "level": 7,
+      "title": "Traffic, probes and safe rollout",
+      "repositories": [
+        "apache/apisix",
+        "milanm/DevOps-Roadmap",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 27,
+      "level": 7,
+      "title": "Configuration and workload security",
+      "repositories": [
+        "kubernetes-sigs/headlamp",
+        "The-DevOps-Daily/devops-daily",
+        "ramitsurana/awesome-kubernetes",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 28,
+      "level": 7,
+      "title": "Gate 7 · diagnose Kubernetes failures",
+      "repositories": [
+        "pranshuparmar/witr",
+        "kubernetes-sigs/headlamp",
+        "k8sgpt-ai/k8sgpt",
+        "freelensapp/freelens",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 29,
+      "level": 8,
+      "title": "Understand state and operators",
+      "repositories": [
+        "cloudnative-pg/cloudnative-pg",
+        "ramitsurana/awesome-kubernetes",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 30,
+      "level": 8,
+      "title": "Measure capacity before scaling",
+      "repositories": [
+        "netdata/netdata",
+        "The-DevOps-Daily/devops-daily",
+        "ramitsurana/awesome-kubernetes",
+        "dastergon/awesome-sre",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 31,
+      "level": 8,
+      "title": "GitLab CI plus Argo CD",
+      "repositories": [
+        "argoproj/argo-cd",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 32,
+      "level": 8,
+      "title": "Gate 8 · release and recover on Kubernetes",
+      "repositories": [
+        "argoproj/argo-cd",
+        "apache/apisix",
+        "k8sgpt-ai/k8sgpt",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 33,
+      "level": 9,
+      "title": "Measure the user experience",
+      "repositories": [
+        "netdata/netdata",
+        "SigNoz/signoz",
+        "TwiN/gatus",
+        "MichaelCade/90DaysOfDevOps",
+        "dastergon/awesome-sre",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 34,
+      "level": 9,
+      "title": "Connect logs and traces",
+      "repositories": [
+        "getsentry/sentry",
+        "SigNoz/signoz",
+        "The-DevOps-Daily/devops-daily",
+        "MichaelCade/90DaysOfDevOps",
+        "stefanprodan/podinfo"
+      ]
+    },
+    {
+      "week": 35,
+      "level": 9,
+      "title": "Define SLOs and useful alerts",
+      "repositories": [
+        "SigNoz/signoz",
+        "TwiN/gatus",
+        "OneUptime/oneuptime",
+        "dastergon/awesome-sre"
+      ]
+    },
+    {
+      "week": 36,
+      "level": 9,
+      "title": "Gate 9 · run an incident",
+      "repositories": [
+        "netdata/netdata",
+        "getsentry/sentry",
+        "pranshuparmar/witr",
+        "SigNoz/signoz",
+        "OneUptime/oneuptime",
+        "nilbuild/developer-roadmap",
+        "dastergon/awesome-sre",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 37,
+      "level": 10,
+      "title": "Translate identity, not just names",
+      "repositories": [
+        "getsops/sops",
+        "bregman-arie/devops-exercises"
+      ]
+    },
+    {
+      "week": 38,
+      "level": 10,
+      "title": "Networking, compute and storage on GCP",
+      "repositories": [
+        "bregman-arie/devops-exercises"
+      ]
+    },
+    {
+      "week": 39,
+      "level": 10,
+      "title": "Terraform and GitLab federation on GCP",
+      "repositories": [
+        "getsops/sops",
+        "milanm/DevOps-Roadmap"
+      ]
+    },
+    {
+      "week": 40,
+      "level": 10,
+      "title": "Gate 10 · compare managed platforms",
+      "repositories": [
+        "Dokploy/dokploy",
+        "psviderski/uncloud",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "ramitsurana/awesome-kubernetes",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 41,
+      "level": 11,
+      "title": "Secure the software supply chain",
+      "repositories": [
+        "CISOfy/lynis",
+        "bunkerity/bunkerweb",
+        "MichaelCade/90DaysOfDevOps",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 42,
+      "level": 11,
+      "title": "Migrate and recover data safely",
+      "repositories": [
+        "databasus/databasus",
+        "go-gitea/gitea",
+        "bytebase/bytebase",
+        "cloudnative-pg/cloudnative-pg",
+        "MichaelCade/90DaysOfDevOps",
+        "dastergon/awesome-sre"
+      ]
+    },
+    {
+      "week": 43,
+      "level": 11,
+      "title": "Scale with bottlenecks in mind",
+      "repositories": [
+        "kestra-io/kestra",
+        "apache/apisix",
+        "bunkerity/bunkerweb",
+        "dastergon/awesome-sre",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 44,
+      "level": 11,
+      "title": "Gate 11 · recovery game day",
+      "repositories": [
+        "databasus/databasus",
+        "cloudnative-pg/cloudnative-pg",
+        "OneUptime/oneuptime",
+        "k8sgpt-ai/k8sgpt",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "dastergon/awesome-sre",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 45,
+      "level": 12,
+      "title": "Kubernetes internals, deliberately",
+      "repositories": [
+        "psviderski/uncloud",
+        "kelseyhightower/kubernetes-the-hard-way"
+      ]
+    },
+    {
+      "week": 46,
+      "level": 12,
+      "title": "Upgrades and component failures",
+      "repositories": [
+        "freelensapp/freelens",
+        "kelseyhightower/kubernetes-the-hard-way",
+        "ramitsurana/awesome-kubernetes"
+      ]
+    },
+    {
+      "week": 47,
+      "level": 12,
+      "title": "Make a paved path for another developer",
+      "repositories": [
+        "kestra-io/kestra",
+        "rorkai/App-Store-Connect-CLI",
+        "go-gitea/gitea",
+        "Dokploy/dokploy",
+        "awesome-foss/awesome-sysadmin",
+        "go-task/task",
+        "theonedev/onedev",
+        "psviderski/uncloud",
+        "semaphoreui/semaphore",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 48,
+      "level": 12,
+      "title": "Gate 12 · independent engineering review",
+      "repositories": [
+        "kestra-io/kestra",
+        "go-gitea/gitea",
+        "Dokploy/dokploy",
+        "theonedev/onedev",
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "wmariuss/awesome-devops"
+      ]
+    },
+    {
+      "week": 49,
+      "level": 13,
+      "title": "Specify a service worth operating",
+      "repositories": [
+        "milanm/DevOps-Roadmap",
+        "dastergon/awesome-sre"
+      ]
+    },
+    {
+      "week": 50,
+      "level": 13,
+      "title": "Build and deliver the complete system",
+      "repositories": [
+        "getsentry/sentry",
+        "argoproj/argo-cd",
+        "bytebase/bytebase",
+        "dastergon/awesome-sre"
+      ]
+    },
+    {
+      "week": 51,
+      "level": 13,
+      "title": "Break it under review",
+      "repositories": [
+        "argoproj/argo-cd",
+        "bytebase/bytebase",
+        "bunkerity/bunkerweb",
+        "OneUptime/oneuptime",
+        "dastergon/awesome-sre"
+      ]
+    },
+    {
+      "week": 52,
+      "level": 13,
+      "title": "Gate 13 · hand it to another engineer",
+      "repositories": [
+        "nilbuild/developer-roadmap",
+        "bregman-arie/devops-exercises",
+        "milanm/DevOps-Roadmap",
+        "dastergon/awesome-sre",
+        "wmariuss/awesome-devops"
+      ]
+    }
+  ]
+}

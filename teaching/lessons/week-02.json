@@ -1,0 +1,236 @@
+{
+  "week": 2,
+  "introduction": [
+    "'The site is down' describes a symptom, not a cause. A request can fail before it reaches your application, during TLS identity verification, or after the application receives it. This week gives each layer a distinct observation.",
+    "You will inspect one public documentation request and create a tiny local server with deliberate 200, 404 and 500 responses. All failure injection stays in the local lab or the client command; no global DNS or firewall changes are needed."
+  ],
+  "prerequisites": [
+    "Finish week 1 and keep ~/dev-opps-lab. Stop the two week-1 servers with Ctrl+C.",
+    "Use Ubuntu Bash with Python 3, curl, dig and ip installed from the setup guide.",
+    "Public documentation inspection needs outbound HTTPS; the local fault lab works without internet."
+  ],
+  "concepts": [
+    {
+      "title": "Name, route, connection, identity, response",
+      "paragraphs": [
+        "DNS maps a name to records, often IPv4 A or IPv6 AAAA addresses. Its time-to-live is how long a resolver may cache a record; it is not a guarantee that every client switches endpoints immediately. Your route table chooses how to reach an address. TCP then establishes a connection to a port.",
+        "For HTTPS over TCP, TLS verifies a server identity and encrypts the connection before HTTP carries a method, path, headers and body. A reverse proxy may terminate TLS and forward a request to an application. The application may need a database. Each boundary can fail independently."
+      ],
+      "example": "A successful DNS lookup does not prove port 443 is reachable. A successful TLS handshake does not prove POST /tasks stores a task.",
+      "judgment": "Start at the failing observation. Repeatedly restarting the app cannot repair a misspelled client hostname."
+    },
+    {
+      "title": "Addresses are relative to a network context",
+      "paragraphs": [
+        "127.0.0.1 is this network namespace's loopback interface. localhost is a name that commonly resolves to IPv4 and/or IPv6 loopback. 0.0.0.0 is a server bind wildcard for all IPv4 interfaces, not a useful remote destination.",
+        "An IPv4 /24 prefix fixes the first 24 bits. For example, 192.168.10.0/24 covers 256 addresses, including network and broadcast addresses in conventional subnet use. A default route matches destinations with no more-specific route. A container's loopback will later be different from the host's loopback."
+      ],
+      "example": "A service listening only on a VM's 127.0.0.1 cannot be reached directly from your laptop using the VM's LAN address.",
+      "judgment": "Inspect which interface listens before opening access. Wider binding and wider firewall access are separate changes."
+    },
+    {
+      "title": "An HTTP status is an application-layer observation",
+      "paragraphs": [
+        "A 2xx status indicates the server reports success, 4xx describes a request it could not fulfill as submitted, and 5xx describes a server-side failure. The body still matters: a 200 with incorrect task content is not a correct system.",
+        "Connection refused usually means an active rejection, often no listener at that endpoint. A timeout means the operation did not finish within its deadline; dropped traffic, routing trouble or a slow service can all cause it. TLS verification failure means the identity/trust check failed. Do not turn verification off to declare recovery."
+      ],
+      "example": "A 404 proves you received an HTTP response. A failed TCP connection cannot have an HTTP status from the intended app.",
+      "judgment": "Use bounded timeouts so diagnostics finish. Do not treat a timeout as proof of one specific cause."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Observe your network without changing it",
+      "purpose": "Use a normal Ubuntu terminal. The output describes this environment, which may be a WSL virtual network.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nip -brief address\nip route\ndig docs.python.org A +noall +answer\ndig docs.python.org AAAA +noall +answer",
+          "explain": [
+            "ip -brief address shows interface names and addresses compactly. ip route prints the IPv4 route table without changing it.",
+            "dig asks the configured resolver for A then AAAA records. +noall suppresses other sections and +answer prints answers, including remaining TTLs."
+          ],
+          "expected": "Interfaces and routes appear. DNS may return aliases plus addresses; exact values and TTLs change.",
+          "troubleshoot": "If DNS is empty, run dig docs.python.org without output filters to inspect response status. Absence of AAAA alone does not imply A lookup failed."
+        }
+      ],
+      "checkpoint": "Identify loopback, one non-loopback interface, and whether a default route exists."
+    },
+    {
+      "title": "Read a bounded HTTPS conversation",
+      "purpose": "Make one GET to public Python documentation. Do not add private authorization headers to verbose commands.",
+      "commands": [
+        {
+          "code": "curl --http1.1 --verbose --connect-timeout 5 --max-time 15 --output /dev/null https://docs.python.org/3/",
+          "explain": [
+            "--http1.1 chooses an easier-to-read HTTP/1.1 exchange. --verbose shows connection, TLS and request/response metadata on stderr.",
+            "--connect-timeout 5 bounds connection establishment; --max-time 15 bounds the whole operation. --output /dev/null discards only the response body.",
+            "The HTTPS URL supplies the hostname used for certificate verification. No insecure option is used."
+          ],
+          "expected": "A resolved address, a connection attempt, TLS verification information and an HTTP status. A redirect is possible and should be recorded rather than assumed absent.",
+          "troubleshoot": "A managed proxy can change the observed path; verbose output identifies proxy use. Record that boundary. Do not bypass certificate checks to force a green result."
+        }
+      ],
+      "checkpoint": "Write which output establishes DNS, connection, TLS and HTTP separately."
+    },
+    {
+      "title": "Create a local server with explicit outcomes",
+      "purpose": "The short program below deliberately models three HTTP responses. It has no database or credentials and binds only loopback. Type it into the named file via the complete block.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\ncat > app/network_lab.py <<'PY'\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\nclass Handler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        responses = {'/': (200, b'healthy\\n'), '/fail': (500, b'deliberate lab error\\n')}\n        status, body = responses.get(self.path, (404, b'not found\\n'))\n        self.send_response(status)\n        self.send_header('Content-Type', 'text/plain')\n        self.send_header('Content-Length', str(len(body)))\n        self.end_headers()\n        self.wfile.write(body)\n\nThreadingHTTPServer(('127.0.0.1', 8000), Handler).serve_forever()\nPY\npython3 app/network_lab.py",
+          "explain": [
+            "cat with > writes this lab file. The quoted PY delimiter passes the enclosed Python text literally, without shell variable expansion.",
+            "BaseHTTPRequestHandler handles HTTP requests; do_GET runs for GET. A dictionary maps two paths; get supplies the 404 default.",
+            "send_response chooses the status. Headers identify type and byte length. end_headers ends the header section; wfile.write sends the body.",
+            "ThreadingHTTPServer listens on loopback port 8000 and serve_forever waits for requests. Run it in terminal A."
+          ],
+          "expected": "The server waits. It will log requests when terminal B sends them.",
+          "troubleshoot": "If the port is occupied, inspect it as taught in week 1 and stop only your previous lab server."
+        }
+      ],
+      "checkpoint": "Explain why /fail returns an intentional server error without crashing Python."
+    },
+    {
+      "title": "Compare response failure with connection failure",
+      "purpose": "In terminal B, use exactly the same client observation for each path.",
+      "commands": [
+        {
+          "code": "curl --include --max-time 3 http://127.0.0.1:8000/\ncurl --include --max-time 3 http://127.0.0.1:8000/absent\ncurl --include --max-time 3 http://127.0.0.1:8000/fail\ncurl --fail --show-error --max-time 3 http://127.0.0.1:8000/fail\nprintf 'exit status: %s\\n' \"$?\"",
+          "explain": [
+            "--include prints headers together with the body. --max-time bounds the request.",
+            "The first three commands inspect 200, 404 and 500. Without --fail, receiving a complete HTTP error response is normally still a successful curl transfer.",
+            "The fourth adds --fail so 500 returns nonzero; printf immediately captures that exit status."
+          ],
+          "expected": "200/healthy, 404/not found, 500/deliberate lab error; the final failing transfer has status 22.",
+          "troubleshoot": "If every path returns a file listing, the old week-1 server is running instead. Compare process command lines."
+        }
+      ],
+      "checkpoint": "Draw client → name resolution → route/TCP → TLS (HTTPS only) → HTTP/proxy → application → database. Mark which parts your local lab actually contains."
+    }
+  ],
+  "failure": {
+    "title": "Point the client at the wrong port",
+    "boundary": "This changes only one client variable in terminal B. Confirm port 8001 has no listener before selecting it; do not stop an unrelated service.",
+    "inject": [
+      {
+        "code": "ss -ltn 'sport = :8001'\nLAB_URL=http://127.0.0.1:8001\ncurl --verbose --connect-timeout 2 --max-time 3 \"$LAB_URL/\"",
+        "explain": [
+          "ss checks the intentionally wrong endpoint. LAB_URL is a shell variable used only by this command.",
+          "curl reports where it tried to connect and bounds the wait."
+        ],
+        "expected": "If 8001 is unused, curl reports connection failure before any HTTP response.",
+        "troubleshoot": "If ss lists a listener, choose another inspected unused local port and record it."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ss -ltnp 'sport = :8000'\ncurl --include --max-time 3 http://127.0.0.1:8000/",
+        "explain": [
+          "ss identifies the real listener. A direct request to its observed port separates the service's health from the wrong client configuration."
+        ],
+        "expected": "Port 8000 is listening and returns 200.",
+        "troubleshoot": "If it is absent, inspect terminal A before modifying the client again."
+      }
+    ],
+    "hints": [
+      "Compare the port in LAB_URL with the local socket's port.",
+      "There is no TLS in this local HTTP request, so a certificate change cannot fix it."
+    ],
+    "answer": {
+      "explanation": [
+        "The client was aimed at an endpoint with no listener. The application remained available at the correct endpoint. Repairing the client configuration is sufficient; restarting the healthy server adds no evidence."
+      ],
+      "recover": [
+        {
+          "code": "LAB_URL=http://127.0.0.1:8000",
+          "explain": [
+            "Reset the local client variable to the verified endpoint."
+          ],
+          "expected": "The variable changes without altering the host network.",
+          "troubleshoot": "Print the value with printf '%s\\n' \"$LAB_URL\" if uncertain; it contains no secret."
+        }
+      ],
+      "verification": {
+        "code": "curl --fail --show-error --max-time 3 \"$LAB_URL/\"",
+        "explain": [
+          "Repeat the request using the repaired variable."
+        ],
+        "expected": "healthy and zero exit status.",
+        "troubleshoot": "A 404 means the connection works but the path is wrong; inspect the URL rather than the route."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why is successful name resolution insufficient evidence of availability?",
+      "hint": "Which later boundaries remain untested?",
+      "answer": "It provides candidate addresses. Routing, transport acceptance, TLS identity and application behavior still need separate observations. A stale or correct DNS answer can point to an unavailable service."
+    },
+    {
+      "prompt": "What does a 500 tell you that connection refused cannot?",
+      "hint": "Consider whether HTTP was reached.",
+      "answer": "A 500 is an HTTP response from some server in the path. Correlate proxy/application logs to identify which one. Connection refused happens before that HTTP exchange and does not establish that the app processed the request."
+    },
+    {
+      "prompt": "curl works inside the server but fails on your laptop. What next?",
+      "hint": "Compare address scope and the two network paths.",
+      "answer": "Check the actual bind address, port and server interface, then routes and firewall/security-group rules from the laptop path. Loopback works only inside that network context. Do not immediately widen access to every source."
+    }
+  ],
+  "exercise": {
+    "brief": "Produce four diagnosis records: healthy HTTP, missing path, deliberate server error and wrong client port. Add an annotated network sketch for a future HTTPS Taskboard deployment.",
+    "constraints": [
+      "No global DNS or firewall edits.",
+      "No requests to endpoints you do not control except the single public documentation observation."
+    ],
+    "deliverables": [
+      "evidence/week-02.md with command, symptom, failing layer, disconfirming evidence and recovery.",
+      "A sketch marking where credentials and plaintext may exist."
+    ],
+    "acceptance": [
+      "Each diagnosis names the earliest observed failing layer.",
+      "The sketch distinguishes the local HTTP lab from future TLS/proxy/database boundaries.",
+      "You can explain /24 and default route using your own example."
+    ],
+    "hints": [
+      "Use identical timeouts so results are comparable."
+    ],
+    "solution": [
+      "Capture each response with --include, then demonstrate the --fail exit status difference.",
+      "Use ss to rule out a missing application listener before investigating an HTTP path.",
+      "Mark TLS termination as a trust boundary, not just a decorative lock."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "printf '%s\\n' 'Press Ctrl+C in the terminal running app/network_lab.py.'\nunset LAB_URL\ncd ~/dev-opps-lab\ngit add app/network_lab.py\ngit commit -m 'Add a bounded network diagnosis lab'",
+      "explain": [
+        "Stop the foreground lab server manually. unset removes the client variable from this shell.",
+        "cd selects the lab. git add stages only this program; commit records its intended outcomes."
+      ],
+      "expected": "The server stops and the diagnosis program is committed.",
+      "troubleshoot": "If Git says nothing to commit, inspect git status; do not manufacture a change just to get another commit."
+    }
+  ],
+  "references": [
+    {
+      "title": "curl options and exit codes",
+      "url": "https://curl.se/docs/manpage.html",
+      "usedFor": "Verbose request inspection, bounded timeouts and HTTP failure behavior."
+    },
+    {
+      "title": "Python HTTP handlers",
+      "url": "https://docs.python.org/3/library/http.server.html",
+      "usedFor": "The small local handler's response lifecycle."
+    },
+    {
+      "title": "IP route inspection",
+      "url": "https://man7.org/linux/man-pages/man8/ip-route.8.html",
+      "usedFor": "Reading route tables and prefixes."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "The local program is a diagnostic teaching instrument. It does not implement production authentication, TLS or persistence."
+  ]
+}

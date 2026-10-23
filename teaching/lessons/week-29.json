@@ -1,0 +1,224 @@
+{
+  "week": 29,
+  "introduction": [
+    "A replacement Pod can recover a process while losing its data. A persistent volume changes that lifecycle, but does not itself supply an independent backup. You will test process replacement and logical restoration as separate experiments.",
+    "This lab runs one PostgreSQL instance on kind local storage, then connects the existing authenticated Taskboard adapter. It is deliberately not highly available: the laptop and its Docker storage remain shared failure points. CloudNativePG can automate database-specific behavior, but its operator does not eliminate storage durability, backup, upgrade or recovery responsibilities."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Week28 recovered policy cluster and app-secure.yaml/service.yaml. Supplied Taskboard image contains reference.stage07 and reference.migrate. ~/dev-opps-lab/evidence must have space for the small dump."
+  ],
+  "concepts": [
+    {
+      "title": "Claim, volume and storage class",
+      "paragraphs": [
+        "A PersistentVolumeClaim asks for storage capacity/access mode. A StorageClass defines how a provisioner creates a volume. The resulting volume has its own lifecycle and reclaim policy. A StatefulSet preserves each replica identity and claim association across Pod replacement."
+      ],
+      "example": "postgres-0 reconnects to data-postgres-0 after replacement.",
+      "judgment": "A kind local-path volume is still on one computer. Retaining a claim protects from a Pod restart, not disk corruption or laptop loss."
+    },
+    {
+      "title": "Operator, replication and recoverability",
+      "paragraphs": [
+        "An operator adds a database-specific API and reconciliation logic for actions such as bootstrap, replication and failover. CloudNativePG uses a Cluster resource; current backup guidance supports CNPG-I plugins, including the Barman Cloud Plugin. The plugin and object-store credentials are additional dependencies to operate.",
+        "A standby may promptly replicate an accidental deletion. A historical backup plus retained transaction history addresses a different problem. A logical dump can restore selected data independently, but is not the same as continuous point-in-time recovery."
+      ],
+      "example": "A successful restore into a separate database proves more than a successful backup job.",
+      "judgment": "For a small team, managed PostgreSQL can reduce operational burden. Compare restore procedure, RPO/RTO, upgrades and ownership rather than merely installation effort."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Create persistent PostgreSQL",
+      "purpose": "Keep credentials out of the manifest and observe the storage objects.",
+      "commands": [
+        {
+          "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\ncd \"$HOME/dev-opps-lab/k8s\"\nkubectl get storageclass\nkubectl -n devopps get deployment postgres\nkubectl -n devopps delete deployment postgres --ignore-not-found --cascade=foreground --wait=true\nPG_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')\nkubectl -n devopps create secret generic pg-auth --from-literal=password=\"$PG_PASSWORD\"\ncat > postgres.yaml <<'YAML'\napiVersion: v1\nkind: Service\nmetadata: {name: postgres, namespace: devopps}\nspec:\n  selector: {app: postgres}\n  ports: [{port: 5432, targetPort: 5432}]\n---\napiVersion: apps/v1\nkind: StatefulSet\nmetadata: {name: postgres, namespace: devopps}\nspec:\n  serviceName: postgres\n  replicas: 1\n  selector: {matchLabels: {app: postgres}}\n  template:\n    metadata: {labels: {app: postgres}}\n    spec:\n      containers:\n      - name: postgres\n        image: postgres:17\n        env:\n        - name: POSTGRES_PASSWORD\n          valueFrom: {secretKeyRef: {name: pg-auth, key: password}}\n        - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}\n        ports: [{containerPort: 5432}]\n        readinessProbe:\n          exec: {command: [pg_isready, -U, postgres]}\n          periodSeconds: 3\n        resources:\n          requests: {cpu: 100m, memory: 128Mi}\n          limits: {memory: 256Mi}\n        volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]\n  volumeClaimTemplates:\n  - metadata: {name: data}\n    spec:\n      accessModes: [ReadWriteOnce]\n      storageClassName: standard\n      resources: {requests: {storage: 1Gi}}\nYAML\nkubectl apply -f postgres.yaml\nkubectl -n devopps rollout status statefulset/postgres --timeout=180s\nkubectl -n devopps get pvc\nkubectl get pv",
+          "explain": [
+            "Remove only week 27's disposable postgres Deployment before introducing the StatefulSet. Both otherwise carry app=postgres, so the same Service would randomly route to two different databases. That old network-probe database contains no Taskboard data; preserve it first if you added any.",
+            "Confirm the kind standard StorageClass exists before applying. Generate one random password and store it in a lab Secret; do not commit credentials or a Secret export.",
+            "The full manifest creates a Service and single-replica StatefulSet. volumeClaimTemplates creates data-postgres-0; ReadWriteOnce permits attachment for writing by one node. PGDATA selects a data subdirectory, and pg_isready probes whether PostgreSQL accepts connections.",
+            "rollout waits for the instance; get pvc/pv shows binding and reclaim policy. Storage capacity here is requested capacity, not a promise of independent disk durability."
+          ],
+          "expected": "postgres-0 Ready; data-postgres-0 Bound to a volume.",
+          "troubleshoot": "A Pending claim requires inspecting StorageClass and provisioner events; deleting the database Pod cannot create a missing storage class."
+        }
+      ],
+      "checkpoint": "Record the volume reclaim policy and where the bytes physically live."
+    },
+    {
+      "title": "Connect Taskboard and run its explicit migration",
+      "purpose": "Persist application data and retain separate liveness/readiness contracts.",
+      "commands": [
+        {
+          "code": "ALICE_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')\nBOB_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')\nkubectl -n devopps create secret generic taskboard-env --from-literal=DATABASE_URL=\"postgresql://postgres:$PG_PASSWORD@postgres:5432/postgres\" --from-literal=LAB_ALICE_TOKEN=\"$ALICE_TOKEN\" --from-literal=LAB_BOB_TOKEN=\"$BOB_TOKEN\"\ncat > migration-network.yaml <<'YAML'\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: database-migration, namespace: devopps}\nspec:\n  podSelector:\n    matchLabels: {app: postgres}\n  policyTypes: [Ingress]\n  ingress:\n  - from:\n    - podSelector:\n        matchLabels: {app: taskboard-migrate}\n    ports:\n    - {protocol: TCP, port: 5432}\n---\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: migration-egress, namespace: devopps}\nspec:\n  podSelector:\n    matchLabels: {app: taskboard-migrate}\n  policyTypes: [Egress]\n  egress:\n  - to:\n    - podSelector:\n        matchLabels: {app: postgres}\n    ports:\n    - {protocol: TCP, port: 5432}\n  - to:\n    - namespaceSelector:\n        matchLabels: {kubernetes.io/metadata.name: kube-system}\n      podSelector:\n        matchLabels: {k8s-app: kube-dns}\n    ports:\n    - {protocol: UDP, port: 53}\n    - {protocol: TCP, port: 53}\nYAML\nkubectl apply -f migration-network.yaml\ncat > migration.yaml <<'YAML'\napiVersion: batch/v1\nkind: Job\nmetadata: {name: taskboard-migrate, namespace: devopps}\nspec:\n  backoffLimit: 0\n  template:\n    metadata: {labels: {app: taskboard-migrate}}\n    spec:\n      restartPolicy: Never\n      containers:\n      - name: migrate\n        image: devopps-taskboard:w25\n        imagePullPolicy: IfNotPresent\n        command: [python, -m, reference.migrate]\n        envFrom: [{secretRef: {name: taskboard-env}}]\nYAML\nkubectl apply -f migration.yaml\nkubectl -n devopps wait --for=condition=complete job/taskboard-migrate --timeout=120s\ncat > database-app.json <<'JSON'\n{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"command\":[\"python\",\"-m\",\"uvicorn\",\"reference.stage07:app\",\"--host\",\"0.0.0.0\",\"--port\",\"8000\",\"--no-access-log\"],\"envFrom\":[{\"secretRef\":{\"name\":\"taskboard-env\"}}],\"readinessProbe\":{\"httpGet\":{\"path\":\"/readyz\",\"port\":\"http\"}}}]}}}}\nJSON\nkubectl patch --local -f app-secure.yaml --type=strategic --patch-file database-app.json -o yaml > app-database.yaml\nkubectl apply -f app-database.yaml\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "Two distinct random tokens identify local teaching users. DATABASE_URL includes the database credential; the Secret is passed by reference into the Job and app. These opaque tokens are for a private lab, not a public identity system.",
+            "Week 27's database policy permits only app=taskboard. Give the migration Job its own app=taskboard-migrate label and a narrowly scoped database ingress/DNS-and-database egress policy. Do not reuse the application label: the HTTP Service would otherwise select a migration Pod. NetworkPolicy grants are additive; the original application rule remains in force.",
+            "The Job runs the supplied idempotent migrations exactly once; backoffLimit0 avoids blindly repeating a failed migration. wait checks completion. Read its logs if it fails.",
+            "The local strategic patch switches to stage07, injects the Secret and checks /readyz for database schema availability. /livez stays independent. This lab deliberately shares the database owner role; production needs a restricted runtime SQL role distinct from migration authority."
+          ],
+          "expected": "Migration completes; stage07 has /readyz200 and /tasks requires a lab token.",
+          "troubleshoot": "If readiness503 inspect Job logs and database connectivity/schema. Never change liveness to depend on the database."
+        }
+      ],
+      "checkpoint": "In terminal2 run kubectl -n devopps port-forward service/taskboard 18000:80 --address 127.0.0.1; keep it running for the next step."
+    },
+    {
+      "title": "Test restart and restore independently",
+      "purpose": "Write a task, replace the database process, then restore a dump into another database.",
+      "commands": [
+        {
+          "code": "curl -fsS -H \"Authorization: Bearer $ALICE_TOKEN\" -H 'Content-Type: application/json' -d '{\"title\":\"storage-survives-restart\"}' http://127.0.0.1:18000/tasks\nkubectl -n devopps delete pod postgres-0\nkubectl -n devopps rollout status statefulset/postgres --timeout=180s\ncurl -fsS -H \"Authorization: Bearer $ALICE_TOKEN\" http://127.0.0.1:18000/tasks\nmkdir -p \"$HOME/dev-opps-lab/evidence/w29\"\nkubectl -n devopps exec postgres-0 -- pg_dump -U postgres -d postgres -Fc > \"$HOME/dev-opps-lab/evidence/w29/taskboard.dump\"\nkubectl -n devopps exec postgres-0 -- createdb -U postgres restore_lab\nkubectl -n devopps exec -i postgres-0 -- pg_restore -U postgres -d restore_lab --no-owner --no-privileges < \"$HOME/dev-opps-lab/evidence/w29/taskboard.dump\"\nkubectl -n devopps exec postgres-0 -- psql -U postgres -d restore_lab -c 'SELECT title FROM tasks;' ",
+          "explain": [
+            "curl -f fails on HTTP errors; headers provide the teaching identity and JSON body type. Task creation must survive replacement because the same claim is reattached.",
+            "pg_dump -Fc writes a custom-format logical backup to local evidence via stdout redirection. createdb creates a separate restore target; it does not overwrite the source. exec -i passes stdin from the local dump into pg_restore; --no-owner/--no-privileges avoids replaying ownership/grants from another environment.",
+            "The final SQL query checks actual restored content. Protect the dump as data; it is not a credential-free artifact just because it is binary."
+          ],
+          "expected": "The named task remains after Pod replacement and appears in restore_lab.",
+          "troubleshoot": "If tables are missing inspect migration schema and dump listing (pg_restore -l). A restored database existing is not evidence its task data is correct."
+        }
+      ],
+      "checkpoint": "Write separate claims: restart survival, logical restore, and unproven machine-loss recovery."
+    }
+  ],
+  "failure": {
+    "title": "A claim asks for a nonexistent storage class",
+    "boundary": "Create a new empty claim; do not alter the working database claim.",
+    "inject": [
+      {
+        "code": "cat > missing-storage.yaml <<'YAML'\napiVersion: v1\nkind: PersistentVolumeClaim\nmetadata: {name: missing-storage, namespace: devopps}\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: intentionally-absent\n  resources: {requests: {storage: 1Gi}}\nYAML\nkubectl apply -f missing-storage.yaml",
+        "explain": [
+          "The new claim asks for an unavailable provisioner class."
+        ],
+        "expected": "Claim Pending.",
+        "troubleshoot": "Wait briefly then inspect events, not application logs."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n devopps describe pvc missing-storage\nkubectl get storageclass",
+        "explain": [
+          "Compare requested class with actual classes."
+        ],
+        "expected": "Event reports missing/unavailable storage class.",
+        "troubleshoot": "Some provisioners delay binding until a consumer exists; distinguish that event from class-not-found."
+      }
+    ],
+    "hints": [
+      "Which component could provision the claim?"
+    ],
+    "answer": {
+      "explanation": [
+        "The storage request cannot be fulfilled by the named class. A Pod using it would remain unschedulable for storage reasons; restarting that Pod would preserve the bad claim request."
+      ],
+      "recover": [
+        {
+          "code": "kubectl -n devopps delete pvc missing-storage",
+          "explain": [
+            "Remove only the empty fault claim."
+          ],
+          "expected": "Fault claim deleted; healthy database claim unchanged.",
+          "troubleshoot": "Confirm data-postgres-0 remains Bound."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps get pvc data-postgres-0\nkubectl -n devopps exec postgres-0 -- psql -U postgres -d restore_lab -c 'SELECT count(*) FROM tasks;'",
+        "explain": [
+          "Check surviving bound claim and independently restored data."
+        ],
+        "expected": "Bound claim; task count at least1.",
+        "troubleshoot": "Inspect whether you queried source or target database."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Does Pod persistence prove backup?",
+      "hint": "Which failure was tested?",
+      "answer": "No. It proves reattachment after process replacement. Corrupt or lost underlying storage requires a separate recoverable copy."
+    },
+    {
+      "prompt": "Would a standby undo accidental DELETE?",
+      "hint": "What does replication copy?",
+      "answer": "Usually the bad transaction too. Point-in-time recovery uses historical state plus transaction history, with tested restoration."
+    },
+    {
+      "prompt": "What does the operator own?",
+      "hint": "Look at desired database state.",
+      "answer": "It reconciles database resources and procedures such as replicas/failover. You still own access, retention, capacity, restore validation and decisions about acceptable loss."
+    }
+  ],
+  "exercise": {
+    "brief": "Compare this StatefulSet, CloudNativePG and managed PostgreSQL.",
+    "constraints": [
+      "Label tested versus documented behavior."
+    ],
+    "deliverables": [
+      "Decision with backup, upgrade and failure owners",
+      "Separate source/target restore evidence"
+    ],
+    "acceptance": [
+      "No claim of HA from the local instance",
+      "Recovery route works without the original application Pod"
+    ],
+    "hints": [
+      "Include storage failure as well as process failure."
+    ],
+    "solution": [
+      "Prefer a managed database when its recovery and cost model meet the small-team requirement. An operator is justified only with capacity to maintain its controller, storage, plugins and upgrades."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n devopps exec postgres-0 -- dropdb -U postgres restore_lab\nkubectl -n devopps delete job taskboard-migrate\nkubectl -n devopps delete networkpolicy database-migration migration-egress",
+      "explain": [
+        "Remove the independent restore target and completed migration Job. Retain source DB, PVC and Taskboard for week30; stop port-forward with Ctrl+C.",
+        "Remove only the temporary migration policies after the completed Job is deleted; retain the application/database boundary policies."
+      ],
+      "expected": "Source task remains; restore_lab removed.",
+      "troubleshoot": "Do not delete data-postgres-0 until evidence is exported and the local source is deliberately disposable."
+    }
+  ],
+  "references": [
+    {
+      "title": "Persistent volumes",
+      "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/",
+      "usedFor": "Claim/provisioning/reclaim boundaries"
+    },
+    {
+      "title": "StatefulSets",
+      "url": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/",
+      "usedFor": "Stable identity and claims"
+    },
+    {
+      "title": "CloudNativePG backups",
+      "url": "https://cloudnative-pg.io/docs/current/backup/",
+      "usedFor": "Current plugin-based backup architecture"
+    },
+    {
+      "title": "PostgreSQL pg_dump",
+      "url": "https://www.postgresql.org/docs/current/app-pgdump.html",
+      "usedFor": "Logical backup options"
+    },
+    {
+      "title": "Kubernetes NetworkPolicy selection and additive rules",
+      "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+      "usedFor": "Separate application and migration identities while preserving the database ingress boundary."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "cloudnative-pg/cloudnative-pg",
+      "principle": "Failover and backup solve different failures.",
+      "application": "Compare the successful Pod replacement and independent logical restore; require both classes of evidence in the placement decision.",
+      "url": "https://github.com/cloudnative-pg/cloudnative-pg"
+    }
+  ],
+  "notes": [
+    "No PostgreSQL/Kubernetes container execution occurred on the authoring host; run the checks in the defined learner environment."
+  ],
+  "phase": "Kubernetes operations",
+  "title": "Understand state and operators",
+  "outcome": "Explain Kubernetes storage and the operational cost of running a database in a cluster."
+}

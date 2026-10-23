@@ -1,0 +1,911 @@
+{
+  "checked": "2026-10-20",
+  "scope": "HTTP HEAD availability only; not a factual or version correctness check. Some sites reject automated HEAD.",
+  "results": [
+    {
+      "url": "https://argo-cd.readthedocs.io/en/stable/getting_started/",
+      "status": 200,
+      "finalUrl": "https://argo-cd.readthedocs.io/en/stable/getting_started/"
+    },
+    {
+      "url": "https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/",
+      "status": 200,
+      "finalUrl": "https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/"
+    },
+    {
+      "url": "https://argo-cd.readthedocs.io/en/stable/user-guide/sync-kubectl/",
+      "status": 200,
+      "finalUrl": "https://argo-cd.readthedocs.io/en/stable/user-guide/sync-kubectl/"
+    },
+    {
+      "url": "https://calculator.aws/",
+      "status": 200,
+      "finalUrl": "https://calculator.aws/"
+    },
+    {
+      "url": "https://cisofy.com/documentation/lynis/",
+      "status": 200,
+      "finalUrl": "https://cisofy.com/documentation/lynis/"
+    },
+    {
+      "url": "https://cloud.google.com/compute/all-pricing",
+      "status": 200,
+      "finalUrl": "https://cloud.google.com/products/compute/pricing"
+    },
+    {
+      "url": "https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines"
+    },
+    {
+      "url": "https://cloud.google.com/run/pricing",
+      "status": 200,
+      "finalUrl": "https://cloud.google.com/run/pricing"
+    },
+    {
+      "url": "https://cloud.google.com/storage/pricing",
+      "status": 200,
+      "finalUrl": "https://cloud.google.com/storage/pricing"
+    },
+    {
+      "url": "https://cloudnative-pg.io/docs/current/backup/",
+      "status": 200,
+      "finalUrl": "https://cloudnative-pg.io/docs/current/backup/"
+    },
+    {
+      "url": "https://curl.se/docs/manpage.html",
+      "status": 200,
+      "finalUrl": "https://curl.se/docs/manpage.html"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/cli/commands/init",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/cli/commands/init"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/cli/commands/plan",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/cli/commands/plan"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/backend/gcs",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/backend/gcs"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/backend/s3",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/backend/s3"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/modules",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/modules"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/modules/develop/refactoring"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/state",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/state"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/state/locking",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/state/locking"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/tests",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/tests"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/language/tests/mocking",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/language/tests/mocking"
+    },
+    {
+      "url": "https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli",
+      "status": 200,
+      "finalUrl": "https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli"
+    },
+    {
+      "url": "https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/apt_module.html",
+      "status": 429,
+      "issue": "HTTP response; may be access-policy dependent"
+    },
+    {
+      "url": "https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/assert_module.html",
+      "status": 429,
+      "issue": "HTTP response; may be access-policy dependent"
+    },
+    {
+      "url": "https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/systemd_service_module.html",
+      "status": 429,
+      "issue": "HTTP response; may be access-policy dependent"
+    },
+    {
+      "url": "https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html",
+      "status": 429,
+      "issue": "HTTP response; may be access-policy dependent"
+    },
+    {
+      "url": "https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_checkmode.html",
+      "status": 429,
+      "issue": "HTTP response; may be access-policy dependent"
+    },
+    {
+      "url": "https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_handlers.html",
+      "status": 429,
+      "issue": "HTTP response; may be access-policy dependent"
+    },
+    {
+      "url": "https://docs.ansible.com/projects/ansible/latest/vault_guide/vault_encrypting_content.html",
+      "status": 429,
+      "issue": "HTTP response; may be access-policy dependent"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/cli/latest/reference/ec2/run-instances.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/cli/latest/reference/ec2/run-instances.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/cli/latest/reference/iam/create-open-id-connect-provider.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/cli/latest/reference/iam/create-open-id-connect-provider.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/cli/latest/reference/s3api/create-bucket.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/cli/latest/reference/s3api/create-bucket.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/plan-for-disaster-recovery-dr.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/plan-for-disaster-recovery-dr.html"
+    },
+    {
+      "url": "https://docs.cilium.io/en/stable/installation/kind/",
+      "status": 200,
+      "finalUrl": "https://docs.cilium.io/en/stable/installation/kind/"
+    },
+    {
+      "url": "https://docs.cloud.google.com/architecture/framework",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/architecture/framework"
+    },
+    {
+      "url": "https://docs.cloud.google.com/billing/docs/how-to/budgets",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/billing/docs/how-to/budgets"
+    },
+    {
+      "url": "https://docs.cloud.google.com/compute/docs/oslogin/set-up-oslogin",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/compute/docs/oslogin/set-up-oslogin"
+    },
+    {
+      "url": "https://docs.cloud.google.com/iam/docs/service-account-impersonation",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/iam/docs/service-account-impersonation"
+    },
+    {
+      "url": "https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines"
+    },
+    {
+      "url": "https://docs.cloud.google.com/iap/docs/using-tcp-forwarding",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/iap/docs/using-tcp-forwarding"
+    },
+    {
+      "url": "https://docs.cloud.google.com/resource-manager/docs/cloud-platform-resource-hierarchy",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/resource-manager/docs/cloud-platform-resource-hierarchy"
+    },
+    {
+      "url": "https://docs.cloud.google.com/run/docs/authenticating/service-to-service",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/run/docs/authenticating/service-to-service"
+    },
+    {
+      "url": "https://docs.cloud.google.com/sdk/gcloud/reference/billing/budgets/create",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/sdk/gcloud/reference/billing/budgets/create"
+    },
+    {
+      "url": "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access"
+    },
+    {
+      "url": "https://docs.cloud.google.com/vpc/docs/private-google-access",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/vpc/docs/private-google-access"
+    },
+    {
+      "url": "https://docs.docker.com/build/building/best-practices/",
+      "status": 200,
+      "finalUrl": "https://docs.docker.com/build/building/best-practices/"
+    },
+    {
+      "url": "https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/",
+      "status": 200,
+      "finalUrl": "https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/"
+    },
+    {
+      "url": "https://docs.docker.com/compose/how-tos/startup-order/",
+      "status": 200,
+      "finalUrl": "https://docs.docker.com/compose/how-tos/startup-order/"
+    },
+    {
+      "url": "https://docs.docker.com/engine/install/ubuntu/",
+      "status": 200,
+      "finalUrl": "https://docs.docker.com/engine/install/ubuntu/"
+    },
+    {
+      "url": "https://docs.docker.com/reference/cli/docker/image/inspect/",
+      "status": 200,
+      "finalUrl": "https://docs.docker.com/reference/cli/docker/image/inspect/"
+    },
+    {
+      "url": "https://docs.docker.com/reference/dockerfile/",
+      "status": 200,
+      "finalUrl": "https://docs.docker.com/reference/dockerfile/"
+    },
+    {
+      "url": "https://docs.gitea.com/administration/backup-and-restore/",
+      "status": 200,
+      "finalUrl": "https://docs.gitea.com/administration/backup-and-restore/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/cloud_services/aws/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/cloud_services/aws/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/cloud_services/google_cloud/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/cloud_services/google_cloud/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/docker/using_docker_build/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/docker/using_docker_build/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/environments/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/environments/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/environments/deployment_safety/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/environments/deployment_safety/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/jobs/job_artifacts/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/jobs/job_artifacts/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/pipeline_security/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/pipeline_security/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/resource_groups/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/resource_groups/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/secrets/id_token_authentication/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/secrets/id_token_authentication/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/testing/unit_test_reports/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/testing/unit_test_reports/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/variables/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/variables/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/yaml/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/yaml/"
+    },
+    {
+      "url": "https://docs.gitlab.com/ci/yaml/workflow/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/ci/yaml/workflow/"
+    },
+    {
+      "url": "https://docs.gitlab.com/runner/install/linux-repository/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/runner/install/linux-repository/"
+    },
+    {
+      "url": "https://docs.gitlab.com/runner/register/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/runner/register/"
+    },
+    {
+      "url": "https://docs.gitlab.com/user/packages/container_registry/authenticate_with_container_registry/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/user/packages/container_registry/authenticate_with_container_registry/"
+    },
+    {
+      "url": "https://docs.gitlab.com/user/project/deploy_tokens/",
+      "status": 200,
+      "finalUrl": "https://docs.gitlab.com/user/project/deploy_tokens/"
+    },
+    {
+      "url": "https://docs.openssl.org/3.0/man1/openssl-dgst/",
+      "status": 200,
+      "finalUrl": "https://docs.openssl.org/3.0/man1/openssl-dgst/"
+    },
+    {
+      "url": "https://docs.openssl.org/3.0/man1/openssl-verify/",
+      "status": 200,
+      "finalUrl": "https://docs.openssl.org/3.0/man1/openssl-verify/"
+    },
+    {
+      "url": "https://docs.pydantic.dev/latest/concepts/strict_mode/",
+      "status": 200,
+      "finalUrl": "https://pydantic.dev/docs/validation/latest/concepts/strict_mode/"
+    },
+    {
+      "url": "https://docs.pytest.org/en/stable/how-to/assert.html",
+      "status": 200,
+      "finalUrl": "https://docs.pytest.org/en/stable/how-to/assert.html"
+    },
+    {
+      "url": "https://docs.python.org/3/library/http.server.html",
+      "status": 200,
+      "finalUrl": "https://docs.python.org/3/library/http.server.html"
+    },
+    {
+      "url": "https://docs.python.org/3/library/venv.html",
+      "status": 200,
+      "finalUrl": "https://docs.python.org/3/library/venv.html"
+    },
+    {
+      "url": "https://docs.sigstore.dev/cosign/verifying/verify/",
+      "status": 200,
+      "finalUrl": "https://docs.sigstore.dev/cosign/verifying/verify/"
+    },
+    {
+      "url": "https://etcd.io/docs/v3.6/op-guide/recovery/",
+      "status": 200,
+      "finalUrl": "https://etcd.io/docs/v3.6/op-guide/recovery/"
+    },
+    {
+      "url": "https://fastapi.tiangolo.com/reference/security/",
+      "status": 200,
+      "finalUrl": "https://fastapi.tiangolo.com/reference/security/"
+    },
+    {
+      "url": "https://fastapi.tiangolo.com/tutorial/body/",
+      "status": 200,
+      "finalUrl": "https://fastapi.tiangolo.com/tutorial/body/"
+    },
+    {
+      "url": "https://fastapi.tiangolo.com/tutorial/handling-errors/",
+      "status": 200,
+      "finalUrl": "https://fastapi.tiangolo.com/tutorial/handling-errors/"
+    },
+    {
+      "url": "https://fastapi.tiangolo.com/tutorial/testing/",
+      "status": 200,
+      "finalUrl": "https://fastapi.tiangolo.com/tutorial/testing/"
+    },
+    {
+      "url": "https://git-scm.com/docs/git-revert",
+      "status": 200,
+      "finalUrl": "https://git-scm.com/docs/git-revert"
+    },
+    {
+      "url": "https://github.com/TwiN/gatus",
+      "status": 200,
+      "finalUrl": "https://github.com/TwiN/gatus"
+    },
+    {
+      "url": "https://github.com/bregman-arie/devops-exercises",
+      "status": 200,
+      "finalUrl": "https://github.com/bregman-arie/devops-exercises"
+    },
+    {
+      "url": "https://github.com/bregman-arie/devops-exercises/tree/master/topics/aws",
+      "status": 200,
+      "finalUrl": "https://github.com/bregman-arie/devops-exercises/tree/master/topics/aws"
+    },
+    {
+      "url": "https://github.com/databasus/databasus",
+      "status": 200,
+      "finalUrl": "https://github.com/databasus/databasus"
+    },
+    {
+      "url": "https://github.com/getsops/sops",
+      "status": 200,
+      "finalUrl": "https://github.com/getsops/sops"
+    },
+    {
+      "url": "https://github.com/hashicorp/terraform-provider-google/blob/main/website/docs/r/cloud_run_v2_service.html.markdown",
+      "status": 200,
+      "finalUrl": "https://github.com/hashicorp/terraform-provider-google/blob/main/website/docs/r/cloud_run_v2_service.html.markdown"
+    },
+    {
+      "url": "https://github.com/kubernetes-sigs/headlamp",
+      "status": 200,
+      "finalUrl": "https://github.com/kubernetes-sigs/headlamp"
+    },
+    {
+      "url": "https://github.com/kubernetes-sigs/metrics-server",
+      "status": 200,
+      "finalUrl": "https://github.com/kubernetes-sigs/metrics-server"
+    },
+    {
+      "url": "https://github.com/semaphoreui/semaphore",
+      "status": 200,
+      "finalUrl": "https://github.com/semaphoreui/semaphore"
+    },
+    {
+      "url": "https://grafana.com/docs/grafana/latest/datasources/prometheus/",
+      "status": 200,
+      "finalUrl": "https://grafana.com/docs/grafana/latest/datasources/prometheus/"
+    },
+    {
+      "url": "https://grafana.com/docs/k6/latest/testing-guides/test-types/",
+      "status": 200,
+      "finalUrl": "https://grafana.com/docs/k6/latest/testing-guides/test-types/"
+    },
+    {
+      "url": "https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/",
+      "status": 200,
+      "finalUrl": "https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/"
+    },
+    {
+      "url": "https://kind.sigs.k8s.io/docs/user/quick-start/",
+      "status": 200,
+      "finalUrl": "https://kind.sigs.k8s.io/docs/user/quick-start/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/overview/components/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/overview/components/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/security/security-checklist/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/security/security-checklist/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/services-networking/network-policies/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/services-networking/service/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/services-networking/service/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/setup/best-practices/certificates/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/setup/best-practices/certificates/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/tasks/debug/debug-application/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/tasks/debug/debug-application/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/"
+    },
+    {
+      "url": "https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/"
+    },
+    {
+      "url": "https://kubernetes.io/releases/version-skew-policy/",
+      "status": 200,
+      "finalUrl": "https://kubernetes.io/releases/version-skew-policy/"
+    },
+    {
+      "url": "https://man.openbsd.org/sshd_config",
+      "status": 200,
+      "finalUrl": "https://man.openbsd.org/sshd_config"
+    },
+    {
+      "url": "https://man7.org/linux/man-pages/man1/ps.1.html",
+      "status": 200,
+      "finalUrl": "https://man7.org/linux/man-pages/man1/ps.1.html"
+    },
+    {
+      "url": "https://man7.org/linux/man-pages/man8/ip-route.8.html",
+      "status": 200,
+      "finalUrl": "https://man7.org/linux/man-pages/man8/ip-route.8.html"
+    },
+    {
+      "url": "https://man7.org/linux/man-pages/man8/ss.8.html",
+      "status": 200,
+      "finalUrl": "https://man7.org/linux/man-pages/man8/ss.8.html"
+    },
+    {
+      "url": "https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/psycopg/psycopg.html",
+      "status": 200,
+      "finalUrl": "https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/psycopg/psycopg.html"
+    },
+    {
+      "url": "https://opentelemetry.io/docs/concepts/context-propagation/",
+      "status": 200,
+      "finalUrl": "https://opentelemetry.io/docs/concepts/context-propagation/"
+    },
+    {
+      "url": "https://opentelemetry.io/docs/languages/python/exporters/",
+      "status": 200,
+      "finalUrl": "https://opentelemetry.io/docs/languages/python/exporters/"
+    },
+    {
+      "url": "https://prometheus.io/docs/practices/histograms/",
+      "status": 200,
+      "finalUrl": "https://prometheus.io/docs/practices/histograms/"
+    },
+    {
+      "url": "https://prometheus.io/docs/practices/instrumentation/",
+      "status": 200,
+      "finalUrl": "https://prometheus.io/docs/practices/instrumentation/"
+    },
+    {
+      "url": "https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/",
+      "status": 200,
+      "finalUrl": "https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/"
+    },
+    {
+      "url": "https://prometheus.io/docs/prometheus/latest/querying/functions/",
+      "status": 200,
+      "finalUrl": "https://prometheus.io/docs/prometheus/latest/querying/functions/"
+    },
+    {
+      "url": "https://pypi.org/project/ruff/0.11.13/",
+      "status": 200,
+      "finalUrl": "https://pypi.org/project/ruff/0.11.13/"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/kelseyhightower/kubernetes-the-hard-way/master/docs/01-prerequisites.md",
+      "status": 200,
+      "finalUrl": "https://raw.githubusercontent.com/kelseyhightower/kubernetes-the-hard-way/master/docs/01-prerequisites.md"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/kelseyhightower/kubernetes-the-hard-way/master/docs/02-jumpbox.md",
+      "status": 200,
+      "finalUrl": "https://raw.githubusercontent.com/kelseyhightower/kubernetes-the-hard-way/master/docs/02-jumpbox.md"
+    },
+    {
+      "url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance",
+      "status": 200,
+      "finalUrl": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance"
+    },
+    {
+      "url": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule",
+      "status": 200,
+      "finalUrl": "https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_ingress_rule"
+    },
+    {
+      "url": "https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/file",
+      "status": 200,
+      "finalUrl": "https://registry.terraform.io/providers/hashicorp/local/latest/docs/resources/file"
+    },
+    {
+      "url": "https://releases.hashicorp.com/terraform/",
+      "status": 200,
+      "finalUrl": "https://releases.hashicorp.com/terraform/"
+    },
+    {
+      "url": "https://releases.hashicorp.com/terraform/1.16.0/",
+      "status": 200,
+      "finalUrl": "https://releases.hashicorp.com/terraform/1.16.0/"
+    },
+    {
+      "url": "https://roadmap.sh/devops",
+      "status": 200,
+      "finalUrl": "https://roadmap.sh/devops"
+    },
+    {
+      "url": "https://slsa.dev/spec/v1.2/",
+      "status": 200,
+      "finalUrl": "https://slsa.dev/spec/v1.2/"
+    },
+    {
+      "url": "https://sre.google/sre-book/effective-troubleshooting/",
+      "status": 200,
+      "finalUrl": "https://sre.google/sre-book/effective-troubleshooting/"
+    },
+    {
+      "url": "https://sre.google/sre-book/handling-overload/",
+      "status": 200,
+      "finalUrl": "https://sre.google/sre-book/handling-overload/"
+    },
+    {
+      "url": "https://sre.google/sre-book/managing-incidents/",
+      "status": 200,
+      "finalUrl": "https://sre.google/sre-book/managing-incidents/"
+    },
+    {
+      "url": "https://sre.google/sre-book/postmortem-culture/",
+      "status": 200,
+      "finalUrl": "https://sre.google/sre-book/postmortem-culture/"
+    },
+    {
+      "url": "https://sre.google/sre-book/reliable-product-launches/",
+      "status": 200,
+      "finalUrl": "https://sre.google/sre-book/reliable-product-launches/"
+    },
+    {
+      "url": "https://sre.google/sre-book/service-level-objectives/",
+      "status": 200,
+      "finalUrl": "https://sre.google/sre-book/service-level-objectives/"
+    },
+    {
+      "url": "https://sre.google/workbook/alerting-on-slos/",
+      "status": 200,
+      "finalUrl": "https://sre.google/workbook/alerting-on-slos/"
+    },
+    {
+      "url": "https://sre.google/workbook/incident-response/",
+      "status": 200,
+      "finalUrl": "https://sre.google/workbook/incident-response/"
+    },
+    {
+      "url": "https://sre.google/workbook/postmortem-culture/",
+      "status": 200,
+      "finalUrl": "https://sre.google/workbook/postmortem-culture/"
+    },
+    {
+      "url": "https://taskfile.dev/docs/guide",
+      "status": 200,
+      "finalUrl": "https://taskfile.dev/docs/guide/"
+    },
+    {
+      "url": "https://trivy.dev/docs/latest/supply-chain/sbom/",
+      "status": 200,
+      "finalUrl": "https://trivy.dev/docs/latest/supply-chain/sbom/"
+    },
+    {
+      "url": "https://trivy.dev/docs/latest/target/container_image/",
+      "status": 200,
+      "finalUrl": "https://trivy.dev/docs/latest/target/container_image/"
+    },
+    {
+      "url": "https://ubuntu.com/aws/docs/aws-how-to/instances/find-ubuntu-images/",
+      "status": 200,
+      "finalUrl": "https://ubuntu.com/aws/docs/aws-how-to/instances/find-ubuntu-images/"
+    },
+    {
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemctl.html",
+      "status": 200,
+      "finalUrl": "https://www.freedesktop.org/software/systemd/man/latest/systemctl.html"
+    },
+    {
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html",
+      "status": 200,
+      "finalUrl": "https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html"
+    },
+    {
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html",
+      "status": 200,
+      "finalUrl": "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html"
+    },
+    {
+      "url": "https://www.gnu.org/software/bash/manual/html_node/Redirections.html",
+      "status": 200,
+      "finalUrl": "https://www.gnu.org/software/bash/manual/html_node/Redirections.html"
+    },
+    {
+      "url": "https://www.jaegertracing.io/docs/latest/getting-started/",
+      "status": 200,
+      "finalUrl": "https://www.jaegertracing.io/docs/2.22/getting-started/"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/17/app-pgrestore.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/17/app-pgrestore.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/17/backup-dump.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/17/backup-dump.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/17/continuous-archiving.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/17/continuous-archiving.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/17/ddl-constraints.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/17/ddl-constraints.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/17/explicit-locking.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/17/explicit-locking.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/17/sql-altertable.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/17/sql-altertable.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/17/sql-explain.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/17/sql-explain.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/current/app-pgdump.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/current/app-pgdump.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/current/backup-dump.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/current/backup-dump.html"
+    },
+    {
+      "url": "https://www.postgresql.org/docs/current/monitoring-stats.html",
+      "status": 200,
+      "finalUrl": "https://www.postgresql.org/docs/current/monitoring-stats.html"
+    },
+    {
+      "url": "https://www.psycopg.org/psycopg3/docs/basic/transactions.html",
+      "status": 200,
+      "finalUrl": "https://www.psycopg.org/psycopg3/docs/basic/transactions.html"
+    },
+    {
+      "url": "https://aws.amazon.com/eks/pricing/",
+      "status": 200,
+      "finalUrl": "https://aws.amazon.com/eks/pricing/"
+    },
+    {
+      "url": "https://cloud.google.com/kubernetes-engine/pricing",
+      "status": 200,
+      "finalUrl": "https://cloud.google.com/kubernetes-engine/pricing"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/eks/latest/best-practices/reliability.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/eks/latest/best-practices/reliability.html"
+    },
+    {
+      "url": "https://docs.aws.amazon.com/eks/latest/userguide/security.html",
+      "status": 200,
+      "finalUrl": "https://docs.aws.amazon.com/eks/latest/userguide/security.html"
+    },
+    {
+      "url": "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation"
+    },
+    {
+      "url": "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/service-accounts",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/service-accounts"
+    },
+    {
+      "url": "https://docs.cloud.google.com/sdk/gcloud/reference/container/clusters/create-auto",
+      "status": 200,
+      "finalUrl": "https://docs.cloud.google.com/sdk/gcloud/reference/container/clusters/create-auto"
+    }
+  ]
+}

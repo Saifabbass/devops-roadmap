@@ -1,0 +1,649 @@
+{
+  "targetId": "95695F827FFBB6D3C42829D8D288947C",
+  "url": "http://127.0.0.1:8767",
+  "started": "2026-10-20T17:58:58.921Z",
+  "routes": [
+    {
+      "week": 1,
+      "title": "Own your Linux environment",
+      "steps": 4,
+      "commands": 12,
+      "details": 31,
+      "sources": 23,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 2,
+      "title": "Follow one request through the network",
+      "steps": 4,
+      "commands": 9,
+      "details": 24,
+      "sources": 18,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 3,
+      "title": "Build a small service you understand",
+      "steps": 6,
+      "commands": 13,
+      "details": 28,
+      "sources": 13,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 4,
+      "title": "Gate 1 \u00c2\u00b7 operate a Linux service",
+      "steps": 4,
+      "commands": 10,
+      "details": 34,
+      "sources": 28,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 5,
+      "title": "Package the service with Docker",
+      "steps": 3,
+      "commands": 9,
+      "details": 26,
+      "sources": 12,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 6,
+      "title": "Add PostgreSQL and real integration tests",
+      "steps": 4,
+      "commands": 9,
+      "details": 24,
+      "sources": 10,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 7,
+      "title": "Prove whole-system behavior",
+      "steps": 3,
+      "commands": 8,
+      "details": 23,
+      "sources": 8,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 8,
+      "title": "Gate 2 \u00c2\u00b7 reproducible local release",
+      "steps": 3,
+      "commands": 11,
+      "details": 33,
+      "sources": 28,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 9,
+      "title": "Build your first GitLab pipeline",
+      "steps": 3,
+      "commands": 8,
+      "details": 25,
+      "sources": 10,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 10,
+      "title": "Build once, test and promote",
+      "steps": 3,
+      "commands": 10,
+      "details": 23,
+      "sources": 6,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 11,
+      "title": "Design pipeline trust",
+      "steps": 4,
+      "commands": 9,
+      "details": 30,
+      "sources": 16,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 12,
+      "title": "Gate 3 \u00c2\u00b7 controlled release and rollback",
+      "steps": 3,
+      "commands": 9,
+      "details": 37,
+      "sources": 33,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 13,
+      "title": "Learn cloud identity and spending boundaries",
+      "steps": 4,
+      "commands": 9,
+      "details": 26,
+      "sources": 13,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 14,
+      "title": "Networking and a small EC2 deployment",
+      "steps": 6,
+      "commands": 12,
+      "details": 25,
+      "sources": 8,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 15,
+      "title": "Storage, databases and recovery",
+      "steps": 4,
+      "commands": 10,
+      "details": 25,
+      "sources": 7,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 16,
+      "title": "Gate 4 \u00c2\u00b7 review an AWS design",
+      "steps": 3,
+      "commands": 9,
+      "details": 29,
+      "sources": 23,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 17,
+      "title": "Make infrastructure changes reviewable",
+      "steps": 4,
+      "commands": 9,
+      "details": 24,
+      "sources": 11,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 18,
+      "title": "State, modules and environment boundaries",
+      "steps": 4,
+      "commands": 10,
+      "details": 27,
+      "sources": 16,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 19,
+      "title": "Test drift, assumptions and changes",
+      "steps": 3,
+      "commands": 8,
+      "details": 23,
+      "sources": 13,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 20,
+      "title": "Gate 5 \u00c2\u00b7 deliver infrastructure through GitLab",
+      "steps": 5,
+      "commands": 13,
+      "details": 33,
+      "sources": 25,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 21,
+      "title": "Configure machines consistently",
+      "steps": 4,
+      "commands": 10,
+      "details": 25,
+      "sources": 10,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 22,
+      "title": "Idempotency, secrets and verification",
+      "steps": 4,
+      "commands": 9,
+      "details": 28,
+      "sources": 16,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 23,
+      "title": "Harden and patch with evidence",
+      "steps": 4,
+      "commands": 10,
+      "details": 25,
+      "sources": 9,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 24,
+      "title": "Gate 6 \u00c2\u00b7 rebuild the VM platform",
+      "steps": 7,
+      "commands": 15,
+      "details": 39,
+      "sources": 28,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 25,
+      "title": "Learn reconciliation on a local cluster",
+      "steps": 3,
+      "commands": 8,
+      "details": 25,
+      "sources": 11,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 26,
+      "title": "Traffic, probes and safe rollout",
+      "steps": 4,
+      "commands": 11,
+      "details": 28,
+      "sources": 13,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 27,
+      "title": "Configuration and workload security",
+      "steps": 3,
+      "commands": 8,
+      "details": 27,
+      "sources": 17,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 28,
+      "title": "Gate 7 \u00c2\u00b7 diagnose Kubernetes failures",
+      "steps": 3,
+      "commands": 16,
+      "details": 42,
+      "sources": 30,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 29,
+      "title": "Understand state and operators",
+      "steps": 3,
+      "commands": 8,
+      "details": 25,
+      "sources": 14,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 30,
+      "title": "Measure capacity before scaling",
+      "steps": 4,
+      "commands": 11,
+      "details": 32,
+      "sources": 18,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 31,
+      "title": "GitLab CI plus Argo CD",
+      "steps": 3,
+      "commands": 10,
+      "details": 25,
+      "sources": 10,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 32,
+      "title": "Gate 8 \u00c2\u00b7 release and recover on Kubernetes",
+      "steps": 3,
+      "commands": 11,
+      "details": 35,
+      "sources": 30,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 33,
+      "title": "Measure the user experience",
+      "steps": 3,
+      "commands": 9,
+      "details": 32,
+      "sources": 19,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 34,
+      "title": "Connect logs and traces",
+      "steps": 3,
+      "commands": 9,
+      "details": 30,
+      "sources": 21,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 35,
+      "title": "Define SLOs and useful alerts",
+      "steps": 4,
+      "commands": 9,
+      "details": 30,
+      "sources": 11,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 36,
+      "title": "Gate 9 \u00c2\u00b7 run an incident",
+      "steps": 3,
+      "commands": 11,
+      "details": 39,
+      "sources": 28,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 37,
+      "title": "Translate identity, not just names",
+      "steps": 4,
+      "commands": 10,
+      "details": 25,
+      "sources": 13,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 38,
+      "title": "Networking, compute and storage on GCP",
+      "steps": 5,
+      "commands": 12,
+      "details": 25,
+      "sources": 11,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 39,
+      "title": "Terraform and GitLab federation on GCP",
+      "steps": 6,
+      "commands": 13,
+      "details": 28,
+      "sources": 12,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 40,
+      "title": "Gate 10 \u00c2\u00b7 compare managed platforms",
+      "steps": 5,
+      "commands": 15,
+      "details": 39,
+      "sources": 31,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 41,
+      "title": "Secure the software supply chain",
+      "steps": 3,
+      "commands": 8,
+      "details": 27,
+      "sources": 13,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 42,
+      "title": "Migrate and recover data safely",
+      "steps": 3,
+      "commands": 9,
+      "details": 32,
+      "sources": 16,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 43,
+      "title": "Scale with bottlenecks in mind",
+      "steps": 3,
+      "commands": 8,
+      "details": 29,
+      "sources": 12,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 44,
+      "title": "Gate 11 \u00c2\u00b7 recovery game day",
+      "steps": 4,
+      "commands": 12,
+      "details": 40,
+      "sources": 30,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 45,
+      "title": "Kubernetes internals, deliberately",
+      "steps": 3,
+      "commands": 9,
+      "details": 24,
+      "sources": 9,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 46,
+      "title": "Upgrades and component failures",
+      "steps": 3,
+      "commands": 10,
+      "details": 27,
+      "sources": 10,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 47,
+      "title": "Make a paved path for another developer",
+      "steps": 3,
+      "commands": 8,
+      "details": 39,
+      "sources": 22,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 48,
+      "title": "Gate 12 \u00c2\u00b7 independent engineering review",
+      "steps": 3,
+      "commands": 10,
+      "details": 36,
+      "sources": 29,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    },
+    {
+      "week": 49,
+      "title": "Specify a service worth operating",
+      "steps": 3,
+      "commands": 8,
+      "details": 23,
+      "sources": 5,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 50,
+      "title": "Build and deliver the complete system",
+      "steps": 4,
+      "commands": 9,
+      "details": 28,
+      "sources": 12,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 51,
+      "title": "Break it under review",
+      "steps": 4,
+      "commands": 10,
+      "details": 31,
+      "sources": 12,
+      "capstone": "4. Try it independently",
+      "overflow": false
+    },
+    {
+      "week": 52,
+      "title": "Gate 13 \u00c2\u00b7 hand it to another engineer",
+      "steps": 4,
+      "commands": 12,
+      "details": 34,
+      "sources": 24,
+      "capstone": "4. Your level capstone",
+      "overflow": false
+    }
+  ],
+  "mobile": [
+    {
+      "route": "home",
+      "width": 390,
+      "doc": 375,
+      "rows": 13,
+      "overflow": false
+    },
+    {
+      "route": "home",
+      "width": 320,
+      "doc": 305,
+      "rows": 13,
+      "overflow": false
+    }
+  ],
+  "errors": [],
+  "payload": {
+    "lessons": 52,
+    "weeks": 52,
+    "patterns": 40,
+    "capstones": 13
+  },
+  "provedGuard": {
+    "message": "Add an evidence note before marking this week Proved.",
+    "status": "Not started"
+  },
+  "saved": {
+    "status": "Proved",
+    "note": "Isolated browser QA evidence: tested save, reload and restore. This is not learner completion.",
+    "count": "1 / 52"
+  },
+  "reloaded": {
+    "status": "Proved",
+    "note": "Isolated browser QA evidence: tested save, reload and restore. This is not learner completion."
+  },
+  "dropdown": {
+    "open": true,
+    "text": "Show a diagnostic hint+"
+  },
+  "print": {
+    "count": 31,
+    "allOpen": true,
+    "restored": true
+  },
+  "export": {
+    "exists": true,
+    "bytes": 312
+  },
+  "import": {
+    "message": "Progress restored. 1 weeks marked Proved.",
+    "status": "Proved"
+  },
+  "search": {
+    "visible": true,
+    "results": 21,
+    "includes39": true
+  },
+  "journey": [
+    {
+      "width": 1440,
+      "rows": 13,
+      "weeks": 52,
+      "previews": 65,
+      "tooltipProblems": [],
+      "montageLinks": 0
+    },
+    {
+      "width": 390,
+      "rows": 13,
+      "weeks": 52,
+      "previews": 65,
+      "tooltipProblems": [],
+      "montageLinks": 0
+    },
+    {
+      "width": 320,
+      "rows": 13,
+      "weeks": 52,
+      "previews": 65,
+      "tooltipProblems": [],
+      "montageLinks": 0
+    }
+  ],
+  "ended": "2026-10-20T17:59:11.815Z",
+  "indexSha256": "fb2d4ca78c4dbd8beea9b83ea93d732aeeaf3fb62bd696ab5c9bf53886f81003",
+  "status": "passed",
+  "testedViewports": [
+    {
+      "width": 1440,
+      "height": 1050,
+      "lessonRoutes": 52
+    },
+    {
+      "width": 390,
+      "height": 1000,
+      "lessonRoutes": 52
+    },
+    {
+      "width": 320,
+      "height": 1000,
+      "lessonRoutes": 52
+    }
+  ],
+  "reaEvidence": [
+    {
+      "evidenceId": "ev_ef8d929cf110ceebfc6c0816b803f1aa58fe3642bb4415f9c2ea42196a00819a",
+      "surface": "desktop lesson 36",
+      "coverage": "DOM and screenshot captured; attached event-history coverage incomplete"
+    },
+    {
+      "evidenceId": "ev_55420ee8d5fdb2c3def1181dc9d97a7799d34e025d525d375c4be1f514392190",
+      "surface": "mobile lesson 1",
+      "coverage": "DOM and screenshot captured; attached event-history coverage incomplete"
+    }
+  ],
+  "limitations": [
+    "REA attached captures cannot recover pre-attach events; separate CDP Runtime.exceptionThrown listener recorded zero page exceptions during the full route/control scenario.",
+    "Synthetic input was used in an isolated Edge profile stored on D:. The user browser and its progress were not changed.",
+    "Screenshots show viewport samples, not every vertical position of every lesson. All52 routes were checked for document-width overflow at each viewport.",
+    "Course command syntax was checked separately. Docker, Kubernetes, live CI and cloud lab outcomes were not executed by this browser test."
+  ]
+}

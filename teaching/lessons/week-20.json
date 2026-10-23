@@ -1,0 +1,412 @@
+{
+  "week": 20,
+  "phase": "Terraform",
+  "title": "Gate 5 · deliver infrastructure through GitLab",
+  "outcome": "Plan in a merge request and apply a reviewed change with scoped cloud identity.",
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: Infrastructure delivery gives a pipeline real authority. This gate connects a GitLab ID token to a narrowly scoped AWS role, stores Terraform state privately and applies an exact reviewed plan. No permanent AWS key is saved in GitLab.",
+    "Optional provider lab: Ordinary untrusted merge requests run formatting, validation and mocked plan checks without cloud credentials. A separately protected same-project review branch runs the real provider plan inside its merge request with a narrowly scoped planning role. After merge, protected main creates a fresh live plan for independent review and exact-plan manual apply. Both placements are visible: a protected-main plan alone does not fulfill the merge-request planning outcome."
+  ],
+  "prerequisites": [
+    "Weeks 9–12 GitLab project/runner basics and weeks 17–19 Terraform testing. Week 18 backend bucket exists; record its name.",
+    "Create a separate private empty GitLab.com project for this infrastructure lab, initialized with branch main. In Settings → Repository protect main, disable direct developer pushes and require reviewed merge requests. In Settings → CI/CD enable prevention of outdated deployment jobs; restrict environment devopps-iac to its intended deployers when your tier supports protected environments. Where unavailable, limit project Maintainer access and keep manual approval authority explicit.",
+    "A Linux Docker-executor runner can run the official Terraform image and install AWS CLI. Do not grant this project production credentials. Bootstrap IAM/OIDC with the sandbox administrator, then use only the new scoped CI role.",
+    "Cloud branch needs real GitLab and AWS access. Local fmt/validate/mock tests remain useful without them, but federation, live plan/apply and denial checks remain pending.",
+    "GitLab 18.1 or newer exposes protected resources to eligible merge-request pipelines. This capability is documented for Free, Premium and Ultimate; additional protected-environment/approval features depend on tier. Create a protected branch named iac-review and keep main protected. Limit pushes to iac-review to trusted Maintainers; those people review the complete source, CI file, providers and module changes before advancing that branch. Both branches must belong to the same project and the triggering user must have push/merge access to the target. In Settings > CI/CD > Variables, enable Allow merge request pipelines to access protected variables and runners. Fork pipelines remain ineligible. Use a trusted runner. If these conditions cannot be established, use only offline MR checks and mark the live-MR gate pending; a protected-main live plan is a narrower fallback, not a substitute."
+  ],
+  "concepts": [
+    {
+      "title": "Federation is a two-sided permission check",
+      "paragraphs": [
+        "GitLab signs a short-lived ID token describing the project and ref. AWS checks issuer, audience and trust-policy claims before issuing a role session. The role's permissions then decide which AWS operations that session may perform.",
+        "Trust is not service access. Restrict both: the exact GitLab project/ref may assume the role, and that role manages only this lab bucket plus its own state/lock objects. A fork or feature branch must not inherit deployment authority."
+      ],
+      "example": "An aud value different from sts.amazonaws.com should fail before Terraform reaches S3.",
+      "judgment": "Do not print tokens to debug claims. Inspect sanitized identity metadata and the policy, then use an intentional denied case."
+    },
+    {
+      "title": "Review, serialization and stale plans",
+      "paragraphs": [
+        "A saved plan belongs to a configuration revision and observed state. Pass its exact bytes to apply, retain a checksum and keep it private because plans can contain sensitive values.",
+        "A resource group serializes jobs, while backend locking protects state writers. Neither alone proves a delayed job still represents the latest approved intent. Enable outdated-deployment protection and inspect commit/plan identity before approving."
+      ],
+      "example": "An old pipeline's manual apply must not supersede a newer approved deployment just because its button is still visible.",
+      "judgment": "If the state changed, let Terraform reject the stale plan and create a newly reviewed plan; do not force execution."
+    },
+    {
+      "title": "A live plan executes trusted code",
+      "paragraphs": [
+        "Terraform planning loads providers and configuration and reads real state. A read-only cloud role is not enough to make arbitrary repository code safe: a changed CI script could export state or its short-lived credentials. The protected review branch is therefore an execution boundary, not a way to bless every proposed change automatically.",
+        "The planning role cannot change the managed bucket or write the state object. It can read that state and create/delete the exact lock object so Terraform can coordinate safely. Calling it read-only refers to managed infrastructure; the lock is an explicit, narrow write exception. The apply role trusts only main."
+      ],
+      "example": "A fork can receive a valid GitLab token but AWS still rejects it because the project, protected source ref and pipeline source do not match.",
+      "judgment": "A merge-request pipeline checks its source branch, not the eventual merged target. Re-plan after merging and review any difference before apply."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Create the repository root and cloud configuration",
+      "purpose": "In GitLab copy the new project's HTTPS clone URL. Git will request your normal approved authentication; do not put a token into the URL.",
+      "commands": [
+        {
+          "code": "read -r -p \"HTTPS clone URL of the new private IaC project: \" IAC_URL\ngit clone \"$IAC_URL\" ~/dev-opps-iac\ncd ~/dev-opps-iac\nmkdir -p tests\ncat > main.tf <<'EOF'\nterraform {\n  required_version = \">= 1.10, < 2.0\"\n  required_providers { aws = { source = \"hashicorp/aws\", version = \"~> 6.0\" } }\n  backend \"s3\" {}\n}\nprovider \"aws\" { region = \"us-east-1\" }\nvariable \"lab_bucket_name\" {\n  type = string\n  validation {\n    condition = can(regex(\"^devopps-ci-[0-9]+-[0-9]+$\", var.lab_bucket_name))\n    error_message = \"Use the account/project-specific lab bucket name.\"\n  }\n}\nresource \"aws_s3_bucket\" \"lab\" {\n  bucket = var.lab_bucket_name\n  force_destroy = false\n  tags = { Course = \"DevOpps\", Purpose = \"week20\" }\n}\nresource \"aws_s3_bucket_public_access_block\" \"lab\" {\n  bucket = aws_s3_bucket.lab.id\n  block_public_acls = true\n  block_public_policy = true\n  ignore_public_acls = true\n  restrict_public_buckets = true\n}\nresource \"aws_s3_bucket_versioning\" \"lab\" {\n  bucket = aws_s3_bucket.lab.id\n  versioning_configuration { status = \"Enabled\" }\n}\noutput \"bucket_name\" { value = aws_s3_bucket.lab.id }\nEOF\ncat > tests/private.tftest.hcl <<'EOF'\nmock_provider \"aws\" {}\nvariables { lab_bucket_name = \"devopps-ci-123456789012-123\" }\nrun \"private_versioned_bucket\" {\n  command = plan\n  assert {\n    condition = aws_s3_bucket_public_access_block.lab.block_public_acls && aws_s3_bucket_public_access_block.lab.block_public_policy && aws_s3_bucket_public_access_block.lab.ignore_public_acls && aws_s3_bucket_public_access_block.lab.restrict_public_buckets\n    error_message = \"All public access blocks must remain enabled.\"\n  }\n}\nEOF\ncat > .gitignore <<'EOF'\n.terraform/\n*.tfstate*\n*.tfplan\n.oidc-token\n*.tfbackend\nEOF\nterraform init -backend=false\nterraform fmt -recursive\nterraform validate\nterraform test",
+          "explain": [
+            "Clone creates a separate repo so this pipeline does not overwrite Taskboard's CI. The bucket name will come from the real account/project IDs; the example ID in mocked tests is deliberately synthetic and never applied.",
+            "The bucket remains empty and private with versioning. force_destroy=false prevents accidental destruction of an unexpectedly nonempty bucket. The backend is configured later without committing credentials.",
+            "init -backend=false installs schema/providers without touching remote state. The test verifies planned private controls through a mocked AWS provider."
+          ],
+          "expected": "Configuration valid and mocked privacy test passes.",
+          "troubleshoot": "If the local root was already initialized with a backend, use a clean checkout for offline tests rather than connecting untrusted code to state.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Commit main.tf, test, ignore rules and the provider lock after review."
+    },
+    {
+      "title": "Bind trust to the real project",
+      "purpose": "In a separate administrator terminal, verify the sandbox account. Find project ID in GitLab project Settings → General; find namespace/group ID in the group's settings. Use the exact project path including group, and branch main.",
+      "commands": [
+        {
+          "code": "export AWS_PROFILE=devopps-provisioner AWS_REGION=us-east-1 AWS_PAGER=\"\"\naws sso login --profile \"$AWS_PROFILE\"\naws sts get-caller-identity\nACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)\nread -r -p \"GitLab project path, group/project: \" PROJECT_PATH\nread -r -p \"GitLab numeric project ID: \" PROJECT_ID\nread -r -p \"GitLab numeric namespace ID: \" NAMESPACE_ID\nread -r -p \"Existing week-18 state bucket name: \" STATE_BUCKET\nexport ACCOUNT_ID PROJECT_PATH PROJECT_ID NAMESPACE_ID STATE_BUCKET\naws iam get-open-id-connect-provider --open-id-connect-provider-arn \"arn:aws:iam::$ACCOUNT_ID:oidc-provider/gitlab.com\"",
+          "explain": [
+            "The account is observed, not guessed. Inputs refer to the actual private project and backend. get-open-id-connect-provider only inspects whether this account already trusts the GitLab.com issuer."
+          ],
+          "expected": "Existing issuer details, or NoSuchEntity when not yet configured.",
+          "troubleshoot": "If AccessDenied, obtain the authorized bootstrap administrator; do not treat all errors as absence. If an issuer exists, inspect its audience list before reusing it.",
+          "shell": "bash"
+        },
+        {
+          "code": "aws iam create-open-id-connect-provider --url https://gitlab.com --client-id-list sts.amazonaws.com",
+          "explain": [
+            "Run only after NoSuchEntity confirmed that this issuer is absent. The audience is the same value the pipeline will request. AWS retrieves the issuer certificate information for this creation when no thumbprint list is supplied."
+          ],
+          "expected": "A GitLab.com provider ARN in the learning account.",
+          "troubleshoot": "Do not delete or replace an existing shared issuer. Its lifecycle may serve other projects.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record whether the issuer was newly created or reused; cleanup must respect that ownership."
+    },
+    {
+      "title": "Create scoped role documents",
+      "purpose": "Run from ~/dev-opps-iac. These files contain policy metadata, not credentials; keep them out of the public course evidence until reviewed.",
+      "commands": [
+        {
+          "code": "python3 - <<'PY'\nimport json,os\nfrom pathlib import Path\na,p,n,b=(os.environ[x] for x in (\"ACCOUNT_ID\",\"PROJECT_ID\",\"NAMESPACE_ID\",\"STATE_BUCKET\"))\nassert a.isdigit() and len(a)==12 and p.isdigit() and n.isdigit()\nproject=os.environ[\"PROJECT_PATH\"]\ntrust={\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Federated\":f\"arn:aws:iam::{a}:oidc-provider/gitlab.com\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"gitlab.com:aud\":\"sts.amazonaws.com\",\"gitlab.com:sub\":f\"project_path:{project}:ref_type:branch:ref:main\",\"gitlab.com:project_id\":p,\"gitlab.com:namespace_id\":n,\"gitlab.com:ref_protected\":\"true\",\"gitlab.com:pipeline_source\":\"push\"}}}]}\nbase=f\"arn:aws:s3:::{b}\"; state=base+\"/ci20/terraform.tfstate\"; lab=f\"arn:aws:s3:::devopps-ci-{a}-{p}\"\npolicy={\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":base},{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\"],\"Resource\":state},{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":state+\".tflock\"},{\"Effect\":\"Allow\",\"Action\":[\"s3:CreateBucket\",\"s3:DeleteBucket\",\"s3:ListBucket\",\"s3:Get*\",\"s3:PutBucketTagging\",\"s3:PutBucketVersioning\",\"s3:PutBucketPublicAccessBlock\"],\"Resource\":lab}]}\nPath(\"trust.json\").write_text(json.dumps(trust,indent=2)); Path(\"permissions.json\").write_text(json.dumps(policy,indent=2))\n\nplan_trust=json.loads(json.dumps(trust))\nclaims=plan_trust[\"Statement\"][0][\"Condition\"][\"StringEquals\"]\nclaims[\"gitlab.com:sub\"]=f\"project_path:{project}:ref_type:branch:ref:iac-review\"\nclaims[\"gitlab.com:ref_protected\"]=\"true\"\nclaims[\"gitlab.com:pipeline_source\"]=\"merge_request_event\"\nplan_policy={\"Version\":\"2012-10-17\",\"Statement\":[\n {\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":base},\n {\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":state},\n {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":state+\".tflock\"},\n {\"Effect\":\"Allow\",\"Action\":[\"s3:ListBucket\",\"s3:Get*\"],\"Resource\":lab}]}\nPath(\"plan-trust.json\").write_text(json.dumps(plan_trust,indent=2))\nPath(\"plan-permissions.json\").write_text(json.dumps(plan_policy,indent=2))\nprint(\"Review all four policy documents before the IAM calls.\")\nPY\ncat trust.json\ncat permissions.json\naws iam create-role --role-name DevOppsIac20 --assume-role-policy-document file://trust.json\naws iam put-role-policy --role-name DevOppsIac20 --policy-name DevOppsLabOnly --policy-document file://permissions.json\ncat plan-trust.json\ncat plan-permissions.json\naws iam create-role --role-name DevOppsIac20Plan --assume-role-policy-document file://plan-trust.json\naws iam put-role-policy --role-name DevOppsIac20Plan --policy-name DevOppsPlanOnly --policy-document file://plan-permissions.json",
+          "explain": [
+            "The trust policy requires issuer, audience, exact project path/main plus stable GitLab.com project/namespace IDs. It does not grant S3 access by itself.",
+            "The permission policy allows one exact lab bucket and the exact ci20 state/lock keys. Get* is deliberately scoped to this disposable bucket's metadata reads; review/refine action needs for a real service.",
+            "file:// tells AWS CLI to read local JSON. create-role establishes trust; put-role-policy adds the scoped service permissions.",
+            "The separate planning role requires protected iac-review and merge_request_event in addition to exact project/namespace/audience. It reads only the same lab bucket and state key, with writes confined to the lock object. These additional AWS condition keys are documented for GitLab.com; do not assume a self-managed issuer supports them identically."
+          ],
+          "expected": "Two separate lab roles: main can apply its bounded infrastructure; protected same-project MR planning can read that infrastructure and coordinate its exact lock only.",
+          "troubleshoot": "If the role name exists, inspect it and select a new owned name rather than overwriting an unrelated role. A provider read denial should be traced to the exact required action, not solved with AdministratorAccess.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Record role ARN arn:aws:iam::your-observed-account:role/DevOppsIac20 using the actual account value."
+    },
+    {
+      "title": "Configure the protected pipeline",
+      "purpose": "In GitLab CI/CD Variables add AWS_ROLE_ARN, STATE_BUCKET and TF_VAR_lab_bucket_name=devopps-ci-ACCOUNT_ID-PROJECT_ID using your actual IDs. Mark all three Protected; set AWS_DEFAULT_REGION=us-east-1. These values identify resources, not secrets. Do not add access keys. Save the following as .gitlab-ci.yml in this separate repo. Also add protected AWS_PLAN_ROLE_ARN using the actual DevOppsIac20Plan ARN. Do not allow anyone to advance iac-review without reviewing the executable contents. Protected variable availability is not a substitute for AWS trust restrictions.",
+      "commands": [
+        {
+          "code": "cat > .gitlab-ci.yml <<'EOF'\nimage:\n  name: hashicorp/terraform:1.16.6\n  entrypoint: [\"\"]\nstages: [check, plan, apply]\nvariables:\n  TF_IN_AUTOMATION: \"true\"\n  AWS_DEFAULT_REGION: us-east-1\nworkflow:\n  rules:\n    - if: $CI_PIPELINE_SOURCE == \"merge_request_event\"\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH\ncheck:\n  stage: check\n  script:\n    - terraform init -backend=false\n    - terraform fmt -check -recursive\n    - terraform validate\n    - terraform test\n.cloud:\n  id_tokens:\n    GITLAB_OIDC_TOKEN:\n      aud: sts.amazonaws.com\n  before_script:\n    - apk add --no-cache aws-cli\n    - if [ \"$CI_PIPELINE_SOURCE\" = \"merge_request_event\" ]; then export AWS_ROLE_ARN=\"$AWS_PLAN_ROLE_ARN\"; fi\n    - umask 077\n    - printf \"%s\" \"$GITLAB_OIDC_TOKEN\" > \"$CI_PROJECT_DIR/.oidc-token\"\n    - export AWS_WEB_IDENTITY_TOKEN_FILE=\"$CI_PROJECT_DIR/.oidc-token\"\n    - unset GITLAB_OIDC_TOKEN\n    - aws sts get-caller-identity\n    - terraform init -backend-config=\"bucket=$STATE_BUCKET\" -backend-config=\"key=ci20/terraform.tfstate\" -backend-config=\"region=us-east-1\" -backend-config=\"encrypt=true\" -backend-config=\"use_lockfile=true\"\n  after_script:\n    - rm -f -- \"$CI_PROJECT_DIR/.oidc-token\"\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == \"true\"\nmr_live_plan:\n  extends: .cloud\n  stage: plan\n  resource_group: devopps-iac\n  rules:\n    - if: $CI_PIPELINE_SOURCE == \"merge_request_event\" && $CI_MERGE_REQUEST_SOURCE_PROJECT_ID == $CI_PROJECT_ID && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == \"iac-review\" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH\n      when: manual\n      allow_failure: false\n  script:\n    - terraform plan -out=mr-review.tfplan\n    - terraform show -no-color mr-review.tfplan > mr-review.txt\n    - sha256sum mr-review.tfplan > mr-review.sha256\n    - printf \"%s\\n\" \"$CI_COMMIT_SHA\" > mr-reviewed-commit.txt\n  artifacts:\n    access: maintainer\n    expire_in: 1 day\n    paths: [mr-review.tfplan, mr-review.txt, mr-review.sha256, mr-reviewed-commit.txt]\nplan:\n  extends: .cloud\n  stage: plan\n  resource_group: devopps-iac\n  script:\n    - terraform plan -out=review.tfplan\n    - terraform show -no-color review.tfplan > review.txt\n    - sha256sum review.tfplan > review.sha256\n    - printf \"%s\\n\" \"$CI_COMMIT_SHA\" > reviewed-commit.txt\n  artifacts:\n    access: maintainer\n    expire_in: 1 day\n    paths: [review.tfplan, review.txt, review.sha256, reviewed-commit.txt]\napply:\n  extends: .cloud\n  stage: apply\n  needs: [plan]\n  resource_group: devopps-iac\n  environment: devopps-iac\n  when: manual\n  allow_failure: false\n  script:\n    - test \"$(cat reviewed-commit.txt)\" = \"$CI_COMMIT_SHA\"\n    - sha256sum -c review.sha256\n    - terraform apply -input=false review.tfplan\n    - terraform output\nEOF\ngit switch -c bootstrap-iac\ngit add main.tf tests .gitignore .terraform.lock.hcl .gitlab-ci.yml\ngit diff --cached\ngit commit -m \"Review and deliver private lab infrastructure\"\ngit push -u origin bootstrap-iac",
+          "explain": [
+            "The official image pins Terraform 1.16.6, a stable release observed during authoring; record its digest during your runner validation before adopting it as a long-term team image. The AWS CLI package is installed for the short-lived job and its resolved version should be recorded in evidence.",
+            "check has no ID token or protected variable requirement. The ordinary cloud jobs run only on protected default-branch pipelines; mr_live_plan overrides those rules for the explicitly trusted MR path, writes an ephemeral token file with owner-only permission and uses standard web-identity credential discovery. No token is printed or archived.",
+            "plan artifacts are Maintainer-only and expire. Apply verifies commit and checksum, uses the exact plan, runs manually and shares a resource group. after_script removes only this job's token file.",
+            "mr_live_plan is manually started only after source review. Its inherited setup selects the planning role, then requests the same state key. The protected-resource settings and AWS claims independently enforce eligibility. Read mr-review.txt from the MR job and record its commit/checksum in the review. No apply job runs in this MR pipeline. After merge, review the new main plan because its revision and state observation can differ.",
+            "The bootstrap CI definition is pushed on a feature branch and merged through the protected-main review process; do not push directly to main. Its first MR has offline checks only. After merge, create/protect iac-review and use the required live-MR workflow before approving an apply. AWS main trust also requires a protected ref and push pipeline."
+          ],
+          "expected": "Merge requests run offline checks; protected main runs a real plan and waits for authorized manual apply.",
+          "troubleshoot": "Validate YAML in GitLab's pipeline editor before merging. If cloud jobs appear on an untrusted branch, stop and correct rules/protection. A runner or image failure is not successful federation evidence.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Review every action in review.txt and confirm only the known bucket/controls are created before approving apply."
+    },
+    {
+      "title": "Run the protected merge-request review",
+      "purpose": "After bootstrapping the CI definition through the protected main process, create iac-review from main in the GitLab UI and protect it before pushing. In the local repository make only a harmless CourseOwner tag addition on this trusted branch, review its full diff, push it, and open a same-project merge request targeting main. Start its manual mr_live_plan job after source review. Record the live provider reads, caller role, plan text, source commit and checksum. The first plan may show bucket creation; planning must not create it.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-iac\ngit fetch origin\ngit switch --track origin/iac-review\ngit diff origin/main...HEAD\ngit status --short",
+          "explain": [
+            "fetch reads current remote refs. switch tracks the already-created protected branch; it does not weaken protection. diff and status establish exactly what is proposed. Use your editor to add the intended tag, inspect it, then commit and push under the protected-branch policy.",
+            "In the MR pipeline verify caller identity is DevOppsIac20Plan, not DevOppsIac20. Inspect the live plan artifact before merge. Then approve the independently reviewed protected-main plan for apply."
+          ],
+          "expected": "A real live plan is attached to the trusted MR; ordinary feature/fork MRs show only offline checks.",
+          "troubleshoot": "If the cloud job has missing variables, inspect branch protection, same-project provenance, user permissions and the protected-resource checkbox. Do not expose protected variables to all branches.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Keep separate evidence for the trusted MR plan, untrusted MR without cloud execution, and the subsequent main apply."
+    }
+  ],
+  "failure": {
+    "title": "Reject an ID token with the wrong audience",
+    "boundary": "One temporary protected-main CI test; it requests no Terraform changes.",
+    "inject": [
+      {
+        "code": "negative_identity:\n  stage: plan\n  id_tokens:\n    BAD_TOKEN:\n      aud: https://invalid.example\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == \"true\"\n      when: manual\n  script:\n    - apk add --no-cache aws-cli\n    - umask 077\n    - printf \"%s\" \"$BAD_TOKEN\" > .negative-token\n    - export AWS_WEB_IDENTITY_TOKEN_FILE=\"$CI_PROJECT_DIR/.negative-token\"\n    - unset BAD_TOKEN\n    - if aws sts get-caller-identity; then echo \"ERROR unexpected trust\"; exit 1; else echo \"Inspect error; expected audience denial\"; fi\n  after_script:\n    - rm -f -- \"$CI_PROJECT_DIR/.negative-token\"",
+        "explain": [
+          "Add this temporary job through review to .gitlab-ci.yml. It requests a deliberately wrong audience and never calls apply. The expected failure must be inspected: a networking error is not evidence of correct trust rejection."
+        ],
+        "expected": "AWS reports an invalid audience/identity-token authorization error.",
+        "troubleshoot": "If identity succeeds, stop deployment and inspect issuer audience/trust conditions. Do not log the token.",
+        "shell": "configuration"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "aws iam get-role --role-name DevOppsIac20 --query Role.AssumeRolePolicyDocument",
+        "explain": [
+          "From the authorized administrator terminal, read the role trust policy and compare required audience, project and ref with the job definition."
+        ],
+        "expected": "The trust still requires sts.amazonaws.com and the exact approved main ref.",
+        "troubleshoot": "Do not change trust to accept the invalid audience just to make the negative test succeed.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "Separate an expected trust denial from a missing variable, expired token or network failure.",
+      "The ordinary plan job is the positive case using the correct audience."
+    ],
+    "answer": {
+      "explanation": [
+        "Audience prevents a token minted for another recipient from being accepted as this AWS role login. The negative case must be rejected while the correct protected-main job still works."
+      ],
+      "recover": [
+        {
+          "code": "git status --short",
+          "explain": [
+            "Remove only the temporary negative job through a reviewed change after saving its sanitized denial evidence; keep the real trust policy unchanged. status shows the intended change before commit."
+          ],
+          "expected": "Only the temporary test definition is removed.",
+          "troubleshoot": "Do not remove the audience condition or broaden allowed refs.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "aws iam get-role --role-name DevOppsIac20 --query Role.Arn",
+        "explain": [
+          "Confirm the intended role still exists; the next ordinary protected-main plan supplies the positive federation check."
+        ],
+        "expected": "Expected role ARN plus a subsequent successful correct-audience plan.",
+        "troubleshoot": "A role ARN alone does not prove federation; retain both actual job results.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why not give untrusted merge requests state credentials?",
+      "hint": "State and arbitrary repository code meet.",
+      "answer": "A modified job could read or export state. Offline mock checks avoid that exposure; real plan access needs a separately trusted execution policy."
+    },
+    {
+      "prompt": "What does resource_group not prove?",
+      "hint": "Ordering versus current intent.",
+      "answer": "It serializes jobs but does not alone reject an old job run late. Use outdated-deployment controls, commit checks and renewed review."
+    },
+    {
+      "prompt": "What if state changes after planning?",
+      "hint": "The plan observed an older world.",
+      "answer": "Terraform may reject the stale saved plan. Generate a fresh plan from the approved revision and review it rather than bypassing the protection."
+    },
+    {
+      "prompt": "Why must a protected MR use a planning role rather than the apply role?",
+      "hint": "Consider a malicious apply command and the source branch claim.",
+      "answer": "AWS should refuse managed infrastructure mutations during review even if a job requests them. The separate role permits state reads and lock coordination only; the apply role trusts main. Source review remains required because reads themselves can disclose state."
+    }
+  ],
+  "exercise": {
+    "brief": "Demonstrate positive and negative cloud identity behavior without exposing credentials.",
+    "constraints": [
+      "Apply trust permits exact main; plan trust permits only protected same-project iac-review merge_request_event. Untrusted refs receive neither.",
+      "No long-lived access keys or public plan artifacts."
+    ],
+    "deliverables": [
+      "Correct-audience caller identity, wrong-audience denial and sanitized trust/permission review.",
+      "Commit, plan checksum, reviewer and applied resource IDs.",
+      "Live MR plan artifact and source SHA, plus an ordinary feature-branch MR with offline checks only; explain why fork code cannot acquire the planning role."
+    ],
+    "acceptance": [
+      "The wrong token is denied for the intended reason.",
+      "Untrusted branch checks have no deployment authority.",
+      "Applied bytes match the reviewed plan."
+    ],
+    "hints": [
+      "Inspect policies and error category; never print token contents."
+    ],
+    "solution": [
+      "Keep issuer/audience/ref and permission policies separate in the report. Prove each boundary with the corresponding observation."
+    ]
+  },
+  "capstone": {
+    "title": "Recreate a reviewed AWS environment through GitLab",
+    "scenario": "A teammate must create and later retire a private versioned artifact bucket using only a reviewed repository and a short-lived identity.",
+    "startingPoint": "The dedicated IaC repository, existing backend and scoped OIDC role from this lesson.",
+    "requirements": [
+      "Offline checks on untrusted MRs plus an executed live plan inside a protected same-project review MR, using the separate scoped planning role.",
+      "Private versioned bucket with force_destroy disabled.",
+      "Exact-plan manual apply with state locking and serialized deployment.",
+      "Positive/negative identity evidence and an explicit cleanup/rebuild run.",
+      "Explain the live-plan trust placement; do not call mock output a provider observation."
+    ],
+    "acceptance": [
+      "The trusted MR has a real AWS-backed plan before merge; a mock or post-merge-only plan does not satisfy this condition.",
+      "A reviewed apply creates only the expected bucket and controls.",
+      "A second live plan has no unexpected changes.",
+      "Destroy and rebuild follow configuration without console edits to the managed bucket.",
+      "State, tokens and plan artifacts remain private."
+    ],
+    "runbook": [
+      {
+        "code": "cd ~/dev-opps-iac\nterraform init -backend-config=\"bucket=$STATE_BUCKET\" -backend-config=\"key=ci20/terraform.tfstate\" -backend-config=\"region=us-east-1\" -backend-config=\"encrypt=true\" -backend-config=\"use_lockfile=true\"\nterraform plan -destroy -out=retire.tfplan\nterraform show -no-color retire.tfplan",
+        "explain": [
+          "For authorized closeout, use the same reviewed commit and a sandbox identity with the exact backend/lab permissions. Define STATE_BUCKET from the recorded week-18 file and TF_VAR_lab_bucket_name from the actual account/project identifiers before these commands.",
+          "The destroy plan must contain only this empty lab bucket and its controls. Review before applying; rebuild uses the next protected pipeline from unchanged desired configuration."
+        ],
+        "expected": "A bounded retire plan with no unrelated resources.",
+        "troubleshoot": "BucketNotEmpty should stop destruction. Inspect unexpected objects; never enable force_destroy merely to bypass data review.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "Record which actor owns bootstrap versus routine execution.",
+      "Keep proof of an exact artifact identity at every handoff."
+    ],
+    "solution": [
+      "Run a reviewed create, verify public blocks/versioning and no-change convergence, retire the empty bucket, then recreate once to prove the repository is sufficient.",
+      "Close with a sanitized evidence packet and explicit pending items if the runner/provider execution could not be performed."
+    ],
+    "rubric": [
+      {
+        "criterion": "Authorization",
+        "evidence": "Correct caller plus wrong-audience denial",
+        "pass": "Trust and service permissions are scoped and tested."
+      },
+      {
+        "criterion": "Reproducibility",
+        "evidence": "Reviewed commit, plan hash and create/destroy/recreate record",
+        "pass": "The managed environment is reconstructed without undocumented changes."
+      },
+      {
+        "criterion": "Operational honesty",
+        "evidence": "Executed/pending labels, cleanup and protected artifacts",
+        "pass": "Claims match the actual job and provider evidence."
+      },
+      {
+        "criterion": "Review placement",
+        "evidence": "MR job, source SHA and planning-role identity",
+        "pass": "A trusted same-project MR executes a live provider plan; ordinary contributions have no state credentials."
+      }
+    ],
+    "stretch": [
+      "After the required trusted-MR path works, add a narrowly reviewed IAM simulator check proving the planning role is denied s3:CreateBucket and s3:PutObject on the state key. Do not attempt a destructive operation as a permission test."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "terraform apply retire.tfplan\naws s3api head-bucket --bucket \"$TF_VAR_lab_bucket_name\"",
+      "explain": [
+        "Apply only the reviewed empty-bucket retire plan from the same root. The subsequent head request should report absence; distinguish absence from access denial using the authorized inventory."
+      ],
+      "expected": "Lab bucket removed; backend retained until all dependent states are retired.",
+      "troubleshoot": "Do not delete the state bucket or shared OIDC provider while another root/project depends on it.",
+      "shell": "bash"
+    },
+    {
+      "code": "aws iam delete-role-policy --role-name DevOppsIac20 --policy-name DevOppsLabOnly\naws iam delete-role --role-name DevOppsIac20\naws iam delete-role-policy --role-name DevOppsIac20Plan --policy-name DevOppsPlanOnly\naws iam delete-role --role-name DevOppsIac20Plan",
+      "explain": [
+        "After all CI jobs are terminal and the lab is retired, use the bootstrap administrator to remove only this lab policy/role. Keep or retire the issuer according to its recorded ownership; remove protected project variables if no longer used."
+      ],
+      "expected": "The disposable CI role is gone; no application resources remain.",
+      "troubleshoot": "Retain the versioned backend deliberately with owner/expiry, or enumerate and review its exact recorded keys/versions before a separate authorized retirement. Never bulk-empty unrelated state.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "GitLab AWS federation",
+      "url": "https://docs.gitlab.com/ci/cloud_services/aws/",
+      "usedFor": "ID tokens, audience and GitLab.com stable claim conditions."
+    },
+    {
+      "title": "GitLab CI YAML",
+      "url": "https://docs.gitlab.com/ci/yaml/",
+      "usedFor": "Rules, artifacts access, manual jobs and resource groups."
+    },
+    {
+      "title": "Deployment safety",
+      "url": "https://docs.gitlab.com/ci/environments/deployment_safety/",
+      "usedFor": "Protected execution and outdated deployment controls."
+    },
+    {
+      "title": "Terraform releases",
+      "url": "https://releases.hashicorp.com/terraform/",
+      "usedFor": "Stable 1.16.6 release observed during authoring."
+    },
+    {
+      "title": "Create IAM OIDC provider",
+      "url": "https://docs.aws.amazon.com/cli/latest/reference/iam/create-open-id-connect-provider.html",
+      "usedFor": "Issuer creation and optional thumbprint behavior."
+    },
+    {
+      "title": "Protected resources in merge-request pipelines",
+      "url": "https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/",
+      "usedFor": "GitLab 18.1 protected-resource eligibility, settings and source-only MR execution."
+    },
+    {
+      "title": "GitLab ID token claims",
+      "url": "https://docs.gitlab.com/ci/secrets/id_token_authentication/",
+      "usedFor": "Source-project/ref semantics and GitLab.com AWS condition keys."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "woodpecker-ci/woodpecker",
+      "principle": "Runner capabilities define a trust boundary",
+      "application": "Untrusted checks and cloud-authorized execution are separated.",
+      "url": "https://github.com/woodpecker-ci/woodpecker"
+    },
+    {
+      "repo": "theonedev/onedev",
+      "principle": "Trace a requirement to the applied artifact",
+      "application": "Commit, plan hash, review and resource identity form the delivery record.",
+      "url": "https://github.com/theonedev/onedev"
+    }
+  ],
+  "notes": [
+    "Both pipeline paths are authored and checked against current official documentation, not executed against a GitLab project here. Protected-main-only live planning is explicitly a narrower fallback and leaves the original live-MR outcome incomplete."
+  ],
+  "freeTrack": {
+    "title": "Gate an infrastructure change before any provider access",
+    "objective": "Use actual Terraform validation, mocked tests and reviewed local plans while separating offline evidence from deploy authority.",
+    "prerequisites": [
+      "Complete weeks 17 and 19. Week 19 policy19 uses Terraform mock providers and creates no AWS resources. Keep the free18 roots."
+    ],
+    "commands": [
+      {
+        "code": "cd ~/dev-opps-lab/infra/policy19\nterraform fmt -check -recursive\nterraform init -backend=false\nterraform validate\nterraform test\ncd ~/dev-opps-lab/infra/free18\nterraform -chdir=dev plan -out=reviewed.tfplan\nterraform -chdir=dev show -no-color reviewed.tfplan",
+        "explain": [
+          "fmt -check rejects formatting drift without rewriting files. init -backend=false installs providers without initializing a remote backend.",
+          "validate checks configuration. terraform test executes the mocked policy checks authored in week 19; a mock cannot prove real AWS permissions.",
+          "The final plan reads the actual local dev root. Review additions, changes and deletions before any apply; keep the plan private."
+        ],
+        "expected": "Offline checks and mock tests pass; a dev plan is available for a separate review.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Introduce one incorrect week-19 policy value, observe the matching test failure, restore it and rerun.",
+      "Keep the failed and passing output; explain which failure stops promotion.",
+      "Write why untrusted merge requests may run these offline checks but must not receive apply credentials."
+    ],
+    "limits": "This proves local checks and a real local plan. It does not prove GitLab OIDC, AWS role trust, a live MR plan or remote state locks.",
+    "cleanup": "Retain source and evidence; remove only reviewed temporary plan files when no longer needed. No cloud resource was created."
+  }
+}

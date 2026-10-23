@@ -1,0 +1,48 @@
+# Dependencies and local caches
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
+.ruff_cache/
+.tmp/
+.wrangler/
+browser-profile/
+qa-profile/
+validation-lib/
+validation-tmp/
+qa-edge/
+qa-edge-cache/
+browser-qa/
+
+# Local credentials and learner data
+.env
+.env.*
+!.env.example
+private.env
+credentials
+id_rsa
+id_ed25519
+*.pem
+*.key
+*.dump
+*.sql.gz
+*.log
+reports/
+**/evidence/*.json
+ui-progress-export.json
+
+# Generated deployment copies and release archives
+/public/
+/deploy/worker-build/
+/deploy/worker-build-report.json
+/Dev-Oops-Pages.zip
+/Dev-Opps-Complete-Course.zip
+/Dev-Opps-Public-Site.zip
+
+# Editor and operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp

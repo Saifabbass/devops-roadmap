@@ -1,0 +1,246 @@
+{
+  "week": 46,
+  "introduction": [
+    "A cluster has its own versions, certificates, storage and recovery needs. An upgrade changes that operating system of components, not merely a kubectl binary. Check supported skew, removed APIs and workload compatibility before deciding the order.",
+    "This is the permitted component-focused alternative to completing every Hard Way step. Compare two verified kind patch images in separate disposable clusters, exercise a bounded worker failure, and write the supported upgrade sequence for your chosen real distribution. kind replacement is not an in-place production upgrade, and the evidence must say so."
+  ],
+  "prerequisites": [
+    "Earlier kind/kubectl lessons and Docker with Linux containers. Confirm kind version and kubectl version --client.",
+    "The tested devopps-taskboard:local image exists. Enough local capacity for one control-plane/worker cluster; run candidates sequentially if necessary.",
+    "Week 45 trust map and explicit distinction between etcd state and application data."
+  ],
+  "concepts": [
+    {
+      "title": "Version compatibility is a matrix",
+      "paragraphs": [
+        "Check API server, kubelet, proxy, controllers, client and webhooks separately. Current policy keeps kubelets no newer than the API server, bounds skew and prohibits skipping API-server minor versions. Distribution tools may impose narrower requirements.",
+        "The two pinned 1.35 patch images below were verified to exist. They are bounded teaching artifacts, not a recommendation to run an early patch in production. Select the latest supported patch after your distribution/release review."
+      ],
+      "example": "A webhook can reject new API behavior even while every node is Ready.",
+      "judgment": "A version matrix is necessary but cannot prove data safety or spare capacity during maintenance."
+    },
+    {
+      "title": "Maintenance and backup protect different things",
+      "paragraphs": [
+        "Cordon prevents new scheduling; drain evicts eligible workloads subject to disruption rules. A PodDisruptionBudget can correctly stop maintenance when the proposed change breaks its availability promise.",
+        "etcd stores Kubernetes objects. It does not contain all PostgreSQL volume bytes or external bucket data. Restoring a PVC object can restore a reference to a missing disk."
+      ],
+      "example": "Do not use forced drain to hide a capacity problem.",
+      "judgment": "Existing traffic may continue briefly during control-plane failure while new scheduling and reconciliation stop; test both paths."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Create an isolated component lab",
+      "purpose": "Explicit cluster names and contexts protect earlier course environments.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab\nmkdir -p evidence/week-46\nkind version\nkubectl version --client\ncat > evidence/week-46/kind.yaml <<'YAML'\nkind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n- role: control-plane\n- role: worker\nYAML\nkind create cluster --name devopps-internals --image kindest/node:v1.35.0@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661 --config evidence/week-46/kind.yaml\nkubectl --context kind-devopps-internals get nodes -o wide",
+          "explain": [
+            "The literal YAML requests one control-plane and worker. The registry digest selects exact node bytes.",
+            "Every kubectl call supplies --context, avoiding a global default switch. -o wide records actual versions and placement."
+          ],
+          "expected": "Two Ready nodes in the new named cluster.",
+          "troubleshoot": "If your kind version is incompatible, update it using the earlier reviewed setup procedure and record the mismatch. Never target another cluster to get a green result."
+        }
+      ],
+      "checkpoint": "Capture API/client/node versions before changing anything."
+    },
+    {
+      "title": "2 · Exercise a bounded maintenance decision",
+      "purpose": "Observe disruption controls without bypassing them.",
+      "commands": [
+        {
+          "code": "kubectl --context kind-devopps-internals get pods -A -o wide\nkubectl --context kind-devopps-internals cordon devopps-internals-worker\nkubectl --context kind-devopps-internals drain devopps-internals-worker --ignore-daemonsets --timeout=60s\nkubectl --context kind-devopps-internals uncordon devopps-internals-worker",
+          "explain": [
+            "get records placement. cordon blocks new scheduling. drain evicts eligible Pods, ignores node-following DaemonSets and has a 60 second deadline.",
+            "No --force or local-data-deletion bypass is provided. Inspect a blocking Pod/PDB instead of removing safeguards. uncordon permits scheduling again."
+          ],
+          "expected": "Worker returns Ready and schedulable; any blocked drain is recorded with its real cause.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Explain which application data is absent from an etcd-only backup."
+    },
+    {
+      "title": "3 · Compare a patched replacement",
+      "purpose": "Validate a user operation on the candidate rather than checking node health alone.",
+      "commands": [
+        {
+          "code": "kind create cluster --name devopps-internals-next --image kindest/node:v1.35.1@sha256:05d7bcdefbda08b4e038f644c4df690cdac3fba8b06f8289f30e10026720a1ab --config evidence/week-46/kind.yaml\nkubectl --context kind-devopps-internals-next get nodes -o wide\nkubectl --context kind-devopps-internals-next get --raw=/readyz\nkind load docker-image devopps-taskboard:local --name devopps-internals-next\nkubectl --context kind-devopps-internals-next create deployment taskboard-probe --image=devopps-taskboard:local -- python -m uvicorn reference.stage03:app --host 0.0.0.0 --port 8000 --no-access-log\nkubectl --context kind-devopps-internals-next rollout status deployment/taskboard-probe --timeout=90s\nkubectl --context kind-devopps-internals-next port-forward deployment/taskboard-probe 8101:8000",
+          "explain": [
+            "The second cluster uses the verified next patch. API readiness and node readiness are separate checks.",
+            "kind load supplies the local image. The deployment overrides the default stage 07 command with a deliberately memory-only probe; it tests the platform boundary without claiming persistent data migration.",
+            "rollout has a deadline. port-forward remains running in this terminal and binds locally by default."
+          ],
+          "expected": "A local listener on 8101.",
+          "troubleshoot": "If capacity prevents two clusters, record/delete the first only after preserving evidence, then create the candidate."
+        },
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\ncurl --retry 10 --retry-delay 1 --retry-connrefused --max-time 5 -fsS http://127.0.0.1:8101/livez\nTASKBOARD_BASE_URL=http://127.0.0.1:8101 TASKBOARD_TEST_MODE=memory python -m pytest tests/system -q",
+          "explain": [
+            "Use a second terminal. Memory mode explicitly skips identity isolation; tests reach the candidate listener through forwarding.",
+            "The bounded read-only liveness wait confirms the forwarded memory server is accepting requests before tests start."
+          ],
+          "expected": "Memory HTTP contract passes; persistence/auth migration remain separate checks.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Write keep/replace/abort reasoning and label replacement versus in-place evidence."
+    }
+  ],
+  "failure": {
+    "title": "A worker agent stops reporting",
+    "boundary": "Only kubelet inside the explicitly named disposable kind worker.",
+    "inject": [
+      {
+        "code": "docker exec devopps-internals-worker systemctl stop kubelet",
+        "explain": [
+          "Stop the agent inside this lab container, never a host production worker."
+        ],
+        "expected": "Kubelet becomes inactive.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl --context kind-devopps-internals get nodes -w",
+        "explain": [
+          "Watch node conditions; heartbeat/grace periods mean NotReady is not instantaneous. Ctrl+C stops the watch only."
+        ],
+        "expected": "Worker eventually reports NotReady.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      },
+      {
+        "code": "docker exec devopps-internals-worker systemctl status kubelet --no-pager",
+        "explain": [
+          "Read the specific component state without opening a pager."
+        ],
+        "expected": "Inactive service explains missing updates.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "The API may remain healthy when one agent fails.",
+      "Rescheduling depends on grace/eviction timing."
+    ],
+    "answer": {
+      "explanation": [
+        "The stopped kubelet removes node reconciliation and heartbeats. Restore it and wait for actual node readiness. API health alone never proved worker health."
+      ],
+      "recover": [
+        {
+          "code": "docker exec devopps-internals-worker systemctl start kubelet",
+          "explain": [
+            "Restore only the deliberately stopped service."
+          ],
+          "expected": "Agent starts.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "kubectl --context kind-devopps-internals wait --for=condition=Ready node/devopps-internals-worker --timeout=120s",
+        "explain": [
+          "Bound the recovery observation and investigate if it expires."
+        ],
+        "expected": "Ready within the measured window.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What is missing from an etcd snapshot?",
+      "hint": "Where are database files stored?",
+      "answer": "Application volume contents and external stores are separate. etcd holds Kubernetes descriptions and references."
+    },
+    {
+      "prompt": "Why not force a blocked drain?",
+      "hint": "What promise is the blocking condition protecting?",
+      "answer": "A PDB or local-data constraint may protect availability/data. Add capacity or revise the plan deliberately."
+    },
+    {
+      "prompt": "What upgrade did this exercise prove?",
+      "hint": "Replacement versus in-place.",
+      "answer": "A pinned patch replacement runs the tested stateless workload. It does not prove in-place distribution upgrades or persistent-data migration."
+    }
+  ],
+  "exercise": {
+    "brief": "Write the real distribution upgrade runbook while preserving this component lab evidence boundary.",
+    "constraints": [
+      "Choose exact current/target versions and current policy.",
+      "No minor skipping; supported control-plane-before-worker sequence."
+    ],
+    "deliverables": [
+      "Version matrix, prechecks, drain/backup plan, postchecks and recovery decision.",
+      "Candidate workload result and component failure timeline."
+    ],
+    "acceptance": [
+      "Every component version is compatible.",
+      "Data/control-plane recovery are separately covered.",
+      "Unexecuted in-place steps remain explicit."
+    ],
+    "hints": [
+      "Webhooks and removed APIs can fail despite Ready nodes."
+    ],
+    "solution": [
+      "Verify backups, update one supported bounded scope through distribution tooling, test business operations and stop on declared regressions.",
+      "Do not turn replacement success into a claim of in-place upgrade safety."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kind delete cluster --name devopps-internals-next\nkind delete cluster --name devopps-internals",
+      "explain": [
+        "Stop port-forward withCtrl+C first; delete only these two disposable clusters."
+      ],
+      "expected": "Earlier course clusters remain untouched.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "Version skew",
+      "url": "https://kubernetes.io/releases/version-skew-policy/",
+      "usedFor": "Compatibility/order."
+    },
+    {
+      "title": "Safe drain",
+      "url": "https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/",
+      "usedFor": "Eviction constraints."
+    },
+    {
+      "title": "kind quick start",
+      "url": "https://kind.sigs.k8s.io/docs/user/quick-start/",
+      "usedFor": "Named clusters/image loading."
+    },
+    {
+      "title": "etcd recovery",
+      "url": "https://etcd.io/docs/v3.6/op-guide/recovery/",
+      "usedFor": "Control-plane recovery scope."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "freelensapp/freelens",
+      "principle": "Context is part of every cluster operation",
+      "application": "A kubeconfig identifies clusters, users and contexts. Convenient switching makes target verification essential. Use a restricted lab identity, inspect events and logs, then reproduce findings with kubectl. Connect symptoms to the correct resources in the intended cluster rather than memorizing a GUI path. Practice: Inspect the bad-image drill with one dashboard, record context and namespace, then reproduce image and event evidence with kubectl.",
+      "url": "https://github.com/freelensapp/freelens"
+    },
+    {
+      "repo": "kelseyhightower/kubernetes-the-hard-way",
+      "principle": "Follow identity through the control plane",
+      "application": "The API server accepts requests; controllers reconcile; the scheduler chooses nodes; kubelet runs assigned workloads; etcd stores control-plane state. Certificates and kubeconfigs connect responsibilities to identities. Manual setup exposes these boundaries. A small single-control-plane exercise does not establish resilient production design. Practice: Draw the request and identity path for Pod creation. Explain each component credential and observe one controlled fault in the bounded internals lab.",
+      "url": "https://github.com/kelseyhightower/kubernetes-the-hard-way"
+    },
+    {
+      "repo": "ramitsurana/awesome-kubernetes",
+      "principle": "An extension creates an operating obligation",
+      "application": "Add-ons introduce APIs, privileges, configuration and upgrade dependencies. State the missing capability, maintainer, failure behavior and removal plan before installing. Shortlist using primary docs and supported versions. A local function test is separate from resilience and upgrade evidence. Practice: For one add-on, record purpose, permissions, compatibility, failure signal, rollback and removal. Reject it if existing components already satisfy the requirement.",
+      "url": "https://github.com/ramitsurana/awesome-kubernetes"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

@@ -1,0 +1,31 @@
+/* Compact, outlined capsule; the source icon rolls upward into its blue hover state. */
+a.resource-badge,
+.resources a.resource-badge,
+.repo h3 a.resource-badge {
+  display: inline-flex; position: relative; align-items: center; gap: 8px;
+  width: fit-content; max-width: 100%; min-height: 36px; padding: 6px 11px 6px 8px;
+  border: 1.3px solid #161616; border-radius: 999px; background: #fff; color: #161616;
+  font-family: var(--sans, Arial, sans-serif); font-size: 12px; font-weight: 500;
+  line-height: 1.4; letter-spacing: -.015em; text-decoration: none; vertical-align: middle;
+  box-shadow: 0 3px 7px #0000000d; transition: box-shadow .2s, border-color .2s, color .2s;
+}
+a.resource-badge:hover,
+a.resource-badge:focus-visible,
+.repo h3 a.resource-badge:hover { color: #245fe5; border-color: #245fe5; text-decoration: none; box-shadow: 0 5px 12px #245fe519; }
+a.resource-badge:focus-visible { outline: 3px solid #245fe5; outline-offset: 4px; }
+.resource-badge-icon { position: relative; flex: 0 0 22px; width: 22px; height: 22px; overflow: hidden; }
+.resource-badge-icon > span { display: block; position: absolute; inset: 0; transition: transform .28s cubic-bezier(.22,1,.36,1); }
+.resource-badge-icon > span:first-child { color: #161616; }
+.resource-badge-icon > span:last-child { color: #245fe5; transform: translateY(115%); }
+.resource-badge:hover .resource-badge-icon > span:first-child,
+.resource-badge:focus-visible .resource-badge-icon > span:first-child { transform: translateY(-115%); }
+.resource-badge:hover .resource-badge-icon > span:last-child,
+.resource-badge:focus-visible .resource-badge-icon > span:last-child { transform: translateY(0); }
+.resource-badge-label { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.resource-badge-arrow { flex: 0 0 auto; font-size: 15px; line-height: 1; }
+.resources, .source-links { gap: 10px; }
+.source-links a.resource-badge { margin: 3px 3px 3px 0; }
+.repo-head h3 { min-width: 0; }
+@media (max-width: 520px) { a.resource-badge, .resources a.resource-badge, .repo h3 a.resource-badge { min-height: 42px; font-size: 11px; } }
+@media (prefers-reduced-motion: reduce) { a.resource-badge, .resource-badge-icon > span { transition: none; } }
+@media print { a.resource-badge { box-shadow: none; border-width: 1px; } .resource-badge-icon > span:last-child { display: none; } }

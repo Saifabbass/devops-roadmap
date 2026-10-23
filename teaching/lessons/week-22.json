@@ -1,0 +1,249 @@
+{
+  "week": 22,
+  "phase": "Ansible and VM operations",
+  "title": "Idempotency, secrets and verification",
+  "outcome": "Demonstrate that configuration is repeatable and secret exposure is controlled.",
+  "introduction": [
+    "Automation can finish successfully while leaving an overly readable secret or the wrong process identity. This week separates configuration from verification: the role makes changes, and a separate play observes permissions, service user, network binding and HTTP behavior. You will deliberately introduce drift and prove the verifier catches it before the role repairs it.",
+    "You will also encrypt a synthetic configuration value with Ansible Vault and keep its decryption password outside the repository. This teaches the delivery path without pretending that encryption at rest protects a running application from its own administrator. The Taskboard memory stage does not consume this demonstration token; real application credentials arrive with the PostgreSQL deployment."
+  ],
+  "prerequisites": [
+    "Week 21 completed on app1 with port restored to 8000; role and inventory at ~/dev-opps-lab/config21. Start the service using site.yml if it was stopped. Keep the sudo/SSH and VM console recovery path.",
+    "Use the controller virtual environment containing Ansible and ansible-lint. Record the actual resolved versions in controller-requirements.lock. The VM remains disposable; paid cloud retention follows the week-14 inventory and expiry."
+  ],
+  "concepts": [
+    {
+      "title": "Prediction is a model, not execution",
+      "paragraphs": [
+        "Check mode asks supported modules what they would change. It does not install a package, create a missing user or start a missing service. A later task may depend on something that prediction did not create, so a fresh-host check can skip or fail while a real run would succeed.",
+        "Diff mode displays before and after text for supported operations. That is useful for a unit file and dangerous for a secret. Disable diff on secret tasks and suppress their logged arguments/results, then verify only safe metadata separately."
+      ],
+      "example": "A check run predicting a mode change does not prove the application can still read that file after the real change.",
+      "judgment": "Use syntax/lint, check/diff on an existing disposable host, real apply, external assertions and a second unchanged apply as distinct evidence."
+    },
+    {
+      "title": "Encrypted content still needs a delivery identity",
+      "paragraphs": [
+        "The encrypted file may be stored in version control. The password that decrypts it must not be stored beside it. The controller decrypts in memory and sends plaintext over SSH to the target, where file ownership and mode constrain readers.",
+        "Ansible no_log reduces accidental task logging; it does not prevent a trusted administrator, a malicious playbook or the application user from accessing delivered content. Re-encrypting a file with a new Vault password changes who can decrypt future ciphertext; it does not revoke an old application token already copied elsewhere."
+      ],
+      "example": "Rotate the application credential at its issuer, update the encrypted value, deploy and verify the old credential is rejected. Rekeying alone cannot supply that proof.",
+      "judgment": "The SOPS repository teaches a similar separation of encrypted content and recipient/key authority. We use the built-in Vault workflow here to keep the beginner exercise bounded, not to claim all key-delivery systems behave identically."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Create encrypted synthetic configuration",
+      "purpose": "The generated token is a teaching fixture, not a real account credential. The password file remains in your private home configuration directory, outside the automation repo.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/config21\nsource .venv/bin/activate\nmkdir -p ~/.config/devopps\nchmod 700 ~/.config/devopps\npython - <<'PY'\nimport os,secrets\nfrom pathlib import Path\np=Path.home()/'.config/devopps/vault-pass'\nif not p.exists():\n    fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n    with os.fdopen(fd,'w') as f: f.write(secrets.token_urlsafe(48)+'\\n')\nprint('Vault password exists outside the repository; contents were not printed.')\nPY\npython -c 'import secrets; print(\"vault_demo_token: \" + secrets.token_urlsafe(32))' | ansible-vault encrypt --vault-id \"lab@$HOME/.config/devopps/vault-pass\" --output vault.yml -\ncat > .gitignore <<'EOF'\n.venv/\ninventory.json\nevidence/\n*.retry\nEOF\npython - <<'PY'\nfrom pathlib import Path\nimport yaml\np=Path('site.yml'); data=yaml.safe_load(p.read_text())\ndata[0]['vars_files']=['vault.yml']\np.write_text(yaml.safe_dump(data,sort_keys=False))\nPY\ncat >> roles/taskboard/tasks/main.yml <<'EOF'\n- name: Create the private configuration directory\n  ansible.builtin.file:\n    path: /etc/devopps-taskboard\n    state: directory\n    owner: root\n    group: taskboard\n    mode: '0750'\n- name: Deliver a synthetic secret without exposing its value\n  ansible.builtin.copy:\n    content: |\n      DEMO_TOKEN={{ vault_demo_token }}\n    dest: /etc/devopps-taskboard/lab.env\n    owner: root\n    group: taskboard\n    mode: '0640'\n  no_log: true\n  diff: false\nEOF\nansible-playbook -i inventory.json site.yml --vault-id \"lab@$HOME/.config/devopps/vault-pass\" --limit app1\n",
+          "explain": [
+            "The Python program uses exclusive creation and mode 0600 for the password file and refuses to overwrite an existing key. The directory is mode 0700. The generated secret travels through a pipe directly into ansible-vault encryption rather than a plaintext disk file or command argument.",
+            "--vault-id labels the password source. vault.yml is whole-file ciphertext. The small YAML edit declares vars_files for this play; the target copy task uses root:taskboard mode 0640, no_log and diff:false.",
+            "The YAML block content is a synthetic file fixture; no service environment is wired to it yet. Keep the password separately backed up in an approved private store; losing it means losing access to this ciphertext."
+          ],
+          "expected": "The normal run reports a censored secret task and creates root:taskboard mode 0640 without printing the token.",
+          "troubleshoot": "If decryption fails, confirm the vault label/password path; do not paste decrypted values into evidence. A permission error needs metadata inspection, not relaxing the file to world-readable.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Draw controller password -> decrypt vault.yml -> SSH -> root:taskboard lab.env; identify who can read each step."
+    },
+    {
+      "title": "Compare prediction with real convergence",
+      "purpose": "Run from the same controller directory. On the first execution of a new dependency, check mode may be incomplete; record that limitation rather than forcing a pass.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/config21\nansible-lint site.yml roles/taskboard\nansible-playbook -i inventory.json site.yml --vault-id \"lab@$HOME/.config/devopps/vault-pass\" --check --diff --limit app1\nansible-playbook -i inventory.json site.yml --vault-id \"lab@$HOME/.config/devopps/vault-pass\" --limit app1\nansible-playbook -i inventory.json site.yml --vault-id \"lab@$HOME/.config/devopps/vault-pass\" --limit app1",
+          "explain": [
+            "ansible-lint checks maintainability and common automation mistakes; resolve findings with a stated reason rather than disabling all rules. check/diff predicts visible changes without exposing secret content because that task suppresses it.",
+            "The two actual runs test convergence. Capture the recap and changed task names, not private values. The health task is deliberately skipped under check mode but runs during real apply."
+          ],
+          "expected": "Lint findings resolved or individually explained; two consecutive real runs converge, with the final run changed=0 or a specifically justified cache refresh.",
+          "troubleshoot": "If pip or unarchive keeps changing, inspect exact package versions, archive metadata and ownership. Do not mask changed status merely to produce a zero.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "A skipped health task in a dry run is a documented gap, not a successful health observation."
+    },
+    {
+      "title": "Verify properties independently",
+      "purpose": "This play does not repair the host. It must detect drift as it currently exists.",
+      "commands": [
+        {
+          "code": "cat > verify.yml <<'EOF'\n---\n- name: Observe the deployed Taskboard contract\n  hosts: app\n  become: true\n  tasks:\n    - name: Read secret metadata without contents\n      ansible.builtin.stat:\n        path: /etc/devopps-taskboard/lab.env\n      register: secret_meta\n    - name: Require the intended ownership and mode\n      ansible.builtin.assert:\n        that:\n          - secret_meta.stat.exists\n          - secret_meta.stat.pw_name == 'root'\n          - secret_meta.stat.gr_name == 'taskboard'\n          - secret_meta.stat.mode == '0640'\n    - name: Read effective service identity\n      ansible.builtin.command:\n        argv: [systemctl, show, devopps-taskboard, --property=User, --value]\n      register: service_user\n      changed_when: false\n    - name: Require the non-root account\n      ansible.builtin.assert:\n        that: service_user.stdout == 'taskboard'\n    - name: Observe listening sockets\n      ansible.builtin.command:\n        argv: [ss, -H, -ltn, 'sport = :8000']\n      register: listener\n      changed_when: false\n    - name: Require loopback and reject wildcard binding\n      ansible.builtin.assert:\n        that:\n          - \"'127.0.0.1:8000' in listener.stdout\"\n          - \"'0.0.0.0:8000' not in listener.stdout\"\n          - \"'[::]:8000' not in listener.stdout\"\n    - name: Request the actual service\n      ansible.builtin.uri:\n        url: http://127.0.0.1:8000/livez\n        status_code: 200\n        return_content: true\n      register: health\n    - name: Assert the health body too\n      ansible.builtin.assert:\n        that: health.json.status == 'ok'\nEOF\nansible-playbook -i inventory.json verify.yml --limit app1\n",
+          "explain": [
+            "stat reads metadata, never secret contents. assert checks exact owner, group and mode. command argv avoids shell parsing; changed_when:false correctly marks read-only observations.",
+            "The unit user, loopback socket and HTTP JSON body are separately asserted. Port 8000 is intentional after restoring the week-21 exercise. A status code alone could come from an unrelated listener."
+          ],
+          "expected": "All assertions pass on the correctly configured VM.",
+          "troubleshoot": "A failed assertion names a precise property to inspect. Do not immediately rerun the repairing role, which would erase useful fault evidence.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Keep verify.yml separately runnable so drift can be observed before reconciliation."
+    },
+    {
+      "title": "Review what would enter version control",
+      "purpose": "Inspect metadata and staged filenames without dumping secret contents.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/config21\nhead -n 1 vault.yml\nstat -c \"%a %n\" ~/.config/devopps/vault-pass\ngit init\ngit status --short",
+          "explain": [
+            "head prints only the Vault format header, not decrypted content. stat prints only the local password file mode and path. git status identifies untracked/staged paths; initialize a dedicated repo with git init if this directory has not been versioned.",
+            "Commit encrypted vault.yml, role and verification definitions after review. Exclude inventory, local environment, private key/password and evidence containing sensitive values. Check past commits too before publishing; deleting a secret in the current tree does not erase history."
+          ],
+          "expected": "Vault header starts $ANSIBLE_VAULT, password mode is 600 and no key/password path is staged.",
+          "troubleshoot": "If plaintext ever entered Git, treat it as exposed: rotate the actual credential, remove it using your repository incident procedure, and document scope. A filename ignore rule does not untrack an already committed file.",
+          "shell": "bash"
+        }
+      ],
+      "checkpoint": "Use a secret scanner supported by your repository as an additional check; a clean scan cannot prove arbitrary secrets are absent."
+    }
+  ],
+  "failure": {
+    "title": "Catch world-readable secret metadata",
+    "boundary": "Only /etc/devopps-taskboard/lab.env on disposable app1; it contains a synthetic demonstration token.",
+    "inject": [
+      {
+        "code": "ansible app1 -i inventory.json -b -m ansible.builtin.file -a \"path=/etc/devopps-taskboard/lab.env mode=0644\"\nansible-playbook -i inventory.json verify.yml --limit app1",
+        "explain": [
+          "Change only the synthetic file mode, then run the observer before repair."
+        ],
+        "expected": "The exact mode assertion fails because 0644 gives other users read permission.",
+        "troubleshoot": "If it passes, inspect whether verify.yml is asserting 0640 rather than merely file existence.",
+        "shell": "bash"
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ansible app1 -i inventory.json -b -m ansible.builtin.stat -a \"path=/etc/devopps-taskboard/lab.env\"",
+        "explain": [
+          "Observe mode/owner metadata without cat or slurp of the file."
+        ],
+        "expected": "Mode 0644; owner root and group taskboard remain unchanged.",
+        "troubleshoot": "Do not collect the token to diagnose a metadata defect.",
+        "shell": "bash"
+      }
+    ],
+    "hints": [
+      "The failure is in file metadata, not encryption.",
+      "Observe before repair so the test demonstrates detection."
+    ],
+    "answer": {
+      "explanation": [
+        "Encryption protected the repository copy, but delivery produced a plaintext target file. The incorrect other-read bit changed local access. Separate verification detects that boundary and the same desired-state role repairs it."
+      ],
+      "recover": [
+        {
+          "code": "ansible-playbook -i inventory.json site.yml --vault-id \"lab@$HOME/.config/devopps/vault-pass\" --limit app1",
+          "explain": [
+            "Reapply the declared 0640 mode using the normal role."
+          ],
+          "expected": "Only the expected secret task changes, with values suppressed.",
+          "troubleshoot": "If other tasks change, explain them before attributing all changes to this drill.",
+          "shell": "bash"
+        }
+      ],
+      "verification": {
+        "code": "ansible-playbook -i inventory.json verify.yml --limit app1\nansible-playbook -i inventory.json site.yml --vault-id \"lab@$HOME/.config/devopps/vault-pass\" --limit app1",
+        "explain": [
+          "Verify independent properties, then prove a subsequent repair run is unchanged."
+        ],
+        "expected": "Assertions pass and final recap has no unexpected changes.",
+        "troubleshoot": "A second failure requires inspecting the exact asserted property rather than weakening it.",
+        "shell": "bash"
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Can --check prove first-boot health?",
+      "hint": "Did it start the missing service?",
+      "answer": "No. Unsupported/skipped operations and dependencies limit prediction. Execute on a disposable host, then observe the actual endpoint."
+    },
+    {
+      "prompt": "Who can decrypt vault.yml?",
+      "hint": "Separate the file from its password source.",
+      "answer": "Anyone with the ciphertext and the Vault password can decrypt it. Controller access and trusted automation code are part of that boundary; no_log is not an access-control mechanism."
+    },
+    {
+      "prompt": "Does rekeying revoke a stolen application token?",
+      "hint": "Ciphertext access versus issuer authority.",
+      "answer": "No. Rotate the credential at the issuing system, deploy the replacement, and verify rejection of the old value. Rekey protects future ciphertext under the new password."
+    }
+  ],
+  "exercise": {
+    "brief": "Prove the verifier also rejects a wrong service group on the synthetic secret, then repair through the role.",
+    "constraints": [
+      "Use only this disposable fixture.",
+      "Do not print its contents or disable the assertion."
+    ],
+    "deliverables": [
+      "Observed failing metadata assertion, safe stat output, successful repair and unchanged rerun.",
+      "A rotation plan distinguishing Vault password rotation and application-token revocation."
+    ],
+    "acceptance": [
+      "The verifier fails before repair and passes afterward.",
+      "No sensitive content appears in normal logs or submitted evidence."
+    ],
+    "hints": [
+      "Set only the fixture group to root, then call verify.yml.",
+      "Use the same desired-state role for recovery."
+    ],
+    "solution": [
+      "The exact gr_name assertion detects root instead of taskboard. Reapplying site.yml restores root:taskboard 0640. A separate rotation plan changes the application issuer credential as well as encrypted configuration; the memory fixture has no issuer and must be labeled synthetic."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "ansible app1 -i inventory.json -b -m ansible.builtin.file -a \"path=/etc/devopps-taskboard/lab.env state=absent\"",
+      "explain": [
+        "Remove only the synthetic fixture when retiring this exercise; the role recreates it if intentionally retained for week 23. Keep the password while vault.yml remains needed, or retire both under your local evidence-retention decision."
+      ],
+      "expected": "The one synthetic file is absent; service code/data are untouched.",
+      "troubleshoot": "Do not delete a shared password store or unrelated encrypted files. Paid VM cleanup remains the exact-ID procedure from week 14.",
+      "shell": "bash"
+    }
+  ],
+  "references": [
+    {
+      "title": "Check and diff modes",
+      "url": "https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_checkmode.html",
+      "usedFor": "Supported prediction, skipped behavior and diff suppression."
+    },
+    {
+      "title": "Ansible Vault encryption",
+      "url": "https://docs.ansible.com/projects/ansible/latest/vault_guide/vault_encrypting_content.html",
+      "usedFor": "Whole-file encryption, password source and stdin delivery."
+    },
+    {
+      "title": "Ansible assertions",
+      "url": "https://docs.ansible.com/projects/ansible/latest/collections/ansible/builtin/assert_module.html",
+      "usedFor": "Explicit independently checked properties."
+    },
+    {
+      "title": "SOPS repository",
+      "url": "https://github.com/getsops/sops",
+      "usedFor": "Encrypted-file recipient/key separation and access rotation."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "getsops/sops",
+      "principle": "Separate encrypted data from decryption authority",
+      "application": "The key-access diagram and rotation exercise distinguish ciphertext protection from delivered-secret access; the learner never treats re-encryption as token revocation.",
+      "url": "https://github.com/getsops/sops"
+    },
+    {
+      "repo": "ansible/ansible",
+      "principle": "Observe convergence instead of assuming it",
+      "application": "A standalone verifier fails on deliberate permission drift before the role repairs it.",
+      "url": "https://github.com/ansible/ansible"
+    }
+  ],
+  "notes": [
+    "No live VM or secret-delivery execution was performed during authoring. The value is synthetic and is not claimed to authenticate the memory application."
+  ]
+}

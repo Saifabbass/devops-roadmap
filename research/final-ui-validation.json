@@ -1,0 +1,102 @@
+{
+  "reviewed_at": "2026-10-20T15:14:14.197Z",
+  "method": "Targeted post-copy/post-rebuild validation using installed REA playwright-core and isolated headless Microsoft Edge against the final D: file URL.",
+  "scope": "Complements the original ten-group successful UI run; does not repeat that full suite.",
+  "isolation": "Disposable browser contexts and temporary Edge profile; TEMP and TMP explicitly point to the project's dedicated D: browser-temp directory. No user browser profile or real progress used.",
+  "file_url": "file:///D:/DevOps-Engineering-Fieldbook-2026-10-20/index.html",
+  "temporary_directory": "D:\\DevOps-Engineering-Fieldbook-2026-10-20\\research\\browser-temp",
+  "tests": [
+    {
+      "name": "Final artifact has ten handbook chapters and renders the new Taskboard specification",
+      "status": "passed",
+      "evidence": {
+        "embedded_chapters": 10,
+        "navigation_links": 10,
+        "heading": "Taskboard: the project you will operate for a year",
+        "rendered_characters": 11469
+      }
+    },
+    {
+      "name": "Week 1 and week 52 render correctly on the final file",
+      "status": "passed",
+      "evidence": {
+        "week_navigation_count": 52,
+        "titles": [
+          {
+            "week": 1,
+            "title": "Own your Linux environment"
+          },
+          {
+            "week": 52,
+            "title": "Gate 13 · hand it to another engineer"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Synthetic progress saves and survives reload at the final D: file origin",
+      "status": "passed",
+      "evidence": {
+        "status": "Learning",
+        "note_roundtrip": true,
+        "file_url": "file:///D:/DevOps-Engineering-Fieldbook-2026-10-20/index.html",
+        "synthetic_disposable_storage": true
+      }
+    },
+    {
+      "name": "The new chapter fits the desktop viewport",
+      "status": "passed",
+      "evidence": {
+        "viewport": 1440,
+        "document": 1440
+      }
+    },
+    {
+      "name": "The new chapter and boundary weeks fit a 390px mobile viewport",
+      "status": "passed",
+      "evidence": [
+        {
+          "route": "#read-project-spec",
+          "viewport": 390,
+          "document": 390
+        },
+        {
+          "route": "#week-1",
+          "viewport": 390,
+          "document": 390
+        },
+        {
+          "route": "#week-52",
+          "viewport": 390,
+          "document": 390
+        }
+      ]
+    }
+  ],
+  "browser_errors": [],
+  "screenshots": [
+    {
+      "path": "research/final-project-desktop.png",
+      "route": "#read-project-spec",
+      "viewport": "1440x1050"
+    },
+    {
+      "path": "research/final-project-mobile.png",
+      "route": "#read-project-spec",
+      "viewport": "390x844"
+    }
+  ],
+  "limitations": [
+    "No cloud infrastructure or external project code exercised.",
+    "Progress uses synthetic records in a disposable browser context; browser file-origin behavior may differ in other browsers."
+  ],
+  "index_sha256_before": "293e0dcef53f85e0ab7a0eede15e249f19ea9dae4395bf993600c1452bb7dfb1",
+  "browser_version": "155.0.4283.45",
+  "index_sha256_after": "293e0dcef53f85e0ab7a0eede15e249f19ea9dae4395bf993600c1452bb7dfb1",
+  "source_unchanged_during_run": true,
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "page_errors": 0
+  }
+}

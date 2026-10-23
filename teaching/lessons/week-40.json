@@ -1,0 +1,408 @@
+{
+  "week": 40,
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: Managed platforms move responsibility; they do not remove it. A VM gives you host control and maintenance. Cloud Run manages request-serving instances but constrains runtime and state assumptions. EKS and GKE manage Kubernetes control planes, while the selected node mode changes who handles node provisioning and operating-system work.",
+    "Optional provider lab: Write an architecture decision comparing those choices, then optionally operate one short-lived GKE Autopilot cluster. EKS remains a documented comparison so you do not pay for two clusters to learn the same boundary. The GKE route uses private nodes, an IAM-authorized DNS control-plane endpoint, a private image repository and a ClusterIP service reached through port-forward.",
+    "Optional provider lab: The workload runs the earlier in-memory Taskboard stage03 as a platform probe. Two replicas do not share tasks and replacing a Pod loses memory. The capstone must describe external PostgreSQL, restricted runtime SQL permissions, a migration identity, backup/restore and availability work needed before the persistent stage07 application serves users."
+  ],
+  "prerequisites": [
+    "Know Kubernetes weeks 25–32 and Google identity/networking weeks 37–39. Use Cloud Shell and the dedicated project/budget.",
+    "The human bootstrap identity may create GKE and its dedicated network/identity resources; do not modify an existing cluster.",
+    "Review current GKE Autopilot management, CPU/memory, registry and logging prices. Choose a one-hour execution limit and an affordable budget. Preparation-only work is not managed-cluster execution evidence."
+  ],
+  "concepts": [
+    {
+      "title": "Select an operating model",
+      "paragraphs": [
+        "Cloud Run can reduce node work for an HTTP API that fits request-driven scaling. A VM can support host-specific software but leaves patching, capacity and recovery with you. Kubernetes is justified when its scheduling and platform APIs meet requirements worth the operating effort.",
+        "EKS control-plane operation is managed; data-plane responsibilities differ across managed node groups, Fargate, Auto Mode and other choices. GKE Standard and Autopilot likewise differ in node control and constraints. Compare named modes rather than brands alone."
+      ],
+      "example": "Compare GKE Autopilot with one specified EKS mode across upgrades, identity, network, state, observability and costs.",
+      "judgment": "An architecture decision explains workload requirements, team capacity and revisit triggers; it is not a feature checklist."
+    },
+    {
+      "title": "Platform health differs from application health",
+      "paragraphs": [
+        "A healthy API server can manage a Deployment whose incorrect readiness path removes app endpoints. The provider cannot infer your intended business health test. You own manifests, image provenance, data compatibility and rollback decisions.",
+        "If the control plane is unavailable, existing Pods may continue serving while new scheduling and reconciliation are impaired. During node loss, recovery depends on spare capacity, constraints, images and storage. A PodDisruptionBudget affects voluntary eviction, not all failures."
+      ],
+      "example": "The correct response to /missing readiness is to restore the known-good manifest, even when the managed platform is healthy.",
+      "judgment": "Use a tabletop for provider-owned control-plane failure rather than destroying managed infrastructure to simulate it."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Compare responsibilities and review costs",
+      "purpose": "This step begins the architecture-only route.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/gcp\n. context.env\nmkdir -p evidence/w40\ngcloud auth list --filter=status:ACTIVE --format=\"value(account)\"\ngcloud projects describe \"$GCP_PROJECT\" --format=\"yaml(projectId,lifecycleState)\"\ngcloud billing budgets list --billing-account=\"$BILLING_ACCOUNT\" --format=\"table(displayName,name)\"\ncat > evidence/w40/decision.md <<'EOF'\n# Platform decision\nWorkload: authenticated Taskboard with durable PostgreSQL state.\nConstraints: small team, budget, recovery evidence, no public lab app.\nOptions: VM; Cloud Run; GKE Autopilot; EKS with a named node mode.\nCompare: hosts, upgrades, IAM, private networking, data, observability, scaling, costs and recovery.\nDecision: explain using requirements and evidence.\nAlternatives: when would each become appropriate?\nCost: dated regional rates, resource sizes, one-hour estimate and cleanup owner.\nExecution status: preparation-only until actual provider evidence exists.\nRevisit triggers: traffic, constraints, staffing, cost or reliability.\nEOF",
+          "explain": [
+            "Verify account/project/budget before a cluster create. The file is an outline to complete, not a finished recommendation.",
+            "Record current management, requested CPU/memory, registry, logging and transfer rates from official pricing. Free credits and an alerts-only budget are not a hard cost limit."
+          ],
+          "expected": "The decision names exact provider modes, a cost limit and a cleanup time.",
+          "troubleshoot": "Without budget/quota authorization, complete architecture-only work and leave provider checks unexecuted."
+        }
+      ],
+      "checkpoint": "Explain why a memory-based probe cannot prove a production database design."
+    },
+    {
+      "title": "Prepare a private network and node identity",
+      "purpose": "Keep infrastructure identity separate from application identity.",
+      "commands": [
+        {
+          "code": "gcloud services enable container.googleapis.com artifactregistry.googleapis.com compute.googleapis.com --project=\"$GCP_PROJECT\"\nexport NODE_SA=\"gke-lab-nodes@$GCP_PROJECT.iam.gserviceaccount.com\"\ngcloud iam service-accounts create gke-lab-nodes --project=\"$GCP_PROJECT\"\ngcloud projects add-iam-policy-binding \"$GCP_PROJECT\" --member=\"serviceAccount:$NODE_SA\" --role=roles/container.defaultNodeServiceAccount --condition=None\ngcloud compute networks create gke-lab-vpc --subnet-mode=custom --project=\"$GCP_PROJECT\"\ngcloud compute networks subnets create gke-lab-subnet --network=gke-lab-vpc --range=10.40.0.0/24 --secondary-range=pods=10.41.0.0/16,services=10.42.0.0/20 --region=\"$GCP_REGION\" --enable-private-ip-google-access --project=\"$GCP_PROJECT\"\ngcloud artifacts repositories create gke-lab-images --repository-format=docker --location=\"$GCP_REGION\" --project=\"$GCP_PROJECT\"\ngcloud artifacts repositories add-iam-policy-binding gke-lab-images --location=\"$GCP_REGION\" --project=\"$GCP_PROJECT\" --member=\"serviceAccount:$NODE_SA\" --role=roles/artifactregistry.reader",
+          "explain": [
+            "The node role supports GKE system functions; repository-scoped reader permits image pulls. Neither is an application business role.",
+            "Node, Pod and Service ranges are distinct. Private Google Access supports Google APIs/images without general internet NAT.",
+            "All resources are dedicated to this exercise. Enable only required APIs."
+          ],
+          "expected": "The private subnet, secondary ranges, repository and node identity exist.",
+          "troubleshoot": "Resolve address overlap with the organization network owner before creation; do not reuse a production network."
+        }
+      ],
+      "checkpoint": "Distinguish the Google node identity from the Kubernetes ServiceAccount in the workload."
+    },
+    {
+      "title": "Copy the tested image by digest",
+      "purpose": "Private nodes pull from the reachable Google registry.",
+      "commands": [
+        {
+          "code": "read -r -p \"Tested Taskboard IMAGE_REF from CI: \" IMAGE_REF\ncase \"$IMAGE_REF\" in *@sha256:*) ;; *) exit 1;; esac\nREGISTRY_HOST=\"${IMAGE_REF%%/*}\"\nread -r -p \"Read-only GitLab registry username: \" REGISTRY_USER\nread -r -s -p \"Read-only registry token: \" REGISTRY_TOKEN; printf \"\\n\"\nprintf \"%s\" \"$REGISTRY_TOKEN\" | docker login \"$REGISTRY_HOST\" -u \"$REGISTRY_USER\" --password-stdin\nunset REGISTRY_TOKEN\ndocker pull \"$IMAGE_REF\"\ndocker logout \"$REGISTRY_HOST\"\ngcloud auth configure-docker \"$GCP_REGION-docker.pkg.dev\"\nexport GKE_TAG=\"$GCP_REGION-docker.pkg.dev/$GCP_PROJECT/gke-lab-images/taskboard:w40\"\ndocker tag \"$IMAGE_REF\" \"$GKE_TAG\"\ndocker push \"$GKE_TAG\"\nexport GKE_DIGEST=\"$(gcloud artifacts docker images describe \"$GKE_TAG\" --project=\"$GCP_PROJECT\" --format='value(image_summary.digest)')\"\nexport GKE_IMAGE=\"${GKE_TAG%:w40}@$GKE_DIGEST\"\nprintf \"source=%s\\ntarget=%s\\n\" \"$IMAGE_REF\" \"$GKE_IMAGE\" > evidence/w40/provenance.txt",
+          "explain": [
+            "Read the real tested digest. Send the limited token on stdin, unset it and remove its Docker login afterward.",
+            "Use the human Google credential helper for the bootstrap push. Query the actual target digest; the temporary tag is not used in the Deployment."
+          ],
+          "expected": "Provenance records real source and destination digests.",
+          "troubleshoot": "If a Pod cannot pull, inspect node IAM and repository location. Private nodes do not have general external-registry access without a separate egress design."
+        }
+      ],
+      "checkpoint": "No GitLab imagePullSecret is copied into the cluster."
+    },
+    {
+      "title": "Create one managed cluster with isolated kubeconfig",
+      "purpose": "Start the one-hour execution timer before this billable step.",
+      "commands": [
+        {
+          "code": "gcloud container clusters create-auto devopps-gke --project=\"$GCP_PROJECT\" --region=\"$GCP_REGION\" --network=gke-lab-vpc --subnetwork=gke-lab-subnet --cluster-secondary-range-name=pods --services-secondary-range-name=services --service-account=\"$NODE_SA\" --enable-private-nodes --enable-dns-access --no-enable-ip-access --release-channel=regular\nexport KUBECONFIG=\"$HOME/dev-opps-lab/gcp/gke-kubeconfig\"\ngcloud container clusters get-credentials devopps-gke --project=\"$GCP_PROJECT\" --region=\"$GCP_REGION\" --dns-endpoint\nkubectl config current-context\nkubectl auth can-i create deployments --namespace=devopps\ngcloud container clusters describe devopps-gke --project=\"$GCP_PROJECT\" --region=\"$GCP_REGION\" --format=\"yaml(name,currentMasterVersion,autopilot,privateClusterConfig,controlPlaneEndpointsConfig)\"",
+          "explain": [
+            "Autopilot provisions nodes. --enable-private-nodes omits their external IPs; the DNS control-plane endpoint is enabled and IP endpoint access disabled. The DNS endpoint is protected by IAM and Kubernetes authorization, not by being unreachable from the internet.",
+            "Regular release channel delegates version updates; record the actual version. KUBECONFIG isolates this context from the local kind lab.",
+            "get-credentials chooses the DNS endpoint; can-i checks the current operator permission before workload changes."
+          ],
+          "expected": "The cluster is running, its context is correct, and the operator may create the lab Deployment.",
+          "troubleshoot": "Creation can take minutes. If Cloud Shell lacks its auth plugin, run gcloud components install gke-gcloud-auth-plugin and repeat get-credentials. Permission errors need the intended operator role, not arbitrary cluster-admin grants."
+        }
+      ],
+      "checkpoint": "Save version and endpoint configuration. Cluster creation alone does not verify the application."
+    },
+    {
+      "title": "Deploy and inspect familiar Kubernetes objects",
+      "purpose": "Compare desired and admitted configuration.",
+      "commands": [
+        {
+          "code": "cat > gke-app.yaml <<EOF\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: devopps\n  labels:\n    pod-security.kubernetes.io/enforce: restricted\n---\napiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: taskboard\n  namespace: devopps\nautomountServiceAccountToken: false\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: taskboard\n  namespace: devopps\nspec:\n  replicas: 2\n  selector:\n    matchLabels: {app: taskboard}\n  template:\n    metadata:\n      labels: {app: taskboard}\n    spec:\n      serviceAccountName: taskboard\n      automountServiceAccountToken: false\n      securityContext:\n        runAsNonRoot: true\n        runAsUser: 10001\n        seccompProfile: {type: RuntimeDefault}\n      containers:\n      - name: app\n        image: $GKE_IMAGE\n        command: [python, -m, uvicorn]\n        args: [\"reference.stage03:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]\n        ports: [{name: http, containerPort: 8000}]\n        securityContext:\n          readOnlyRootFilesystem: true\n          allowPrivilegeEscalation: false\n          capabilities: {drop: [ALL]}\n        resources:\n          requests: {cpu: 250m, memory: 512Mi}\n          limits: {cpu: 500m, memory: 512Mi}\n        readinessProbe:\n          httpGet: {path: /livez, port: http}\n          periodSeconds: 3\n        livenessProbe:\n          httpGet: {path: /livez, port: http}\n          periodSeconds: 10\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: taskboard\n  namespace: devopps\nspec:\n  type: ClusterIP\n  selector: {app: taskboard}\n  ports: [{port: 80, targetPort: http}]\nEOF\nkubectl apply -f gke-app.yaml\nkubectl -n devopps rollout status deployment/taskboard --timeout=10m\nkubectl -n devopps get pods,svc,endpointslices\nkubectl -n devopps get deployment taskboard -o jsonpath='{.spec.template.spec.containers[0].image}{\"\\n\"}'\nkubectl -n devopps get pods -o jsonpath='{range .items[*]}{.metadata.name}{\" \"}{.status.containerStatuses[0].imageID}{\"\\n\"}{end}'",
+          "explain": [
+            "The namespace enforces restricted Pod security. The app has no Kubernetes token, runs nonroot, uses RuntimeDefault seccomp, drops capabilities and has a read-only root.",
+            "The unquoted heredoc substitutes the verified GKE_IMAGE. Stage03 uses /livez because it has no database readiness endpoint. Two replicas and a ClusterIP service provide a platform probe, not shared durable task state.",
+            "Requests affect scheduling and Autopilot charges. Inspect actual admitted Pods because the platform may adjust resources. The ten-minute rollout timeout allows initial node provisioning but remains bounded.",
+            "The final queries compare desired image and runtime image IDs. A multi-architecture index may resolve to a platform-specific digest; document rather than misinterpret that distinction."
+          ],
+          "expected": "Two ready Pods and Service endpoints appear, without an Ingress or external load balancer.",
+          "troubleshoot": "Use events to distinguish scheduling/capacity, image authorization and probe failures. Do not open public ingress to solve an image pull error."
+        },
+        {
+          "code": "kubectl -n devopps port-forward --address=127.0.0.1 service/taskboard 18040:80",
+          "explain": [
+            "Keep this terminal open. The API-authorized tunnel exposes a selected Pod through local loopback."
+          ],
+          "expected": "In another Cloud Shell terminal, curl http://127.0.0.1:18040/livez returns 200.",
+          "troubleshoot": "The tunnel can end when its selected Pod is replaced; restart it and record that limitation during the fault."
+        }
+      ],
+      "checkpoint": "Record admitted resources, runtime identity, image and endpoint evidence."
+    }
+  ],
+  "failure": {
+    "title": "A wrong readiness path on a healthy managed platform",
+    "boundary": "Patch only the disposable app; keep gke-app.yaml as recovery.",
+    "inject": [
+      {
+        "code": "kubectl -n devopps patch deployment taskboard --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"readinessProbe\":{\"httpGet\":{\"path\":\"/missing\",\"port\":\"http\"}}}]}}}}'",
+        "explain": [
+          "Merge a bad readiness path into the named app container, triggering a rollout."
+        ],
+        "expected": "New Pods fail readiness; old healthy Pods can remain because rollout availability constraints limit replacement.",
+        "troubleshoot": "Do not report a total outage if old replicas still serve; measure actual endpoint behavior."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n devopps get pods,endpointslices\nkubectl -n devopps describe deployment taskboard\nkubectl -n devopps get events --sort-by=.lastTimestamp\nkubectl get --raw=/readyz",
+        "explain": [
+          "Inspect workload events and API-server readiness separately."
+        ],
+        "expected": "The platform answers while new app Pods fail their HTTP readiness test.",
+        "troubleshoot": "If raw readiness is denied, use successful authorized API reads as narrower evidence rather than broadening RBAC."
+      }
+    ],
+    "hints": [
+      "Which layer is failing?",
+      "Does the provider know your correct business health path?"
+    ],
+    "answer": {
+      "explanation": [
+        "Application health is defined by your manifest. Restore its known-good path, verify rollout/endpoints and repeat a real request."
+      ],
+      "recover": [
+        {
+          "code": "kubectl apply -f gke-app.yaml\nkubectl -n devopps rollout status deployment/taskboard --timeout=5m",
+          "explain": [
+            "Restore the saved manifest and wait for convergence."
+          ],
+          "expected": "Two replicas become ready.",
+          "troubleshoot": "Inspect independent policy/capacity issues rather than assuming every error is the injected path."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps get pods,endpointslices\nkubectl -n devopps port-forward --address=127.0.0.1 service/taskboard 18040:80",
+        "explain": [
+          "Verify endpoints, restart the tunnel if needed and request /livez from another terminal."
+        ],
+        "expected": "Ready endpoints and a 200 response demonstrate recovery.",
+        "troubleshoot": "This is platform delivery evidence, not stage07 authorization or database durability."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "What remains yours with a managed control plane?",
+      "hint": "Consider workload and data obligations.",
+      "answer": "Manifests, images, identities, resource requests, application behavior, data recovery and user-facing verification remain customer responsibilities."
+    },
+    {
+      "prompt": "Why is node identity not application identity?",
+      "hint": "Image pulls and business APIs are different tasks.",
+      "answer": "The node identity performs platform tasks; the Pod’s Kubernetes and cloud workload identities should be scoped to the app’s own needs."
+    },
+    {
+      "prompt": "Do two memory replicas provide durability?",
+      "hint": "Where do their tasks live?",
+      "answer": "No. Each has independent process memory and replacement loses it. Durable state needs a shared database with migrations and recovery evidence."
+    }
+  ],
+  "exercise": {
+    "brief": "Complete an EKS/GKE responsibility matrix without creating a second cluster.",
+    "constraints": [
+      "Name the EKS compute mode and GKE mode.",
+      "Label unexecuted claims as design analysis."
+    ],
+    "deliverables": [
+      "Owners for control plane, nodes, upgrades, network, IAM, app security, state and restore."
+    ],
+    "acceptance": [
+      "Identify three decisions the provider does not make.",
+      "Compare current cost drivers rather than declaring a universal cheapest provider."
+    ],
+    "hints": [
+      "Separate control plane, data plane and application."
+    ],
+    "solution": [
+      "Map provider control-plane work and customer workload/data duties, then explain mode-specific node management and constraints. Choose from the workload and team requirements."
+    ]
+  },
+  "capstone": {
+    "title": "Gate 10: choose and operate a cloud platform",
+    "scenario": "Recommend a platform for durable Taskboard and deliver either a bounded managed-cluster dossier or an explicitly labeled architecture-only dossier.",
+    "startingPoint": "Evidence from VM, Cloud Run and Kubernetes levels. The optional GKE procedure is the only paid cluster required.",
+    "requirements": [
+      "Compare VM, managed HTTP containers, GKE Autopilot and a named EKS mode.",
+      "State budget, security, recovery, data and staffing constraints.",
+      "For execution, record cluster version, identity, digest, admitted resources, private app access, recovery and teardown.",
+      "For architecture-only work, provide reviewed manifests/tabletop without claiming a deployment.",
+      "Design stage07 persistence with separate runtime/migration SQL permissions, private connectivity, schema compatibility and a restore test.",
+      "Tabletop node loss and control-plane unavailability with provider/customer actions."
+    ],
+    "acceptance": [
+      "The choice follows requirements and has revisit criteria.",
+      "Actual outputs support execution claims; untested claims are marked.",
+      "The readiness fault is recovered on the execution route.",
+      "No memory-based durability claim or public app endpoint appears.",
+      "Execution route verifies cleanup and reviews delayed billing."
+    ],
+    "runbook": [
+      {
+        "code": "kubectl -n devopps get deployment,svc,pods -o yaml > evidence/w40/workloads-observed.yaml\ngcloud container clusters describe devopps-gke --project=\"$GCP_PROJECT\" --region=\"$GCP_REGION\" --format=json > evidence/w40/cluster-observed.json",
+        "explain": [
+          "Provider route only: capture admitted resources and cluster configuration, without Secrets."
+        ],
+        "expected": "Evidence records actual state rather than only desired YAML.",
+        "troubleshoot": "Review project identifiers and addresses before publishing the evidence."
+      },
+      {
+        "code": "cat > evidence/w40/tabletop.md <<'EOF'\n# Failure tabletop\nNode loss: affected Pods, replacement capacity, storage attachment, user impact.\nControl-plane loss: existing traffic, blocked changes, provider escalation.\nBad release: detection, rollback and schema compatibility.\nDatabase loss: backup, isolated restore target, measured RPO/RTO.\nFor each: owner, first observation, mitigation, verification, unknowns.\nEOF",
+        "explain": [
+          "Create and complete the tabletop using the selected architecture. Do not destroy provider-managed control-plane components."
+        ],
+        "expected": "The report separates evidence from hypotheses and names owners.",
+        "troubleshoot": "“Kubernetes handles it” is incomplete without capacity, state and user-impact reasoning."
+      }
+    ],
+    "hints": [
+      "A small API may not require Kubernetes; justify it if selected.",
+      "Control-plane and data-plane failures can have different immediate effects."
+    ],
+    "solution": [
+      "Choose from explicit constraints, document ownership/cost, validate platform delivery with the private probe and keep persistent application readiness separate. Record fault/recovery and remove created dependencies in reverse order. EKS remains sourced analysis unless independently executed."
+    ],
+    "rubric": [
+      {
+        "criterion": "Decision",
+        "evidence": "Architecture record",
+        "pass": "Constraints and evidence explain the choice."
+      },
+      {
+        "criterion": "Identity/network",
+        "evidence": "IAM, ServiceAccount and traffic path",
+        "pass": "Runtime/operator boundaries are explicit and app is private."
+      },
+      {
+        "criterion": "Operations",
+        "evidence": "Recovery or labeled tabletop",
+        "pass": "Provider/customer responsibilities are separated."
+      },
+      {
+        "criterion": "State",
+        "evidence": "Database, migration and restore design",
+        "pass": "Memory and replicas are not mistaken for durability."
+      },
+      {
+        "criterion": "Cost closure",
+        "evidence": "Inventory and billing follow-up",
+        "pass": "Resources are removed or retained with an owner and cost."
+      }
+    ],
+    "stretch": [
+      "Encode the reviewed cluster in Terraform with separate state and destroy review.",
+      "Deploy stage07 only after reviewing database identity, migration and restore design."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl delete namespace devopps --wait=true\ngcloud container clusters delete devopps-gke --project=\"$GCP_PROJECT\" --region=\"$GCP_REGION\"\ngcloud artifacts repositories delete gke-lab-images --project=\"$GCP_PROJECT\" --location=\"$GCP_REGION\"\ngcloud compute networks subnets delete gke-lab-subnet --project=\"$GCP_PROJECT\" --region=\"$GCP_REGION\"\ngcloud compute networks delete gke-lab-vpc --project=\"$GCP_PROJECT\"\ngcloud projects remove-iam-policy-binding \"$GCP_PROJECT\" --member=\"serviceAccount:$NODE_SA\" --role=roles/container.defaultNodeServiceAccount --condition=None\ngcloud iam service-accounts delete \"$NODE_SA\" --project=\"$GCP_PROJECT\"",
+      "explain": [
+        "Close port-forward first. Remove workload, cluster, repository, network and node identity in dependency order.",
+        "Targets are explicit and dedicated. Wait for cloud-managed dependents to disappear rather than deleting unrelated components."
+      ],
+      "expected": "The cluster and dedicated infrastructure are gone.",
+      "troubleshoot": "If a subnet is still in use, inspect the dependent resource and cluster deletion operation; do not broaden deletion blindly."
+    },
+    {
+      "code": "gcloud container clusters list --project=\"$GCP_PROJECT\"\ngcloud compute instances list --project=\"$GCP_PROJECT\"\ngcloud compute disks list --project=\"$GCP_PROJECT\"\ngcloud compute addresses list --project=\"$GCP_PROJECT\"\ngcloud compute forwarding-rules list --project=\"$GCP_PROJECT\"\ngcloud artifacts repositories list --project=\"$GCP_PROJECT\" --location=\"$GCP_REGION\"\ngcloud storage buckets list --project=\"$GCP_PROJECT\"\ngcloud run services list --project=\"$GCP_PROJECT\" --region=\"$GCP_REGION\"",
+      "explain": [
+        "Inventory non-cluster resources too, including leftovers from weeks 38–39."
+      ],
+      "expected": "No cloud-lab resource remains; save inventory and revisit Billing when delayed usage arrives.",
+      "troubleshoot": "Retained resources need an owner, expiry and expected cost. A cluster deletion alone does not prove zero ongoing charges."
+    },
+    {
+      "code": "gcloud projects describe \"$GCP_PROJECT\" --format=\"yaml(projectId,name)\"\nread -r -p \"Type the disposable project ID to request deletion: \" CONFIRM_PROJECT\nif [ \"$CONFIRM_PROJECT\" = \"$GCP_PROJECT\" ]; then gcloud projects delete \"$GCP_PROJECT\"; fi\nread -r -p \"Budget ID suffix from week-37 budget.json: \" LAB_BUDGET_ID\ngcloud billing budgets delete \"$LAB_BUDGET_ID\" --billing-account=\"$BILLING_ACCOUNT\"",
+      "explain": [
+        "Optional final closure after evidence is saved: verify the exact dedicated project, delete it, then remove its known budget. Budget ID is the suffix after /budgets/ in evidence/w37/budget.json."
+      ],
+      "expected": "Project enters deletion and the learning budget is removed. Check later billing for lagged charges.",
+      "troubleshoot": "Never delete a shared project or a broader billing budget. Retain only with an explicit later exercise, owner and cost plan."
+    }
+  ],
+  "references": [
+    {
+      "title": "GKE Autopilot create",
+      "url": "https://docs.cloud.google.com/sdk/gcloud/reference/container/clusters/create-auto",
+      "usedFor": "Private nodes, DNS endpoint and network flags."
+    },
+    {
+      "title": "GKE network isolation",
+      "url": "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/latest/network-isolation",
+      "usedFor": "Node and control-plane reachability."
+    },
+    {
+      "title": "GKE service accounts",
+      "url": "https://docs.cloud.google.com/kubernetes-engine/docs/how-to/service-accounts",
+      "usedFor": "Node identity and minimum role."
+    },
+    {
+      "title": "EKS security responsibilities",
+      "url": "https://docs.aws.amazon.com/eks/latest/userguide/security.html",
+      "usedFor": "Provider and customer boundaries."
+    },
+    {
+      "title": "EKS reliability",
+      "url": "https://docs.aws.amazon.com/eks/latest/best-practices/reliability.html",
+      "usedFor": "Node modes and workload reliability."
+    },
+    {
+      "title": "GKE pricing",
+      "url": "https://cloud.google.com/kubernetes-engine/pricing",
+      "usedFor": "Cluster/workload cost drivers."
+    },
+    {
+      "title": "EKS pricing",
+      "url": "https://aws.amazon.com/eks/pricing/",
+      "usedFor": "Current compute-mode cost comparison."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "ramitsurana/awesome-kubernetes",
+      "principle": "Every addition creates maintenance obligations.",
+      "application": "The comparison assigns upgrades, identity and recovery responsibilities instead of recommending every available component.",
+      "url": "https://github.com/ramitsurana/awesome-kubernetes"
+    },
+    {
+      "repo": "kubernetes-sigs/headlamp",
+      "principle": "Dashboards are scoped Kubernetes API clients.",
+      "application": "The capstone captures admitted objects and authorization with kubectl; any dashboard must agree with the same API evidence.",
+      "url": "https://github.com/kubernetes-sigs/headlamp"
+    },
+    {
+      "repo": "cloudnative-pg/cloudnative-pg",
+      "principle": "Database continuity needs independent recovery evidence.",
+      "application": "The state design separates replication, migration identity and restore proof; a managed cluster and two app replicas cannot establish database recovery.",
+      "url": "https://github.com/cloudnative-pg/cloudnative-pg"
+    }
+  ],
+  "notes": [
+    "No GKE/EKS create or reliability experiment was executed during authoring. Commands were checked against primary documentation; actual provider outcomes require the learner’s run.",
+    "Preparation-only is intentionally narrower. Record resolved versions, admission adjustments and current prices from real execution."
+  ],
+  "phase": "GCP",
+  "title": "Gate 10 · compare managed platforms",
+  "outcome": "Choose between VMs, managed containers and managed Kubernetes for stated needs.",
+  "freeTrack": {
+    "title": "Review a platform using the existing local cluster",
+    "objective": "Prove a bounded Kubernetes observation and compare who owns upgrades, capacity, networking and recovery on a local versus managed platform.",
+    "prerequisites": [
+      "Complete weeks 25–32. The devopps-policy kind cluster and healthy Taskboard namespace already exist; do not create a managed cluster."
+    ],
+    "commands": [
+      {
+        "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\ntest \"$(kubectl config current-context)\" = kind-devopps-policy || exit 1\nkubectl -n devopps get deployment,statefulset,pods,pvc -o wide\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s\nkubectl -n devopps get events --sort-by=.lastTimestamp",
+        "explain": [
+          "The explicit kubeconfig and context guard restrict the commands to the known local cluster.",
+          "get inspects desired controllers, actual Pods and their storage. rollout waits for the declared app state; events are evidence to interpret, not a guarantee of user success."
+        ],
+        "expected": "The local app rollout is ready; you can identify its database claim and current workload state.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Run a useful authenticated Taskboard request through the existing private port-forward, not only kubectl status.",
+      "Write a responsibility table: control plane, worker patching, identity, network, application, data backup and cost owner.",
+      "Defend when this workload should remain on a VM/Compose rather than adopting a managed cluster."
+    ],
+    "limits": "A local cluster does not establish managed control-plane availability, cloud autoscaling, node isolation or zone resilience. GKE/EKS execution remains a separate optional assessment.",
+    "cleanup": "Stop your port-forward with Ctrl+C. Keep the local cluster only while later lessons need it; no paid cluster exists."
+  }
+}

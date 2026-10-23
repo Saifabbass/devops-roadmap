@@ -1,0 +1,317 @@
+{
+  "week": 38,
+  "introduction": [
+    "Free route: complete the Free local practice panel and record its acceptance evidence. Read the concepts below for the provider comparison. The separate provider commands, fault drills and provider capstone are optional and can create charges; they are not needed to complete the local learning track.",
+    "Optional provider lab: A cloud VM combines several independent boundaries: the network path, the host operating system, the process listener and the identity used to access cloud APIs. This lesson makes those boundaries visible with a private Compute Engine VM and a private Cloud Storage object.",
+    "Optional provider lab: Run the same CI-built Taskboard image by its recorded digest, overriding its entry point to the earlier stage03 in-memory implementation for this short infrastructure experiment. The service binds only to VM loopback and is reached through an authenticated SSH tunnel. This intentionally does not prove stage07 authentication, persistent database behavior or production readiness.",
+    "Optional provider lab: The provider path creates billable VM, disk and storage resources for a planned session of at most one hour. No NAT gateway or public application endpoint is created. The preparation path draws and validates the packet/identity flow without claiming a Google Cloud deployment."
+  ],
+  "prerequisites": [
+    "Complete week 37 in Cloud Shell. The disposable project is ACTIVE, billing is linked and an alerts-only budget has verified recipients.",
+    "Have the exact Taskboard IMAGE_REF containing @sha256: from the tested-digest.txt CI artifact, plus a GitLab deploy token with read_registry for that repository. Do not use a personal administrator token.",
+    "Use a human bootstrap identity allowed to create the lab network, VM, bucket and service account and grant access. Organization policies can prevent these operations; do not weaken them."
+  ],
+  "concepts": [
+    {
+      "title": "Private reachability still needs a route",
+      "paragraphs": [
+        "A Google VPC is global, while its subnet is regional and VM is zonal. A firewall rule controls traffic at the network boundary; a process bound to 127.0.0.1 accepts only host-local connections. These controls solve different problems.",
+        "IAP forwards an authenticated connection to the VM’s SSH port without giving it an external IP. SSH then forwards a local port to the app’s loopback port. Private Google Access lets this subnet reach supported Google APIs from a VM without an external address; it is not general internet access."
+      ],
+      "example": "Browser or curl → local SSH tunnel → IAP → VM SSH → VM 127.0.0.1:8000. Cloud Storage access follows a separate API path with the VM identity.",
+      "judgment": "A broad 0.0.0.0/0 application firewall rule is unnecessary here. Opening it would not repair a process listening on the wrong address."
+    },
+    {
+      "title": "Identity and network permission are independent",
+      "paragraphs": [
+        "The VM receives a dedicated service account. Its cloud-platform OAuth scope allows tokens to be used with Google APIs, while IAM still decides which resources the identity can access. The bucket grants objectViewer only to this service account.",
+        "Uniform bucket-level access disables per-object ACLs, making bucket IAM the access-control surface. Public access prevention rejects accidental public grants. Neither setting grants the VM permission automatically."
+      ],
+      "example": "A reachable Storage API can return 403 because the identity lacks object permission. A network timeout and a 403 need different investigations.",
+      "judgment": "Keep VM runtime identity separate from the human who creates the VM. A host compromise should not inherit project administration."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Check context, cost and topology",
+      "purpose": "Complete this step before deciding whether to create billable resources.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/gcp\n. context.env\ngcloud auth list --filter=status:ACTIVE --format=\"value(account)\"\ngcloud projects describe \"$GCP_PROJECT\" --format=\"yaml(projectId,lifecycleState)\"\ngcloud billing projects describe \"$GCP_PROJECT\"\ngcloud billing budgets list --billing-account=\"$BILLING_ACCOUNT\" --format=\"table(displayName,name)\"\nread -r -p \"Zone inside your chosen region (for example us-central1-a): \" GCP_ZONE\nexport GCP_ZONE\nmkdir -p evidence/w38\ncat > evidence/w38/plan.md <<'EOF'\nResources: one e2-small VM, 10 GB balanced boot disk, one small regional Standard bucket.\nNetwork: custom VPC/subnet, no VM external IP, IAP-only SSH ingress, no NAT gateway.\nData: one nonsensitive text object; Taskboard memory state is disposable.\nTime limit: one hour; delete VM/disk and bucket at session end.\nPricing review: record region, hourly VM rate, disk-month rate, storage/request costs and current date.\nPreparation-only alternative: draw both packet and identity flows; mark all provider checks unexecuted.\nEOF\ngcloud compute zones describe \"$GCP_ZONE\" --project=\"$GCP_PROJECT\" --format=\"value(region)\"",
+          "explain": [
+            "Load the saved project rather than trusting terminal defaults. Verify the account, project, billing and budget before resource creation.",
+            "Choose a zone in your selected region; record current prices from the linked official pricing pages before continuing. No fixed cost or free-tier claim is assumed.",
+            "The plan lists retained costs: stopping a VM alone does not delete its disk. The final zones command is a read-only geographic check; enable Compute API in the next step if it reports SERVICE_DISABLED."
+          ],
+          "expected": "The planned region/zone and maximum session cost are recorded. Preparation-only learners stop before the next step.",
+          "troubleshoot": "If the budget or identity is wrong, fix week 37 first. A budget notification does not replace the one-hour teardown plan."
+        }
+      ],
+      "checkpoint": "Draw two separate arrows: SSH/application traffic and VM-token/Storage API traffic."
+    },
+    {
+      "title": "Create the private network, identity and object",
+      "purpose": "Use resource-specific grants instead of a project-wide storage role.",
+      "commands": [
+        {
+          "code": "gcloud services enable compute.googleapis.com iap.googleapis.com storage.googleapis.com --project=\"$GCP_PROJECT\"\nexport VM_SA=\"taskboard-vm@$GCP_PROJECT.iam.gserviceaccount.com\"\nexport GCP_BUCKET=\"$GCP_PROJECT-w38-objects\"\nexport HUMAN_ACCOUNT=\"$(gcloud auth list --filter=status:ACTIVE --format='value(account)')\"\ngcloud iam service-accounts create taskboard-vm --project=\"$GCP_PROJECT\"\ngcloud compute networks create devopps-vpc --subnet-mode=custom --project=\"$GCP_PROJECT\"\ngcloud compute networks subnets create devopps-subnet --network=devopps-vpc --range=10.38.0.0/24 --region=\"$GCP_REGION\" --enable-private-ip-google-access --project=\"$GCP_PROJECT\"\ngcloud compute firewall-rules create devopps-iap-ssh --network=devopps-vpc --direction=INGRESS --action=ALLOW --rules=tcp:22 --source-ranges=35.235.240.0/20 --target-service-accounts=\"$VM_SA\" --project=\"$GCP_PROJECT\"\ngcloud storage buckets create \"gs://$GCP_BUCKET\" --location=\"$GCP_REGION\" --uniform-bucket-level-access --public-access-prevention --project=\"$GCP_PROJECT\"\nprintf \"private learning object\\n\" > note.txt\ngcloud storage cp note.txt \"gs://$GCP_BUCKET/note.txt\"\ngcloud storage buckets add-iam-policy-binding \"gs://$GCP_BUCKET\" --member=\"serviceAccount:$VM_SA\" --role=roles/storage.objectViewer",
+          "explain": [
+            "Enable only required APIs. The dedicated service account has no project role. The custom subnet uses a small private CIDR and Private Google Access.",
+            "The firewall allows TCP 22 only from Google’s documented IAP range and only to VMs with this service account. No app-port ingress rule is added.",
+            "Create a private bucket with uniform IAM and public access prevention; upload a nonsensitive object; grant object reading on that bucket only."
+          ],
+          "expected": "The bucket contains note.txt and only the intended identity gains object-read access.",
+          "troubleshoot": "If global bucket naming collides, choose a unique suffix and update GCP_BUCKET consistently. Do not make the bucket public to solve an access error."
+        }
+      ],
+      "checkpoint": "Read the bucket policy and show the exact resource on which the grant was made."
+    },
+    {
+      "title": "Create a short-lived private VM and operator access",
+      "purpose": "Use Container-Optimized OS so no internet package install is needed on the private host.",
+      "commands": [
+        {
+          "code": "gcloud projects add-iam-policy-binding \"$GCP_PROJECT\" --member=\"user:$HUMAN_ACCOUNT\" --role=roles/iap.tunnelResourceAccessor --condition=None\ngcloud projects add-iam-policy-binding \"$GCP_PROJECT\" --member=\"user:$HUMAN_ACCOUNT\" --role=roles/compute.osAdminLogin --condition=None\ngcloud iam service-accounts add-iam-policy-binding \"$VM_SA\" --member=\"user:$HUMAN_ACCOUNT\" --role=roles/iam.serviceAccountUser --condition=None\ngcloud compute instances create devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --machine-type=e2-small --subnet=devopps-subnet --no-address --image-family=cos-stable --image-project=cos-cloud --boot-disk-size=10GB --boot-disk-type=pd-balanced --service-account=\"$VM_SA\" --scopes=cloud-platform --metadata=enable-oslogin=TRUE --labels=purpose=devopps-lab\ngcloud compute instances describe devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --format=\"yaml(name,status,networkInterfaces,serviceAccounts,disks)\"\ngcloud compute ssh devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap --command=\"sudo docker version\"",
+          "explain": [
+            "The human gets IAP tunneling and OS Login administration only in the disposable project, plus permission to act as the one VM identity. These are operator/bootstrap permissions, not runtime roles.",
+            "--no-address omits an external IP; COS includes Docker; the 10 GB disk is billable. Record the resolved image from the instance description because cos-stable is a moving image family.",
+            "The service-account scope is a token capability ceiling; bucket IAM remains the actual object authorization. SSH uses IAP and OS Login rather than an open public SSH port."
+          ],
+          "expected": "VM runs without natIP; Docker responds through authenticated SSH.",
+          "troubleshoot": "If SSH fails, distinguish IAP permission, OS Login permission, service-account actAs and firewall reachability. Do not add 0.0.0.0/0 ingress."
+        }
+      ],
+      "checkpoint": "Set a timer now for the remaining part of the one-hour session."
+    },
+    {
+      "title": "Transfer the exact CI image and run only on loopback",
+      "purpose": "The private VM needs no general internet route or registry credentials.",
+      "commands": [
+        {
+          "code": "read -r -p \"Exact tested IMAGE_REF from CI (@sha256:...): \" IMAGE_REF\ncase \"$IMAGE_REF\" in *@sha256:*) ;; *) printf \"A digest is required\\n\"; exit 1;; esac\nREGISTRY_HOST=\"${IMAGE_REF%%/*}\"\nread -r -p \"Read-only GitLab deploy-token username: \" REGISTRY_USER\nread -r -s -p \"Read-only deploy token: \" REGISTRY_TOKEN; printf \"\\n\"\nprintf \"%s\" \"$REGISTRY_TOKEN\" | docker login \"$REGISTRY_HOST\" -u \"$REGISTRY_USER\" --password-stdin\nunset REGISTRY_TOKEN\ndocker pull \"$IMAGE_REF\"\ndocker image inspect \"$IMAGE_REF\" --format=\"{{.Id}}\" > expected-image-id.txt\nprintf \"%s\\n\" \"$IMAGE_REF\" > evidence/w38/tested-digest.txt\ndocker tag \"$IMAGE_REF\" devopps-cloud:w38\ndocker save -o taskboard-w38.tar devopps-cloud:w38\ndocker logout \"$REGISTRY_HOST\"\ngcloud compute scp taskboard-w38.tar expected-image-id.txt devopps-vm:~/ --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap\ngcloud compute ssh devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap --command='sudo docker load -i taskboard-w38.tar && test \"$(sudo docker image inspect devopps-cloud:w38 --format=\"{{.Id}}\")\" = \"$(cat expected-image-id.txt)\" && sudo docker run -d --name taskboard --read-only --cap-drop=ALL --security-opt=no-new-privileges --memory=192m --cpus=1 -p 127.0.0.1:8000:8000 devopps-cloud:w38 python -m uvicorn reference.stage03:app --host 0.0.0.0 --port 8000'",
+          "explain": [
+            "Read a real tested digest; do not invent one. The deploy token is sent on standard input, unset afterward, and removed from Docker login storage by logout.",
+            "Pull by digest, record its local image ID, tag solely for archive transfer, then save and copy over IAP. The VM compares the loaded image ID before running it. && prevents a failed transfer verification from starting a different image.",
+            "The container is read-only, drops capabilities, limits resources and publishes only VM loopback. The explicit stage03 command reuses an earlier teaching implementation; memory state is disposable and this is not the stage07 system-test deployment."
+          ],
+          "expected": "The VM runs the verified image ID, with port 8000 bound to 127.0.0.1.",
+          "troubleshoot": "If the image lacks reference.stage03, verify you selected this course’s supplied Taskboard CI artifact. Do not substitute an unrelated image and claim equivalence."
+        }
+      ],
+      "checkpoint": "No registry credential was copied into the VM. Archive integrity is tied to the locally verified image ID and original digest record."
+    },
+    {
+      "title": "Reach the app through the tunnel and read the private object",
+      "purpose": "Prove network access and runtime identity separately.",
+      "commands": [
+        {
+          "code": "gcloud compute ssh devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap -- -N -L 127.0.0.1:18038:127.0.0.1:8000",
+          "explain": [
+            "Keep this terminal open. -N runs no remote command; -L forwards local loopback port 18038 to the VM’s loopback app port."
+          ],
+          "expected": "In another Cloud Shell terminal, curl http://127.0.0.1:18038/livez and curl http://127.0.0.1:18038/tasks return 200.",
+          "troubleshoot": "If port 18038 is in use, choose another local port and update only the test URL. Ctrl+C closes the tunnel."
+        },
+        {
+          "code": "printf \"GCP_BUCKET=%q\\n\" \"$GCP_BUCKET\" > vm-object-check.sh\ncat >> vm-object-check.sh <<'EOF'\nTOKEN=$(curl -fsS -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | sudo docker run --rm -i devopps-cloud:w38 python -c 'import json,sys; print(json.load(sys.stdin)[\"access_token\"])')\ncurl -fsS -H \"Authorization: Bearer $TOKEN\" \"https://storage.googleapis.com/storage/v1/b/$GCP_BUCKET/o/note.txt?alt=media\"\nunset TOKEN\nEOF\ngcloud compute scp vm-object-check.sh devopps-vm:~/ --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap\ngcloud compute ssh devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap --command=\"bash vm-object-check.sh\"\ngcloud logging read 'resource.type=\"gce_instance\"' --project=\"$GCP_PROJECT\" --limit=10 --format=\"table(timestamp,logName)\"",
+          "explain": [
+            "The script gets a short-lived token from the VM metadata server; Metadata-Flavor is required. A temporary container parses JSON because COS need not include Python. The token is not printed or written to disk.",
+            "The Storage JSON API returns the object content only if the VM identity is authorized. unset removes the token shell variable.",
+            "The logging query examines available VM-related entries. Docker stdout is not automatically Cloud Logging: inspect app logs with sudo docker logs taskboard through SSH; no log collector was installed."
+          ],
+          "expected": "The object text is returned through the private Google API path; app requests work only through the tunnel.",
+          "troubleshoot": "A 403 points to IAM/scope, while timeout suggests routing or API access. An empty log query is not proof there were no requests; document which logs were actually enabled."
+        }
+      ],
+      "checkpoint": "Record the two distinct paths and their identities. Do not save bearer tokens in evidence."
+    }
+  ],
+  "failure": {
+    "title": "A reachable API denies the runtime identity",
+    "boundary": "Remove only the objectViewer grant on this disposable bucket.",
+    "inject": [
+      {
+        "code": "gcloud storage buckets remove-iam-policy-binding \"gs://$GCP_BUCKET\" --member=\"serviceAccount:$VM_SA\" --role=roles/storage.objectViewer",
+        "explain": [
+          "Remove the bucket-specific read permission without changing the VM network."
+        ],
+        "expected": "The same VM script eventually receives HTTP 403 after IAM propagation.",
+        "troubleshoot": "If it still succeeds, inspect inherited access and propagation before changing unrelated policies."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "gcloud compute ssh devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap --command=\"bash vm-object-check.sh\"\ngcloud storage buckets get-iam-policy \"gs://$GCP_BUCKET\"\ngcloud compute instances describe devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --format=\"value(serviceAccounts.email)\"",
+        "explain": [
+          "Repeat the identical request, inspect bucket IAM, and verify which identity is attached to the VM."
+        ],
+        "expected": "SSH still works but object access is denied.",
+        "troubleshoot": "Do not print the metadata token or grant Storage Admin to debug a read denial."
+      }
+    ],
+    "hints": [
+      "A 403 confirms an HTTP response arrived.",
+      "Which identity and resource grant did the successful request depend on?"
+    ],
+    "answer": {
+      "explanation": [
+        "Connectivity and authorization are separate. The Storage API is reachable but the attached runtime identity lost its bucket read grant."
+      ],
+      "recover": [
+        {
+          "code": "gcloud storage buckets add-iam-policy-binding \"gs://$GCP_BUCKET\" --member=\"serviceAccount:$VM_SA\" --role=roles/storage.objectViewer",
+          "explain": [
+            "Restore the exact bucket-level grant."
+          ],
+          "expected": "The VM can read the object after propagation.",
+          "troubleshoot": "Leave public access prevention enabled."
+        }
+      ],
+      "verification": {
+        "code": "gcloud compute ssh devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --tunnel-through-iap --command=\"bash vm-object-check.sh\"",
+        "explain": [
+          "Retest with the same attached VM identity."
+        ],
+        "expected": "The nonsensitive object content is returned.",
+        "troubleshoot": "If denied, confirm bucket name, attached service account and policy propagation."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why can the VM reach Storage but not pull arbitrary internet images?",
+      "hint": "What does Private Google Access provide?",
+      "answer": "It provides a path to supported Google APIs for internal addresses; it is not NAT for general internet egress. We transfer the verified image over IAP."
+    },
+    {
+      "prompt": "Does cloud-platform scope make the VM a project administrator?",
+      "hint": "Compare OAuth scope and IAM.",
+      "answer": "No. The scope permits API token use, but IAM grants only object reading on one bucket."
+    },
+    {
+      "prompt": "What disappears when this Taskboard container restarts?",
+      "hint": "Which implementation did we run?",
+      "answer": "Stage03 task state is in memory. This experiment tests infrastructure reachability and identity, not database durability or the later authenticated app."
+    }
+  ],
+  "exercise": {
+    "brief": "Produce a packet-and-identity diagram with evidence for every boundary.",
+    "constraints": [
+      "No public application port.",
+      "Keep provider execution distinct from preparation-only work."
+    ],
+    "deliverables": [
+      "VPC/subnet/VM scopes, tunnel path, listener address, runtime identity, bucket grant and teardown inventory."
+    ],
+    "acceptance": [
+      "A 403 is diagnosed without widening the firewall.",
+      "The tested digest and loaded image ID are recorded."
+    ],
+    "hints": [
+      "Annotate each arrow with port or API and actor."
+    ],
+    "solution": [
+      "Show local loopback → SSH/IAP → VM loopback for app traffic, and VM metadata identity → Storage API → bucket IAM for object access. Include the denied read and exact restored grant."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "gcloud compute instances delete devopps-vm --project=\"$GCP_PROJECT\" --zone=\"$GCP_ZONE\" --delete-disks=all\ngcloud storage rm \"gs://$GCP_BUCKET/note.txt\"\ngcloud storage buckets delete \"gs://$GCP_BUCKET\"\ngcloud compute firewall-rules delete devopps-iap-ssh --project=\"$GCP_PROJECT\"\ngcloud compute networks subnets delete devopps-subnet --region=\"$GCP_REGION\" --project=\"$GCP_PROJECT\"\ngcloud compute networks delete devopps-vpc --project=\"$GCP_PROJECT\"\ngcloud iam service-accounts delete \"$VM_SA\" --project=\"$GCP_PROJECT\"",
+      "explain": [
+        "Close the tunnel first. Delete the named disposable VM and its disks, then the single known object and bucket, firewall, subnet, network and VM identity. Each target is explicit.",
+        "Do not use wildcard deletion. Confirm prompts against the project and resources just created."
+      ],
+      "expected": "VM, disk, bucket and network are removed. The project and budget remain for week 39.",
+      "troubleshoot": "If a dependency blocks deletion, inspect it and delete only resources owned by this lab; do not widen the deletion scope."
+    },
+    {
+      "code": "gcloud compute instances list --project=\"$GCP_PROJECT\"\ngcloud compute disks list --project=\"$GCP_PROJECT\"\ngcloud compute addresses list --project=\"$GCP_PROJECT\"\ngcloud storage buckets list --project=\"$GCP_PROJECT\"\ngcloud projects remove-iam-policy-binding \"$GCP_PROJECT\" --member=\"user:$HUMAN_ACCOUNT\" --role=roles/iap.tunnelResourceAccessor --condition=None\ngcloud projects remove-iam-policy-binding \"$GCP_PROJECT\" --member=\"user:$HUMAN_ACCOUNT\" --role=roles/compute.osAdminLogin --condition=None",
+      "explain": [
+        "Inventory billable leftovers and remove the two operator role bindings added only for this exercise. Retain project bootstrap rights for later lessons."
+      ],
+      "expected": "No week-38 VM, disk, address or bucket remains. Review billing later for delayed charges.",
+      "troubleshoot": "A stopped VM’s disk still costs money; an empty VM list alone is not a complete teardown check."
+    }
+  ],
+  "references": [
+    {
+      "title": "IAP TCP forwarding",
+      "url": "https://docs.cloud.google.com/iap/docs/using-tcp-forwarding",
+      "usedFor": "Private SSH access and IAP source range."
+    },
+    {
+      "title": "OS Login setup",
+      "url": "https://docs.cloud.google.com/compute/docs/oslogin/set-up-oslogin",
+      "usedFor": "Operator IAM and service-account access."
+    },
+    {
+      "title": "Private Google Access",
+      "url": "https://docs.cloud.google.com/vpc/docs/private-google-access",
+      "usedFor": "Google API access from internal addresses."
+    },
+    {
+      "title": "Uniform bucket-level access",
+      "url": "https://docs.cloud.google.com/storage/docs/uniform-bucket-level-access",
+      "usedFor": "Bucket IAM and ACL behavior."
+    },
+    {
+      "title": "Compute Engine pricing",
+      "url": "https://cloud.google.com/compute/all-pricing",
+      "usedFor": "Current regional VM and disk cost review."
+    },
+    {
+      "title": "Cloud Storage pricing",
+      "url": "https://cloud.google.com/storage/pricing",
+      "usedFor": "Storage, request and data-transfer cost review."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "Networking and identity are connected capabilities.",
+      "application": "The lesson requires a packet path and an authorization path, then breaks only the latter so the learner diagnoses the actual layer.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Operational evidence includes resource lifetime and cleanup.",
+      "application": "The final inventory checks disks and addresses in addition to VM state, and retains an explicit distinction between the infrastructure smoke test and application durability.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    }
+  ],
+  "notes": [
+    "No GCP create or deployment command was executed during authoring. Source-checked commands require a real provider run for validation.",
+    "COS image family and current prices resolve at execution time; record their actual values. This short VM lab intentionally uses disposable stage03 state."
+  ],
+  "phase": "GCP",
+  "title": "Networking, compute and storage on GCP",
+  "outcome": "Deploy a small familiar workload while examining cloud differences.",
+  "freeTrack": {
+    "title": "Operate a private container boundary locally",
+    "objective": "Prove that the application has a loopback entry point while PostgreSQL stays on its internal container network.",
+    "prerequisites": [
+      "Complete the local Taskboard lessons through week 8. Use Ubuntu Bash and your existing course workspace.",
+      "Use only generated lab identities and synthetic data. No cloud account or payment card is needed.",
+      "Use the existing Compose stage-07 configuration from weeks 6–8."
+    ],
+    "commands": [
+      {
+        "code": "cd ~/dev-opps-lab/app/taskboard\ndocker compose up -d app\ndocker compose ps\ndocker compose port app 8000\ndocker compose port db 5432\npython3 tools/compose_drill.py",
+        "explain": [
+          "Compose starts the named local project. ps shows its service state.",
+          "port app 8000 should show 127.0.0.1:8000. port db 5432 should report no published port; its nonzero exit here is the expected negative observation.",
+          "compose_drill creates a synthetic task, restarts components, and temporarily stops this project's database. Its finally block restarts the database and checks recovery."
+        ],
+        "expected": "Only the app publishes loopback port 8000; persistence and bounded dependency-failure checks pass.",
+        "troubleshoot": "Stop on the first unexpected result. Compare the named environment and prerequisites before changing anything."
+      }
+    ],
+    "acceptance": [
+      "Explain host loopback versus the db service name inside the container network.",
+      "Record liveness remaining healthy while readiness detects the stopped dependency.",
+      "Draw where IAP, private networking and service-account authorization would be added in the GCP extension."
+    ],
+    "limits": "Docker networking is real local evidence, but does not prove VPC firewall rules, IAP tunneling, VM identity or Cloud Storage permissions.",
+    "cleanup": "Use docker compose stop when finished; retain the named data volume."
+  }
+}

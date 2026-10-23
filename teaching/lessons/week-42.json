@@ -1,0 +1,309 @@
+{
+  "week": 42,
+  "introduction": [
+    "Data outlives an application process and often several releases. An image rollback cannot restore a dropped column, and a green backup job cannot prove a user can recover a task. This week separates schema compatibility, backup creation and application-level recovery.",
+    "Use a new restored database and a second private listener. Compare actual task IDs, owners, titles and completion values, not just row counts. The source remains available until the recovery result is verified.",
+    "The required lab uses logical PostgreSQL dumps. Point-in-time recovery additionally needs a suitable physical base backup and a complete WAL sequence; it is an optional extension with different evidence, not a feature provided by pg_dump."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash; learner application at ~/dev-opps-lab/app/taskboard, copied and explained in week 3.",
+    "Docker Engine with Linux containers and Compose v2; the authenticated stage 07 lab from weeks 6–8 is working. Verify docker version shows a server.",
+    "Use only synthetic tasks in the private local lab. Record prior evidence; do not mark unrun checks passed.",
+    "At least one completed Alice task and one Bob task; pause other writers during the snapshot/content comparison.",
+    "The completed tools/restore_check.py exercise from week 8 and its reports/restore.json."
+  ],
+  "concepts": [
+    {
+      "title": "Expand before contract",
+      "paragraphs": [
+        "Expansion adds a nullable/default-compatible database field while old readers still work. Backfill changes existing rows. Only after every reader/writer is compatible should a later release remove old structures. These are different releases with separate recovery decisions.",
+        "A storage field need not become a public API field. Contract1.0 returns exactly five fields; this exercise adds private operator_note to an isolated database. Old and new code can ignore it, while an admin migration/backfill uses it."
+      ],
+      "example": "Adding nullable operator_note preserves an old explicit SELECT list; renaming title breaks the old application.",
+      "judgment": "Migration systems make changes ordered and observable, not automatically reversible. A down migration cannot recreate deleted information."
+    },
+    {
+      "title": "Recovery is a user-visible property",
+      "paragraphs": [
+        "A logical dump represents a consistent database snapshot. It needs a compatible destination and roles/permissions decisions. It does not include every global PostgreSQL object or provide arbitrary recovery to a chosen second.",
+        "RPO is the acceptable loss of recent committed work; RTO is acceptable time until useful service returns. Measure detection, artifact retrieval, credentials, restoration and HTTP validation, not only pg_restore runtime."
+      ],
+      "example": "A restored count of 100 can still hide swapped owners or blank titles. Compare all stored fields and run both users through HTTP.",
+      "judgment": "Gitea and Databasus illustrate different consistency/key dependencies: repositories alone are not a platform backup, and encrypted backups need separately recoverable keys."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Restore to a fresh destination",
+      "purpose": "Use the supplied guarded script and inspect its exact output.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\ndocker compose ps\npython tools/restore_check.py || exit 1\nRESTORE_DB=$(python -c \"import json; print(json.load(open('reports/restore.json'))['database'])\")\ncase \"$RESTORE_DB\" in taskboard_restore_*) printf \"Selected isolated restore: %s\\n\" \"$RESTORE_DB\";; *) exit 1;; esac",
+          "explain": [
+            "ps confirms the local project. restore_check streams a custom dump into a newly named database and compares all six stored fields. It refuses empty data evidence and never overwrites the source.",
+            "The Python one-liner reads the actual generated destination. The case guard permits only the restore naming convention."
+          ],
+          "expected": "A report with all_task_fields_match:true and a nonzero row count.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Retain the known task IDs and backup cutoff time."
+    },
+    {
+      "title": "2 · Build the next reader without changing the public contract",
+      "purpose": "Copy only runtime inputs into an ignored, isolated build directory. The next reader selects operator_note internally but removes it before constructing the unchanged public Task object.",
+      "commands": [
+        {
+          "code": "test ! -e reports/week42-candidate || { printf '%s\\n' 'Inspect the existing candidate before repeating.'; exit 1; }\nmkdir reports/week42-candidate || exit 1\ncp -R reference migrations requirements.lock Dockerfile .dockerignore reports/week42-candidate/ || exit 1\npython - <<'PY' || exit 1\nfrom pathlib import Path\np=Path('reports/week42-candidate/reference/postgres.py')\ns=p.read_text(encoding='utf-8')\nold='COLUMNS = \"id, owner_id, title, completed, created_at, completed_at\"'\nif s.count(old)!=1 or s.count('    row = dict(row)')!=1:\n    raise SystemExit('The reference changed: review the query and mapping before editing.')\ns=s.replace(old,old[:-1]+', operator_note\"')\ns=s.replace('    row = dict(row)','    row = dict(row)\\n    row.pop(\"operator_note\", None)')\np.write_text(s,encoding='utf-8')\nPY\ndocker build --target runtime -t devopps-taskboard:week42-next reports/week42-candidate || exit 1\nOLD_IMAGE=$(docker inspect \"$(docker compose ps -q app)\" --format '{{.Image}}') || exit 1\nNEXT_IMAGE=$(docker image inspect devopps-taskboard:week42-next --format '{{.Id}}') || exit 1\nprintf 'old=%s\\nnext=%s\\n' \"$OLD_IMAGE\" \"$NEXT_IMAGE\" > reports/week42-images.txt\nset -a\nsource .env\nset +a\nexport DATABASE_URL=\"postgresql://taskboard:$POSTGRES_PASSWORD@db:5432/$RESTORE_DB\"\ndocker run -d --name devopps-restored --network devopps-taskboard_backend -p 127.0.0.1:8100:8000 -e DATABASE_URL -e LAB_ALICE_TOKEN -e LAB_BOB_TOKEN \"$OLD_IMAGE\" || exit 1\ndocker run -d --name devopps-restored-next --network devopps-taskboard_backend -p 127.0.0.1:8101:8000 -e DATABASE_URL -e LAB_ALICE_TOKEN -e LAB_BOB_TOKEN \"$NEXT_IMAGE\" || exit 1\ncurl --retry 10 --retry-delay 1 --retry-connrefused --max-time 5 -fsS http://127.0.0.1:8100/readyz || exit 1\ncurl --retry 10 --retry-delay 1 --retry-connrefused --max-time 5 -fsS http://127.0.0.1:8101/livez || exit 1\nSTATUS=$(curl --silent --show-error --max-time 5 -o reports/week42-next-before.json -w '%{http_code}' http://127.0.0.1:8101/readyz) || exit 1\ntest \"$STATUS\" = 503 || { printf '%s\\n' 'Expected the next reader to reject the old schema.'; exit 1; }\nTASKBOARD_BASE_URL=http://127.0.0.1:8100 python -m pytest tests/system -q || exit 1",
+          "explain": [
+            "The copied reader adds operator_note to its SELECT and RETURNING column set, then discards that internal field before creating Task. API 1.0 responses keep exactly their existing fields.",
+            "The next image now genuinely requires the expanded schema: its readiness query fails on the old restored schema. The old image still passes real HTTP/ownership checks. Record both image IDs before modifying this isolated database.",
+            "The two private listeners use the same restored database and the same generated identities. Source port 8000 and its database remain untouched. No source bind mount enters either runtime."
+          ],
+          "expected": "Old image + old restored schema passes; next image + old restored schema reports readiness 503. The compatibility difference is observable.",
+          "troubleshoot": "Inspect the first failing command and retained evidence before continuing."
+        }
+      ],
+      "checkpoint": "Explain why a nullable new column helps an old reader, but cannot make a new query work before the column exists."
+    },
+    {
+      "title": "3 · Demonstrate compatible expansion in the isolated copy",
+      "purpose": "This is a disposable compatibility experiment; the production migration history remains untouched.",
+      "commands": [
+        {
+          "code": "docker compose exec -T db psql -U taskboard -d \"$RESTORE_DB\" -v ON_ERROR_STOP=1 -c \"ALTER TABLE tasks ADD COLUMN operator_note text;\" || exit 1\ndocker compose exec -T db psql -U taskboard -d \"$RESTORE_DB\" -v ON_ERROR_STOP=1 -c \"UPDATE tasks SET operator_note = 'migrated synthetic task' WHERE operator_note IS NULL;\" || exit 1\ndocker compose exec -T db psql -U taskboard -d \"$RESTORE_DB\" -c \"SELECT id, title, completed, operator_note FROM tasks ORDER BY id LIMIT 5;\" || exit 1",
+          "explain": [
+            "exec -T avoids terminal formatting; psql selects the guarded restore DB. ON_ERROR_STOP prevents later SQL from silently continuing after an error.",
+            "ALTER adds a nullable internal field. UPDATE backfills only null rows. The final SELECT inspects useful data. In a real release put expansion/backfill in new numbered migrations and advance schema readiness deliberately."
+          ],
+          "expected": "The original fields retain their values; operator_note is populated.",
+          "troubleshoot": "If the field already exists, inspect the previous exercise result instead of repeatedly applying an unversioned change."
+        }
+      ],
+      "checkpoint": "Explain how old code stays compatible and why removing title would differ."
+    },
+    {
+      "title": "4 · Serve the recovered database and assert behavior",
+      "purpose": "Verify both existing containers against the expanded restored schema. Source still owns port 8000; old and next readers use 8100 and 8101.",
+      "commands": [
+        {
+          "code": "curl --retry 10 --retry-delay 1 --retry-connrefused --max-time 5 -fsS http://127.0.0.1:8100/readyz || exit 1\ncurl --retry 10 --retry-delay 1 --retry-connrefused --max-time 5 -fsS http://127.0.0.1:8101/readyz || exit 1\nTASKBOARD_BASE_URL=http://127.0.0.1:8100 python -m pytest tests/system -q || exit 1\nTASKBOARD_BASE_URL=http://127.0.0.1:8101 python -m pytest tests/system -q || exit 1\ncat reports/week42-images.txt",
+          "explain": [
+            "After expansion, both readiness checks must pass. Run the same real HTTP contract/ownership suite once against each immutable image.",
+            "The new reader selects the internal column; the old reader ignores it. Neither returns a new public field. Record old/old, new/old rejection, old/expanded and new/expanded results as separate evidence.",
+            "This is an isolated unversioned experiment. A real deployment needs a new migration file, an agreed readiness-version policy, and a separately reviewed removal release."
+          ],
+          "expected": "System tests pass against the restored expanded schema.",
+          "troubleshoot": "If startup is still in progress, inspect docker logs devopps-restored and /readyz before running tests again. Do not mistake a readiness delay for a schema pass."
+        }
+      ],
+      "checkpoint": "Compare old image+old schema, old image+expanded schema, and your next candidate+expanded schema before removal."
+    },
+    {
+      "title": "5 · Schedule and inspect a bounded local backup",
+      "purpose": "Use an Ubuntu VM with a working systemd user manager. This timer runs as your own Docker-enabled lab user while its user manager is active; it is not an always-on remote backup service.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard || exit 1\nsystemctl --user show-environment > /dev/null || { printf '%s\\n' 'Use the Ubuntu VM user session with systemd support.'; exit 1; }\ncat > tools/week42_backup.py <<'PY'\nfrom datetime import datetime, timezone\nfrom pathlib import Path\nimport os, re, subprocess\nfrom uuid import uuid4\nroot=Path(__file__).resolve().parents[1]\nos.umask(0o077)\nfolder=root/'reports'/'scheduled-backups'\nfolder.mkdir(parents=True,exist_ok=True,mode=0o700)\nname=datetime.now(timezone.utc).strftime('backup-%Y%m%dT%H%M%SZ-')+uuid4().hex[:8]+'.dump'\npath=folder/name\ntry:\n    with path.open('xb') as out:\n        subprocess.run(['docker','compose','exec','-T','db','pg_dump','-U','taskboard','-d','taskboard','--format=custom','--no-owner','--no-privileges'],cwd=root,stdout=out,check=True,timeout=120)\n    if path.stat().st_size==0:\n        raise RuntimeError('Empty backup')\nexcept Exception:\n    path.unlink(missing_ok=True)\n    raise\npattern=r'backup-\\d{8}T\\d{6}Z-[0-9a-f]{8}\\.dump'\nowned=sorted(q for q in folder.iterdir() if q.is_file() and not q.is_symlink() and re.fullmatch(pattern,q.name))\nfor old in owned[:-3]:\n    if old.resolve().parent != folder.resolve():\n        raise RuntimeError('Retention path outside the dedicated backup directory')\n    old.unlink()\nprint('Backup completed; retained up to three matching lab snapshots. Restore validation is still required.')\nPY\nmkdir -p ~/.config/systemd/user\nfor unit in devopps-backup.service devopps-backup.timer; do\n  test ! -e \"$HOME/.config/systemd/user/$unit\" || { printf '%s\\n' 'Inspect the existing lab timer before replacing it.'; exit 1; }\ndone\ncat > ~/.config/systemd/user/devopps-backup.service <<UNIT\n[Unit]\nDescription=Dev Opps local synthetic database backup\n[Service]\nType=oneshot\nWorkingDirectory=$PWD\nExecStart=$PWD/.venv/bin/python $PWD/tools/week42_backup.py\nTimeoutStartSec=150\nUNIT\ncat > ~/.config/systemd/user/devopps-backup.timer <<'UNIT'\n[Unit]\nDescription=Dev Opps hourly lab snapshot\n[Timer]\nOnCalendar=hourly\nRandomizedDelaySec=5m\nPersistent=true\n[Install]\nWantedBy=timers.target\nUNIT\nsystemctl --user daemon-reload\nsystemctl --user enable --now devopps-backup.timer || exit 1\nsystemctl --user start devopps-backup.service || exit 1\nsystemctl --user list-timers devopps-backup.timer\njournalctl --user -u devopps-backup.service -n 20 --no-pager",
+          "explain": [
+            "The Python script writes a new exclusive binary dump in a private, dedicated reports folder and deletes only its own failed partial file. A successful run keeps the three newest exact-name snapshots; this short retention is for synthetic lab data only.",
+            "The explicit pattern, no-symlink check and resolved-parent check limit retention deletion to this script’s backup files. A recent dump is not proof of recovery: select and restore one into a fresh destination as above.",
+            "Create only the two reserved user-unit names after checking they are absent. The service uses absolute paths; the timer requests an hourly run with a small random delay and catch-up when its user manager next starts.",
+            "enable --now schedules the timer; start runs one observed backup immediately. list-timers shows scheduling and journalctl shows the service result. Do not enable user lingering or claim backups run while this VM/session is unavailable."
+          ],
+          "expected": "An actual timer schedule, one completed local snapshot, and bounded retention are visible; restoration remains an independent acceptance test.",
+          "troubleshoot": "Inspect the first failing command and retained evidence before continuing."
+        }
+      ],
+      "checkpoint": "Explain why three local hourly snapshots cannot meet a week-long retention policy or survive loss of this host."
+    }
+  ],
+  "failure": {
+    "title": "A record disappears from the source after the backup",
+    "boundary": "Delete exactly one known disposable task inside a transaction in the SOURCE lab; never delete a whole database.",
+    "inject": [
+      {
+        "code": "read -r -p 'UUID of one disposable task present in the restore: ' TASK_ID\npython -c 'import sys,uuid; uuid.UUID(sys.argv[1])' \"$TASK_ID\" || exit 1\ndocker compose exec -T db psql -U taskboard -d taskboard -v ON_ERROR_STOP=1 -c \"DELETE FROM tasks WHERE id='$TASK_ID'::uuid RETURNING id;\"",
+        "explain": [
+          "Enter a UUID observed in both source and restore. Python validates its syntax before it is placed in SQL. DELETE targets only that one ID and returns the changed row.",
+          "The UUID validation has an explicit shell stop guard: failed validation cannot continue into the SQL command below it."
+        ],
+        "expected": "Exactly one deleted synthetic ID. If zero rows return, the injected fault did not occur.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "docker compose exec -T db psql -U taskboard -d taskboard -c \"SELECT id,title,completed FROM tasks WHERE id='$TASK_ID'::uuid;\"\ndocker compose exec -T db psql -U taskboard -d \"$RESTORE_DB\" -c \"SELECT id,title,completed FROM tasks WHERE id='$TASK_ID'::uuid;\"",
+        "explain": [
+          "Compare the specific record at source and separate restored destination."
+        ],
+        "expected": "Source missing; restored record preserved.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "Restoring over source would destroy newer unaffected changes.",
+      "A backup cutoff predates the deletion, but also predates any later tasks."
+    ],
+    "answer": {
+      "explanation": [
+        "The restored destination recovers the pre-deletion record while preserving the source for investigation. Validate HTTP ownership/title/completion before choosing a controlled traffic switch or targeted reconciliation. A logical backup cannot invent transactions after its snapshot."
+      ],
+      "recover": [
+        {
+          "code": "curl -fsS -H \"Authorization: Bearer $LAB_ALICE_TOKEN\" \"http://127.0.0.1:8100/tasks/$TASK_ID\"",
+          "explain": [
+            "For an Alice-owned task, verify the recovered API representation. Use Bob token if it is Bob-owned;404 for the other identity is expected."
+          ],
+          "expected": "The owner reads the expected restored data.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "TASKBOARD_BASE_URL=http://127.0.0.1:8100 python -m pytest tests/system -q",
+        "explain": [
+          "Repeat real HTTP behavior checks on the recovery destination."
+        ],
+        "expected": "Authenticated system checks pass.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why add a column before removing an old one?",
+      "hint": "Can old and new app versions overlap?",
+      "answer": "During rollout both may run. Expansion preserves old queries; removal must wait until all readers/writers and recovery artifacts support the new schema."
+    },
+    {
+      "prompt": "What does pg_dump not provide?",
+      "hint": "Distinguish a logical snapshot from WAL replay.",
+      "answer": "It is not arbitrary PITR and does not include every global cluster object. PITR needs a physical base backup, uninterrupted WAL and a verified target timeline/time."
+    },
+    {
+      "prompt": "When does the RTO clock stop?",
+      "hint": "Is a running database useful without a working app?",
+      "answer": "When the declared user operation and data checks pass, not when file restoration finishes. Include credentials, configuration and routing in the clock."
+    }
+  ],
+  "exercise": {
+    "brief": "Write and test an expansion/backfill/removal plan for operator_note without changing public API 1.0.",
+    "constraints": [
+      "Experiment only in a new restored database.",
+      "Do not change applied migrations; a future real change gets a new migration number and matching schema readiness version."
+    ],
+    "deliverables": [
+      "Compatibility matrix with each image/schema combination.",
+      "Measured restoration timeline and known missing post-backup operations."
+    ],
+    "acceptance": [
+      "Old and next candidate images can serve expanded schema.",
+      "Owner/title/completion checks pass via HTTP.",
+      "RPO/RTO reported from timestamps, not guessed."
+    ],
+    "hints": [
+      "Keep the old application image available by immutable identity.",
+      "Treat removal as a separate release after compatibility evidence."
+    ],
+    "solution": [
+      "Add nullable storage, backfill in bounded transactions, test both readers, and delay removal.",
+      "Use separate recovery destination and reconcile newer data explicitly rather than blindly overwriting the source."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "systemctl --user disable --now devopps-backup.timer\nsystemctl --user stop devopps-backup.service\nsystemctl --user list-timers devopps-backup.timer",
+      "explain": [
+        "Disable only this lab timer and wait for its named service to stop. Keep the definitions and backups for review; do not change other timers."
+      ],
+      "expected": "No active scheduled lab backup remains.",
+      "troubleshoot": "Inspect the first failing command and retained evidence before continuing."
+    },
+    {
+      "code": "docker stop devopps-restored devopps-restored-next\ndocker rm devopps-restored devopps-restored-next",
+      "explain": [
+        "Stop/remove only the temporary recovery listener. Keep the restore database until evidence is complete."
+      ],
+      "expected": "Original service remains on 8000.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    },
+    {
+      "code": "case \"$RESTORE_DB\" in taskboard_restore_*) docker compose exec -T db dropdb -U taskboard \"$RESTORE_DB\";; *) printf \"Refusing unexpected name\\n\";; esac",
+      "explain": [
+        "After recording evidence, delete only the guarded disposable restore. Source taskboard is never selected."
+      ],
+      "expected": "One restore destination removed.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "PostgreSQL SQL dumps",
+      "url": "https://www.postgresql.org/docs/17/backup-dump.html",
+      "usedFor": "Snapshot restoration and limits."
+    },
+    {
+      "title": "PostgreSQL PITR",
+      "url": "https://www.postgresql.org/docs/17/continuous-archiving.html",
+      "usedFor": "Physical backup/WAL requirements."
+    },
+    {
+      "title": "PostgreSQL ALTER TABLE",
+      "url": "https://www.postgresql.org/docs/17/sql-altertable.html",
+      "usedFor": "Column changes and locking."
+    },
+    {
+      "title": "Gitea backup consistency",
+      "url": "https://docs.gitea.com/administration/backup-and-restore/",
+      "usedFor": "Recovering related stores together."
+    },
+    {
+      "title": "systemd calendar timers",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html",
+      "usedFor": "Calendar scheduling and Persistent user-timer behavior for a bounded local backup exercise."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "databasus/databasus",
+      "principle": "Restore is the test of a backup",
+      "application": "A backup is a candidate recovery artifact. A restore test is evidence that it can recover the application. Record a known task and timestamp, take a backup, restore into a separate empty database and check contents through the application. Recovery time includes finding the backup, obtaining credentials and validating the result. Data loss is the gap between committed data and what the restored service contains. Practice: Restore five synthetic tasks into a separate database name. Check all titles and completion states, not only the count. Measure elapsed time and retain the source until verification finishes.",
+      "url": "https://github.com/databasus/databasus"
+    },
+    {
+      "repo": "go-gitea/gitea",
+      "principle": "A repository clone is not a platform backup",
+      "application": "Code hosting stores more than commits. Issues, accounts, attachments, packages, settings and credentials can live outside repositories. Recovery must preserve relationships among those stores. Snapshots taken at unrelated moments can leave an issue pointing to a missing attachment. Define the consistency boundary and test actual user operations after restoration. Practice: Draw the GitLab service dependencies. Record each recovery owner, backup location, restoration order and a user action that proves recovery. A disposable Gitea restore is an optional extension.",
+      "url": "https://github.com/go-gitea/gitea"
+    },
+    {
+      "repo": "bytebase/bytebase",
+      "principle": "Schema changes must tolerate mixed app versions",
+      "application": "During a rolling release, old and new application versions coexist. Expand-and-contract first adds compatible schema, then backfills data, switches application use and later removes the old shape. Separate stages permit verification and forward repair. An approval process controls changes but cannot itself prove data is recoverable. Practice: Add an optional field while retaining the old field. Test both app versions against expanded schema, backfill synthetic records and document the condition required before any removal.",
+      "url": "https://github.com/bytebase/bytebase"
+    },
+    {
+      "repo": "cloudnative-pg/cloudnative-pg",
+      "principle": "Failover and backup solve different failures",
+      "application": "An operator reconciles database resources and may promote another instance after primary failure. Replication can also copy accidental deletion to every replica. A backup plus transaction history recovers an earlier state. Test failover and restoration separately and measure data loss and recovery time. Multiple Pods on one laptop do not prove zone resilience. Practice: Draw primary, standby and backup paths. In the optional operator lab, record timestamped tasks, trigger one primary Pod failure, then independently restore to a new cluster and check contents.",
+      "url": "https://github.com/cloudnative-pg/cloudnative-pg"
+    },
+    {
+      "repo": "MichaelCade/90DaysOfDevOps",
+      "principle": "Keep one service and a short learning loop",
+      "application": "A continuing app makes tools answer concrete needs: packaging handles environments, configuration automation replaces repeated setup, backups recover state. Journal predictions, changes, failures and proof. Revisit the same contracts as requirements grow. A calendar label is pacing, not mastery. Practice: Write prediction/change/failure/evidence notes. Identify one earlier check that must still pass after today's improvement.",
+      "url": "https://github.com/MichaelCade/90DaysOfDevOps"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability is a measured promise",
+      "application": "Define a useful user action and measure success within a meaningful latency threshold. An SLO states the target over a window; an error budget describes allowed bad events. This makes release tradeoffs explicit. Alert on actionable conditions, write symptom runbooks and examine contributing conditions after incidents. Practice: Define a Taskboard SLI from success counts and latency. Calculate good/total from a sample, inject a brief failure and connect the alert to a runbook.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate.",
+    "Both reader-image experiments and the scheduled backup are supplied but not executed on the authoring host, which has no usable Docker or Linux user systemd manager. Do not mark their matrix or restore/schedule acceptance passed without your own observed runs."
+  ]
+}

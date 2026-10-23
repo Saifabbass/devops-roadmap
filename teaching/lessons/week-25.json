@@ -1,0 +1,213 @@
+{
+  "week": 25,
+  "introduction": [
+    "A container image is a packaged process. Kubernetes adds an API and controllers that keep a declared number of those processes running. In this lesson, you will watch a deleted process return because its desired state still exists.",
+    "Use Taskboard's already-tested stage03 in-memory adapter to isolate orchestration from database administration. Its data disappears when a Pod is replaced and differs between replicas. That is a deliberate platform exercise, not a deployable multi-user storage design. The cluster lives in Docker on one computer; two Pods do not create two-machine availability."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Completed Docker and testing lessons; supplied Taskboard copied to ~/dev-opps-lab/app/taskboard. curl, Python 3, tar and Docker CLI available; allow several GB of local image space. No public ports or paid resources are created."
+  ],
+  "concepts": [
+    {
+      "title": "One request, several responsibilities",
+      "paragraphs": [
+        "kubectl sends your object to the API server. The server authenticates and authorizes the request and stores desired state in etcd. A Deployment controller creates a ReplicaSet, which owns Pods. A scheduler assigns a pending Pod to a suitable node. The node's kubelet asks its container runtime to run the image.",
+        "Each component observes and retries. An accepted manifest does not mean the image exists, a node has capacity, or an HTTP request succeeds."
+      ],
+      "example": "A Deployment asks for two replicas; deleting one Pod changes observed state, so the ReplicaSet requests a replacement.",
+      "judgment": "Observe the failed boundary before changing everything. A missing image is a registry/runtime problem, not evidence that the scheduler is broken."
+    },
+    {
+      "title": "Declarative ownership",
+      "paragraphs": [
+        "A manifest describes desired fields. Controllers reconcile those fields after failures. The Deployment owns the Pod template; changing an individual Pod cannot reliably change future replicas.",
+        "The podinfo learning repository supplies a known workload for isolating platform faults. We use the same principle with familiar stage03 code: keep business behavior simple while learning object ownership."
+      ],
+      "example": "ReplicaSet names and Pod UIDs change; the Deployment name and intended image remain stable.",
+      "judgment": "Reconciliation proves declared mechanics, not business correctness. Kubernetes cannot infer that a task belongs to the wrong person."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Install clients and create an isolated cluster",
+      "purpose": "Use a separate kubeconfig so commands cannot silently target another cluster.",
+      "commands": [
+        {
+          "code": "mkdir -p \"$HOME/.local/bin\" \"$HOME/dev-opps-lab/k8s\" \"$HOME/dev-opps-lab/evidence/w25\"\ncd \"$HOME/dev-opps-lab/k8s\"\ncase \"$(uname -m)\" in x86_64) ARCH=amd64 ;; aarch64) ARCH=arm64 ;; *) echo 'Unsupported CPU'; exit 1 ;; esac\ncurl -fL \"https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-$ARCH\" -o \"$HOME/.local/bin/kind\"\nKUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt)\ncurl -fL \"https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/$ARCH/kubectl\" -o kubectl\ncurl -fL \"https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/$ARCH/kubectl.sha256\" -o kubectl.sha256\nprintf '%s  kubectl\n' \"$(cat kubectl.sha256)\" | sha256sum --check\ninstall -m 0755 kubectl \"$HOME/.local/bin/kubectl\"\nchmod +x \"$HOME/.local/bin/kind\"\nexport PATH=\"$HOME/.local/bin:$PATH\"\nexport KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkind create cluster --name devopps --kubeconfig \"$KUBECONFIG\" --wait 120s\nkubectl config current-context\nkubectl version\nkind version",
+          "explain": [
+            "mkdir -p creates reusable directories; cd makes all following manifest paths explicit. uname reports CPU architecture; case chooses the matching release binary or exits.",
+            "curl -f fails on HTTP errors, -L follows official redirects, -sS keeps failures visible while suppressing progress. stable.txt is resolved once into KUBECTL_VERSION; record it rather than assuming a future latest release behaves identically.",
+            "printf supplies the checksum file name; the pipe passes it to sha256sum --check. Stop on a FAILED checksum. install -m 0755 copies the client with executable permissions; chmod does the same for kind. PATH affects this terminal.",
+            "KUBECONFIG points to this lab's file. kind --name scopes its Docker resources; --wait waits for a ready API. current-context must be kind-devopps. kubectl version reports client/server versions; keep the client within one minor version of the server."
+          ],
+          "expected": "Context kind-devopps; a Kubernetes server version and kind v0.33.0.",
+          "troubleshoot": "If Docker cannot be reached, fix docker info first. A version-skew warning requires a matching kubectl release, not suppressing the warning. On a repeat run inspect kind get clusters instead of overwriting unrelated configuration."
+        }
+      ],
+      "checkpoint": "Save the two tool versions and the node image from docker inspect devopps-control-plane."
+    },
+    {
+      "title": "Deploy a known image",
+      "purpose": "Build once and load that local artifact into kind.",
+      "commands": [
+        {
+          "code": "cd \"$HOME/dev-opps-lab/app/taskboard\"\ndocker build --target runtime -t devopps-taskboard:w25 .\nkind load docker-image devopps-taskboard:w25 --name devopps\nkubectl create namespace devopps\ncd \"$HOME/dev-opps-lab/k8s\"\ncat > app.yaml <<'YAML'\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: taskboard\n  namespace: devopps\nspec:\n  replicas: 2\n  selector:\n    matchLabels: {app: taskboard}\n  template:\n    metadata:\n      labels: {app: taskboard}\n    spec:\n      containers:\n      - name: app\n        image: devopps-taskboard:w25\n        imagePullPolicy: IfNotPresent\n        command: [python, -m, uvicorn, 'reference.stage03:app', --host, 0.0.0.0, --port, '8000', --no-access-log]\n        ports:\n        - {name: http, containerPort: 8000}\n        resources:\n          requests: {cpu: 100m, memory: 96Mi}\n          limits: {memory: 192Mi}\nYAML\nkubectl apply -f app.yaml\nkubectl -n devopps rollout status deployment/taskboard --timeout=120s\nkubectl -n devopps get deployment,replicaset,pods -o wide",
+          "explain": [
+            "docker build uses the supplied Dockerfile runtime target; -t gives this immutable-for-the-exercise build a distinct local tag. kind load imports it into the node runtime; your laptop Docker image store is not automatically the node store.",
+            "create namespace isolates names. The quoted YAML heredoc writes literal configuration. replicas is the target count; selector must match template labels. IfNotPresent permits the preloaded image. The command deliberately selects the stage03 adapter on port8000.",
+            "100m means one tenth of a CPU request. 96Mi is the scheduling memory request; 192Mi is the memory ceiling. apply submits the document; rollout status waits for its replicas; get -o wide adds node/IP observations."
+          ],
+          "expected": "Two Ready Pods belonging to one ReplicaSet; Deployment READY 2/2.",
+          "troubleshoot": "Use kubectl -n devopps describe pod POD_NAME with a name from get pods. FailedScheduling points to capacity; image events point to image retrieval. Do not blindly increase permissions."
+        }
+      ],
+      "checkpoint": "Identify the Deployment→ReplicaSet→Pod chain before the next step."
+    },
+    {
+      "title": "Observe replacement",
+      "purpose": "Compare object identity before and after deleting one disposable replica.",
+      "commands": [
+        {
+          "code": "POD=$(kubectl -n devopps get pods -l app=taskboard -o jsonpath='{.items[0].metadata.name}')\nkubectl -n devopps get pod \"$POD\" -o jsonpath='{.metadata.uid}{\"\n\"}{.metadata.ownerReferences[0].name}{\"\n\"}'\nkubectl -n devopps delete pod \"$POD\"\nkubectl -n devopps rollout status deployment/taskboard --timeout=120s\nkubectl -n devopps get pods -l app=taskboard -o wide\nkubectl -n devopps logs deployment/taskboard --tail=20",
+          "explain": [
+            "$(...) stores one selected Pod name. -l filters by the label, and jsonpath selects name, UID and owner fields without copying a changing name by hand.",
+            "delete removes that one Pod, not its controller. rollout status waits for replacement. logs deployment selects a Pod for application stdout; --tail=20 bounds the output."
+          ],
+          "expected": "A different Pod name/UID appears and desired replicas remain two.",
+          "troubleshoot": "If it does not return, inspect ReplicaSet desired/current counts and namespace events. Application logs alone cannot explain why a Pod was never scheduled."
+        }
+      ],
+      "checkpoint": "Write five sentences, one per control-plane/runtime responsibility."
+    }
+  ],
+  "failure": {
+    "title": "The declared image does not exist",
+    "boundary": "Only the taskboard Deployment in the disposable devopps namespace. Read recovery first.",
+    "inject": [
+      {
+        "code": "kubectl -n devopps set image deployment/taskboard app=devopps-taskboard:intentionally-missing",
+        "explain": [
+          "set image changes the controller template and begins a new rollout."
+        ],
+        "expected": "A new Pod cannot start; an old Ready replica may remain.",
+        "troubleshoot": "Inspect events; do not delete healthy old replicas."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "kubectl -n devopps get pods\nkubectl -n devopps get events --sort-by=.metadata.creationTimestamp",
+        "explain": [
+          "get pods locates the affected replica. Sorting events by creationTimestamp puts recent image failures last."
+        ],
+        "expected": "ErrImagePull followed by ImagePullBackOff or a registry authorization failure for the nonexistent tag.",
+        "troubleshoot": "A private-registry authentication error and a missing tag are different hypotheses; read the event message."
+      }
+    ],
+    "hints": [
+      "Which desired field changed?",
+      "Does the existing good image still exist in the kind node?"
+    ],
+    "answer": {
+      "explanation": [
+        "The scheduler assigned work, but the kubelet/runtime could not obtain the requested artifact. Backoff reduces repeated retries; restarting the controller cannot make the tag exist."
+      ],
+      "recover": [
+        {
+          "code": "kubectl apply -f \"$HOME/dev-opps-lab/k8s/app.yaml\"",
+          "explain": [
+            "Reapply the recorded good source manifest."
+          ],
+          "expected": "The good image is restored.",
+          "troubleshoot": "Compare the live image to app.yaml if a rollout still fails."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps rollout status deployment/taskboard --timeout=120s\nkubectl -n devopps get deployment taskboard -o jsonpath=\"{.spec.template.spec.containers[0].image}\"",
+        "explain": [
+          "Wait for recovery, then print the effective image."
+        ],
+        "expected": "Successful rollout; devopps-taskboard:w25.",
+        "troubleshoot": "Inspect the newest events rather than old failure events."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why does deleting a Pod not reduce desired capacity?",
+      "hint": "Find its owner.",
+      "answer": "The ReplicaSet still desires two Pods; the Deployment still desires that ReplicaSet template. Change the owner to intentionally scale."
+    },
+    {
+      "prompt": "Why can a loaded image still be pulled from a registry?",
+      "hint": "Inspect imagePullPolicy and tag.",
+      "answer": "Always initiates registry resolution. An exact preloaded tag with IfNotPresent avoids it in this local exercise; production promotion should use an immutable digest."
+    },
+    {
+      "prompt": "What does Running leave unproven?",
+      "hint": "Think about an HTTP request and its data.",
+      "answer": "It describes process state, not readiness, correct authorization, durable storage or a user action. Those need separate evidence."
+    }
+  ],
+  "exercise": {
+    "brief": "Scale the declared Deployment to three replicas and prove replacement without editing a Pod.",
+    "constraints": [
+      "Change app.yaml first; keep the stage03 data limitation explicit."
+    ],
+    "deliverables": [
+      "Updated manifest",
+      "Before/after owner and replica evidence"
+    ],
+    "acceptance": [
+      "Three Ready replicas",
+      "One deleted Pod replaced with a new UID"
+    ],
+    "hints": [
+      "Edit spec.replicas, then apply."
+    ],
+    "solution": [
+      "Set replicas:3 in app.yaml, apply it, observe the ReplicaSet, and delete one selected Pod. Restore replicas:2 for the next lesson."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n devopps scale deployment/taskboard --replicas=2",
+      "explain": [
+        "Return live capacity to two. Keep app.yaml at two also; retain this named local cluster for week26."
+      ],
+      "expected": "2/2 Ready after reconciliation.",
+      "troubleshoot": "If ending the level now, kind delete cluster --name devopps removes only this disposable cluster; retain manifests/evidence to rebuild."
+    }
+  ],
+  "references": [
+    {
+      "title": "kind quick start",
+      "url": "https://kind.sigs.k8s.io/docs/user/quick-start/",
+      "usedFor": "Pinned installer, kubeconfig and local image loading"
+    },
+    {
+      "title": "Kubernetes components",
+      "url": "https://kubernetes.io/docs/concepts/overview/components/",
+      "usedFor": "Responsibilities and reconciliation"
+    },
+    {
+      "title": "kubectl Linux installation",
+      "url": "https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/",
+      "usedFor": "Client download and checksum validation"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "stefanprodan/podinfo",
+      "principle": "Use a known workload to separate platform faults from business faults.",
+      "application": "The same reasoning will let you compare a failing Taskboard Pod with a working reference workload, rather than treating every incident as a cluster failure.",
+      "url": "https://github.com/stefanprodan/podinfo"
+    }
+  ],
+  "notes": [
+    "Commands are authored and documentation-checked; this authoring host has no Docker/Kubernetes runtime, so cluster execution is not claimed."
+  ],
+  "phase": "Kubernetes",
+  "title": "Learn reconciliation on a local cluster",
+  "outcome": "Explain what the API server, scheduler, controllers, kubelet and container runtime do."
+}

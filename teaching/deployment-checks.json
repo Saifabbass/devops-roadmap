@@ -1,0 +1,19 @@
+{
+  "checked": "2026-10-21",
+  "publicSite": "https://devoops.pages.dev/",
+  "customDomain": "https://devoops.tech/",
+  "cloudflareDomainStatus": "Active, SSL enabled",
+  "publishedFiles": 71,
+  "htmlSha256": "562b06724c39ea2f2bfbbceabe9aecab446942222cf22a30455f973378482ee5",
+  "servedHtmlMatchesPublishedArtifact": true,
+  "tlsValidation": "passed using confirmed Cloudflare address; certificate verification enabled",
+  "anonymousProgressStatus": 401,
+  "anonymousProgressResponse": "JSON; no-store, private",
+  "clerkPublicResources": "JWKS, UI and ClerkJS bundles returned HTTPS 200",
+  "localProgress": "save, reload, JSON export and clean restore passed in browser",
+  "automatedProgressChecks": {"backend":15,"client":8,"bundledWorker":5},
+  "signedInLiveCloudSave": "unverified: local DNS propagation pending",
+  "resend": "inactive",
+  "r2": "inactive",
+  "paidUpgrades": "none enabled"
+}

@@ -1,0 +1,302 @@
+{
+  "week": 4,
+  "introduction": [
+    "Your terminal currently owns the Taskboard process. Closing that session stops it. A service manager can start the program, assign its identity, collect logs and apply a restart policy independently of an interactive terminal.",
+    "This level capstone combines Linux, networking, Git and the application contract. Use a disposable Ubuntu VM with systemd as PID 1. You will operate the completed in-memory Taskboard stage under an unprivileged service account, then hand another person a reproducible runbook."
+  ],
+  "prerequisites": [
+    "Finish week 3: ~/dev-opps-lab/app/taskboard exists with the reference implementation and requirements.lock.",
+    "Use a disposable Ubuntu 24.04 VM with sudo access. Check PID 1 below; if WSL is not using systemd, use the VM route rather than assuming service behavior is identical.",
+    "Stop any foreground lab server on port 8000. This lesson reserves /opt/devopps-taskboard, /etc/devopps-taskboard.env and devopps-taskboard.service in this new VM.",
+    "If using a new VM, extract the course there and repeat week 3’s copy/setup block so ~/dev-opps-lab/app/taskboard exists on that VM; a folder on your development computer is not automatically present there."
+  ],
+  "concepts": [
+    {
+      "title": "Supervision manages lifecycle, not correctness",
+      "paragraphs": [
+        "A systemd unit describes how to start a process and what should happen when it exits. Type=simple treats the launched process as the service's main process. Restart=on-failure retries after an unsuccessful exit; it cannot repair a wrong path or configuration.",
+        "A service can be active while returning incorrect task results. We therefore combine manager status, process identity, listening sockets, logs and an HTTP behavior check. A restart may change the PID; never bake a PID into a permanent runbook."
+      ],
+      "example": "If the Python module name is misspelled, a restart policy repeatedly launches the same invalid command. The journal's import error is more useful than increasing the retry count.",
+      "judgment": "Use a short delay and inspect failures. A healthy process is only one part of service readiness."
+    },
+    {
+      "title": "Separate the service identity from the operator",
+      "paragraphs": [
+        "The service account determines what the application can read or modify. A system account with no interactive login reduces accidental reuse. Root-owned application files prevent the service from rewriting its own code. A virtual environment holds its Python dependencies separately from system Python.",
+        "WorkingDirectory establishes relative paths. EnvironmentFile supplies configuration without embedding it in the unit. Here it contains only a version label. Real secrets later require tighter lifecycle and access controls; putting a secret in an environment variable does not make it invisible to all privileged observers."
+      ],
+      "example": "The app can read /opt/devopps-taskboard but runs as devopps-taskboard, not as the administrator who installed it.",
+      "judgment": "Grant the narrow permissions the process needs. Avoid making every directory writable to solve one permission error."
+    },
+    {
+      "title": "Graceful shutdown and durable state are separate",
+      "paragraphs": [
+        "systemctl stop requests termination and waits up to the configured timeout. The process should finish or stop work predictably. Killing it forcibly is a last resort because in-flight work may be interrupted.",
+        "Stage 3 stores tasks only in memory. Restarting a perfectly healthy service therefore loses its tasks. This is a known product limitation, not a systemd defect. A later database stage will change the persistence boundary."
+      ],
+      "example": "A task created before restart disappears afterward even if the same executable and version are used.",
+      "judgment": "Do not promise durability that the storage design does not provide. Operational documentation should state this limitation clearly."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Verify the target before installing a service",
+      "purpose": "Run in the disposable VM, not a shared workstation or production host.",
+      "commands": [
+        {
+          "code": "test \"$(ps -p 1 -o comm=)\" = systemd || { printf '%s\\n' 'Use the disposable systemd VM.'; exit 1; }\ncd ~/dev-opps-lab/app/taskboard || exit 1\npython3 --version\nss -ltnp 'sport = :8000'\nfor target in /opt/devopps-taskboard /etc/devopps-taskboard.env /etc/systemd/system/devopps-taskboard.service /etc/systemd/system/devopps-taskboard.service.d; do\n  test ! -e \"$target\" || { printf 'Reserved lab path already exists: %s\\n' \"$target\"; exit 1; }\ndone\nif getent passwd devopps-taskboard > /dev/null || getent group devopps-taskboard > /dev/null; then\n  printf '%s\\n' 'Reserved service account/group already exists; inspect the prior lab.'\n  exit 1\nfi\nprintf '%s\\n' 'Fresh dedicated service paths and identity verified.'",
+          "explain": [
+            "ps selects PID 1 and prints its command name without a heading; it must be systemd.",
+            "cd selects the application and --version checks Python. ss checks for a conflicting listener.",
+            "test ! -e succeeds only if this new service path does not exist. printf captures its exit status.",
+            "The guards stop the sequence on a non-systemd host or an existing reserved path/account. They do not delete or replace a previous service. Reopen Bash after correcting a stopped prerequisite.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "systemd, Python 3.12 or later, no conflicting port, and fresh-path status 0.",
+          "troubleshoot": "If the path already exists, stop and identify its owner/use. Do not overwrite an existing deployment. If PID 1 differs, choose the documented VM route."
+        }
+      ],
+      "checkpoint": "Record the VM identity and why these paths are safe to use."
+    },
+    {
+      "title": "Install code and an isolated service identity",
+      "purpose": "Administrator commands are needed for the system account and /opt installation. Application execution itself remains unprivileged.",
+      "commands": [
+        {
+          "code": "sudo useradd --system --user-group --home-dir /opt/devopps-taskboard --no-create-home --shell /usr/sbin/nologin devopps-taskboard || exit 1\nsudo install -d -m 0755 /opt/devopps-taskboard || exit 1\nsudo cp -R reference migrations requirements.lock /opt/devopps-taskboard/ || exit 1\nsudo python3 -m venv /opt/devopps-taskboard/.venv || exit 1\nsudo /opt/devopps-taskboard/.venv/bin/python -m pip install --no-cache-dir -r /opt/devopps-taskboard/requirements.lock || exit 1\nsudo /opt/devopps-taskboard/.venv/bin/python -m pip check || exit 1",
+          "explain": [
+            "useradd creates this system user and matching group, declares its home, avoids creating that home, and disables interactive shell login. If it already exists, investigate rather than continuing blindly.",
+            "install -d creates the root-owned directory with readable/traversable mode 0755. cp -R copies the explicitly listed application modules, migrations and lock file.",
+            "python3 -m venv creates a separate interpreter environment. Its python -m pip installs pinned runtime dependencies without a cache; pip check verifies their declared compatibility.",
+            "Each installation command must succeed before the next command runs. The service starts only after dependency installation and unit validation succeed.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "The account exists without login access; dependencies install successfully under /opt.",
+          "troubleshoot": "Package download failure is an installation failure: inspect network and storage. Do not start a partially installed service."
+        }
+      ],
+      "checkpoint": "Explain why your user owns the source workspace but root owns the installed code."
+    },
+    {
+      "title": "Describe the process to systemd",
+      "purpose": "The unit file uses absolute executable paths so it does not depend on your interactive shell or activated venv.",
+      "commands": [
+        {
+          "code": "printf 'GIT_SHA=week04-lab\\n' | sudo tee /etc/devopps-taskboard.env > /dev/null\nsudo chmod 0600 /etc/devopps-taskboard.env\nsudo tee /etc/systemd/system/devopps-taskboard.service > /dev/null <<'UNIT'\n[Unit]\nDescription=Dev Opps private Taskboard lab\nAfter=network.target\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n[Service]\nType=simple\nUser=devopps-taskboard\nGroup=devopps-taskboard\nWorkingDirectory=/opt/devopps-taskboard\nEnvironmentFile=/etc/devopps-taskboard.env\nEnvironment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\nExecStart=/opt/devopps-taskboard/.venv/bin/python -m uvicorn reference.stage03:app --host 127.0.0.1 --port 8000 --no-access-log\nRestart=on-failure\nRestartSec=3\nTimeoutStopSec=15\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=true\n\n[Install]\nWantedBy=multi-user.target\nUNIT\nsudo systemd-analyze verify /etc/systemd/system/devopps-taskboard.service || exit 1\nsudo systemctl daemon-reload\nsudo systemctl start devopps-taskboard",
+          "explain": [
+            "printf supplies non-secret version configuration. tee writes as root; redirecting its stdout avoids duplicate text. chmod 0600 restricts the environment file to root; the system manager reads it before launching the user process.",
+            "The quoted UNIT here-document writes literal configuration. [Unit] orders startup and bounds repeated attempts. [Service] sets identity, directory, environment, exact command, restart delay and stop timeout.",
+            "NoNewPrivileges prevents gaining privileges through execution. PrivateTmp isolates temporary paths. ProtectSystem=strict makes filesystem paths read-only to this service; ProtectHome hides home directories. Stage 3 needs no filesystem writes.",
+            "[Install] describes a boot target if enabled later. systemd-analyze verify checks unit syntax; daemon-reload reloads definitions; start launches this unit now without enabling boot startup.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal."
+          ],
+          "expected": "Verification has no unit errors and the service starts. This private lab binds only loopback.",
+          "troubleshoot": "If start fails, inspect the journal in the next step. Do not remove hardening directives without identifying a required operation."
+        }
+      ],
+      "checkpoint": "Identify the exact source of the process's identity, working directory and version configuration."
+    },
+    {
+      "title": "Correlate manager, process, socket and behavior",
+      "purpose": "Status and logs establish lifecycle evidence; a real task operation establishes application evidence.",
+      "commands": [
+        {
+          "code": "sudo systemctl status devopps-taskboard --no-pager\nsudo journalctl -u devopps-taskboard -n 30 --no-pager\nps -u devopps-taskboard -o pid,user,args\nss -ltn 'sport = :8000'\ncurl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/livez || exit 1\ncurl --fail --show-error -H 'Content-Type: application/json' -d '{\"title\":\"Operate a supervised service\"}' http://127.0.0.1:8000/tasks\ncurl --fail --show-error http://127.0.0.1:8000/tasks",
+          "explain": [
+            "systemctl status shows the current manager state; --no-pager prints directly. journalctl -u filters this unit, -n 30 limits output.",
+            "ps shows the service account's process; ss shows the loopback listener.",
+            "The liveness GET checks process response. The JSON POST creates a synthetic task; the final GET must include its actual ID and title.",
+            "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal.",
+            "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+          ],
+          "expected": "Active service, non-root owner, loopback listener, healthy response, and a created task listed by the API.",
+          "troubleshoot": "A healthy /livez plus failing task request is an application failure, not proof of full health. Inspect its structured error and matching journal request ID."
+        }
+      ],
+      "checkpoint": "Keep sanitized output and write what each observation proves and does not prove."
+    }
+  ],
+  "failure": {
+    "title": "A missing environment file prevents startup",
+    "boundary": "This drop-in changes only the dedicated lab unit. Capture the current successful state first. It will intentionally interrupt the local service and lose stage-3 memory data.",
+    "inject": [
+      {
+        "code": "sudo install -d -m 0755 /etc/systemd/system/devopps-taskboard.service.d\nprintf '[Service]\\nEnvironmentFile=/etc/devopps-deliberately-missing.env\\n' | sudo tee /etc/systemd/system/devopps-taskboard.service.d/lab-fault.conf > /dev/null\nsudo systemctl daemon-reload\nsudo systemctl restart devopps-taskboard",
+        "explain": [
+          "Create the unit's override directory and one explicitly named lab-fault file.",
+          "The override adds a required nonexistent environment file. daemon-reload loads the new definition; restart stops the old instance and attempts the invalid replacement."
+        ],
+        "expected": "Restart fails or the unit enters a failed/retrying state.",
+        "troubleshoot": "If the chosen missing path unexpectedly exists, use a verified nonexistent lab-specific path instead."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "sudo systemctl cat devopps-taskboard\nsudo journalctl -u devopps-taskboard -n 40 --no-pager\nss -ltn 'sport = :8000'",
+        "explain": [
+          "systemctl cat displays the base unit and its drop-ins, revealing effective configuration sources.",
+          "The journal identifies loading/startup failure. ss checks whether the listener exists now."
+        ],
+        "expected": "The override is visible and logs report the missing environment file; no working app listener remains.",
+        "troubleshoot": "If a listener remains, identify its owner. It may be an unrelated foreground process, not this service."
+      }
+    ],
+    "hints": [
+      "Inspect configuration sources before changing permissions.",
+      "A missing required file is not repaired by repeatedly restarting."
+    ],
+    "answer": {
+      "explanation": [
+        "systemd cannot construct the configured environment, so the app does not reach HTTP startup. Remove only the deliberate override, reload the definition, clear any start-limit failure and start the original unit."
+      ],
+      "recover": [
+        {
+          "code": "sudo rm -- /etc/systemd/system/devopps-taskboard.service.d/lab-fault.conf\nsudo systemctl daemon-reload\nsudo systemctl reset-failed devopps-taskboard\nsudo systemctl start devopps-taskboard",
+          "explain": [
+            "rm removes only the fault file created in this lesson; -- ends option parsing.",
+            "daemon-reload reloads definitions. reset-failed clears the unit's failed state/start-rate counter. start launches the repaired definition."
+          ],
+          "expected": "The service starts without the missing-file error.",
+          "troubleshoot": "Inspect systemctl cat if another drop-in still changes the environment."
+        }
+      ],
+      "verification": {
+        "code": "sudo systemctl is-active devopps-taskboard\ncurl --fail --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 3 http://127.0.0.1:8000/livez || exit 1\ncurl --fail --show-error http://127.0.0.1:8000/tasks",
+        "explain": [
+          "is-active verifies manager state; curl verifies the actual listener and list endpoint.",
+          "An explicit failure branch stops the sequence instead of letting later commands run after a failed prerequisite. Correct the cause and reopen Bash if the guard closed this terminal.",
+          "Retry applies only to this bounded, read-only readiness/liveness request so asynchronous startup is not confused with a service failure; it does not retry task creation."
+        ],
+        "expected": "active, healthy liveness, and an empty task list after the in-memory restart.",
+        "troubleshoot": "Old tasks disappearing is expected at this stage; document it rather than pretending a restart preserved them."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Why is active (running) insufficient for a release decision?",
+      "hint": "Which part of the task contract has the manager tested?",
+      "answer": "The manager tracks a process, not business behavior. It cannot establish valid creation, correct response bodies or persistence. Pair its state with contract-level smoke tests and dependency observations."
+    },
+    {
+      "prompt": "Why did you not activate the venv in ExecStart?",
+      "hint": "An interactive shell and systemd have different environments.",
+      "answer": "ExecStart names the exact venv interpreter. Shell activation is merely a convenience for changing PATH in a terminal; the unit should not depend on it."
+    },
+    {
+      "prompt": "When does Taskboard need durable storage?",
+      "hint": "Describe a requirement rather than naming a product.",
+      "answer": "When tasks must survive process replacement, crashes or multiple workers, memory in one process is inadequate. The requirement is durable shared state with defined consistency and recovery; PostgreSQL is the next implementation we will learn."
+    }
+  ],
+  "exercise": {
+    "brief": "Use the capstone below to integrate this level.",
+    "constraints": [
+      "Private disposable VM only."
+    ],
+    "deliverables": [
+      "Service runbook and evidence."
+    ],
+    "acceptance": [
+      "All capstone checks pass."
+    ],
+    "hints": [
+      "Separate setup from diagnosis."
+    ],
+    "solution": [
+      "Use the rubric below."
+    ]
+  },
+  "capstone": {
+    "title": "Hand off a private Linux Taskboard service",
+    "scenario": "A teammate receives a fresh Ubuntu VM and your repository. They must reproduce the service and diagnose a failed startup without access to your original machine.",
+    "startingPoint": "The week-3 application contract, the service-management steps above and your notes from weeks 1–2.",
+    "requirements": [
+      "Write an installation checklist with prerequisites, exact paths, identity and dependency commands.",
+      "Include start, status, log, stop, restart and verification procedures.",
+      "Create/list/complete a synthetic task using its returned ID; verify completion is idempotent.",
+      "Have a reviewer inject the missing-file fault or occupied-port fault and diagnose it from evidence.",
+      "State memory persistence and loopback access limitations explicitly."
+    ],
+    "acceptance": [
+      "A fresh VM rebuild completes within a measured 60–90-minute attempt, or remediation is recorded and repeated.",
+      "The process runs as the dedicated account, not root.",
+      "The reviewer can identify the failing layer and recover without a broad kill or permission change.",
+      "Stopping removes the listener and restarting returns the documented version.",
+      "Evidence includes a failed test/request and the matching repaired result."
+    ],
+    "runbook": [
+      {
+        "code": "sudo systemctl stop devopps-taskboard\nss -ltn 'sport = :8000'\nsudo systemctl start devopps-taskboard\ncurl --fail --show-error http://127.0.0.1:8000/version",
+        "explain": [
+          "stop requests orderly termination. ss verifies the endpoint disappears.",
+          "start launches the same installed unit. /version checks its declared version after restart."
+        ],
+        "expected": "No listener after stop; a version response after start.",
+        "troubleshoot": "If shutdown exceeds TimeoutStopSec, inspect the journal and process behavior before increasing the timeout."
+      }
+    ],
+    "hints": [
+      "Give the reviewer observations and decisions, not just a script.",
+      "Record actual durations and recovery evidence; do not infer them from a successful screenshot."
+    ],
+    "solution": [
+      "Rebuild from a fresh VM snapshot using the documented account, code and unit installation.",
+      "Verify the HTTP task contract, collect manager/process/socket evidence and deliberately recover one fault.",
+      "Write a handoff explaining what is stored, what is ephemeral, and which action requires administrator authority."
+    ],
+    "rubric": [
+      {
+        "criterion": "Reproducibility",
+        "evidence": "Fresh-VM transcript and timing",
+        "pass": "All prerequisites and paths are explicit; no copied working VM required."
+      },
+      {
+        "criterion": "Diagnosis",
+        "evidence": "Fault symptom, hypothesis, decisive observation and retest",
+        "pass": "Recovery is justified by evidence and scoped to the lab unit."
+      },
+      {
+        "criterion": "Operational boundaries",
+        "evidence": "Identity, bind address, stop behavior and data note",
+        "pass": "Non-root execution, loopback access and memory-loss limitation are demonstrated."
+      }
+    ],
+    "stretch": [
+      "Enable boot startup with sudo systemctl enable devopps-taskboard, reboot only the disposable VM, verify behavior, and disable it again with sudo systemctl disable devopps-taskboard."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "sudo systemctl stop devopps-taskboard\nsudo systemctl disable devopps-taskboard\nss -ltn 'sport = :8000'",
+      "explain": [
+        "stop ends this lab process. disable removes boot-start links if the optional extension created them; it does not delete the unit or account.",
+        "ss checks that your service listener is gone. Preserve the stopped VM and installed files for your evidence or delete the entire disposable VM through your VM manager after exporting the evidence."
+      ],
+      "expected": "No running lab service. Source, notes and installed configuration remain available for review.",
+      "troubleshoot": "If port 8000 remains open, inspect its owner before taking any additional action."
+    }
+  ],
+  "references": [
+    {
+      "title": "systemd service units",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html",
+      "usedFor": "Process lifecycle, restart behavior and unit directives."
+    },
+    {
+      "title": "systemd execution environment",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html",
+      "usedFor": "Service identities, environment files and filesystem restrictions."
+    },
+    {
+      "title": "systemctl operations",
+      "url": "https://www.freedesktop.org/software/systemd/man/latest/systemctl.html",
+      "usedFor": "Reloading definitions, inspecting units and controlling lifecycle."
+    }
+  ],
+  "repoConnections": [],
+  "notes": [
+    "Unit configuration was reviewed against primary documentation. This authoring host does not run Linux systemd; execute the full fresh-VM acceptance check in your Linux lab."
+  ]
+}

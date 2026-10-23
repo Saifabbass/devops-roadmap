@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "clerkPublishableKey": "pk_live_Y2xlcmsuZGV2b29wcy50ZWNoJA",
+  "clerkFrontendApi": "clerk.devoops.tech",
+  "siteOrigin": "https://devoops.tech"
+}

@@ -1,0 +1,340 @@
+{
+  "week": 44,
+  "introduction": [
+    "A recovery plan that depends on the lost environment is not a recovery plan. Stop the normal Taskboard stack and recover into an independent PostgreSQL container and private listener from a host-side dump and saved image.",
+    "Choose measurable targets before starting: for example useful service within 30 minutes and no loss beyond the last daily logical backup. These are proposed lab targets. Report missed targets and their causes honestly.",
+    "Separate containers on one workstation do not prove survival of disk, account or regional loss. Those require independent storage, credentials and a second environment."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash; learner application at ~/dev-opps-lab/app/taskboard, copied and explained in week 3.",
+    "Docker Engine with Linux containers and Compose v2; the authenticated stage 07 lab from weeks 6–8 is working. Verify docker version shows a server.",
+    "Use only synthetic tasks in the private local lab. Record prior evidence; do not mark unrun checks passed.",
+    "Complete weeks 41–43 and retain three known task IDs, owners and completion values.",
+    "Enough disk for an image archive/database dump; pause other writers while creating comparison evidence."
+  ],
+  "concepts": [
+    {
+      "title": "Recovery dependencies cross failure boundaries",
+      "paragraphs": [
+        "The recovery graph includes image bytes, schema history, data backup, credentials, decryption keys, routing and an authorized operator. A shared disk/account may disable both primary and recovery.",
+        "RTO includes detection, artifact retrieval, restore and user validation. RPO measures the gap between latest recovered committed work and the incident. Snapshot age is a useful bound; specific transaction IDs give stronger evidence."
+      ],
+      "example": "A dump outside the DB container survives container loss, but not the same host disk failing.",
+      "judgment": "Replication can copy an accidental deletion; retained independently accessible backups address a different risk."
+    },
+    {
+      "title": "Control the drill before injecting failure",
+      "paragraphs": [
+        "Write resource names, stop conditions and recovery commands before the incident. Use an observer to record timestamps, hypotheses and user impact when possible.",
+        "Useful recovery means known data and authorized operations work. Database readiness is a milestone, not the end. Communicate facts and the next update time without inventing an ETA."
+      ],
+      "example": "\"Task creation unavailable since 14:03; restoration running; next update 14:13\" is useful even before root cause is certain.",
+      "judgment": "A failed rehearsal is valuable when its evidence produces a targeted improvement and retest."
+    }
+  ],
+  "steps": [
+    {
+      "title": "1 · Save artifacts outside the running containers",
+      "purpose": "Protect private files and preserve synthetic identity mapping.",
+      "commands": [
+        {
+          "code": "cd ~/dev-opps-lab/app/taskboard\nsource .venv/bin/activate\nset -a\nsource .env\nset +a\numask 077\nmkdir -p ../../evidence/week-44\ndocker compose exec -T db pg_dump -U taskboard -d taskboard --format=custom --no-owner --no-privileges > ../../evidence/week-44/taskboard.dump\ndocker image save devopps-taskboard:local -o ../../evidence/week-44/app.tar\ncp .env ../../evidence/week-44/recovery.env\ndate -u +%FT%TZ > ../../evidence/week-44/backup-time.txt\nsha256sum ../../evidence/week-44/taskboard.dump ../../evidence/week-44/app.tar > ../../evidence/week-44/artifacts.sha256",
+          "explain": [
+            "set -a exports your generated credentials; umask protects new files. pg_dump takes a logical snapshot; -T avoids terminal formatting and Bash redirection preserves bytes.",
+            "save retains the image; cp preserves private lab configuration. Never publish recovery.env. date records UTC and sha256sum records artifact integrity."
+          ],
+          "expected": "Independent host-side artifacts and known-task evidence.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Identify the physical failure this host-side copy cannot survive."
+    },
+    {
+      "title": "2 · Start the incident clock",
+      "purpose": "Only the named Compose project is stopped; its data remains for comparison.",
+      "commands": [
+        {
+          "code": "date -u +%FT%TZ > ../../evidence/week-44/incident-start.txt\ndocker compose stop app db\ncurl --max-time 3 -i http://127.0.0.1:8000/livez",
+          "explain": [
+            "Record UTC, stop local services, then confirm the normal listener is unavailable with a bounded 3-second request."
+          ],
+          "expected": "Connection failure while artifacts remain readable.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Do not read the stopped source database during recovery."
+    },
+    {
+      "title": "3 · Restore into a new failure boundary",
+      "purpose": "Use explicit names, a new volume and an unexposed DB port.",
+      "commands": [
+        {
+          "code": "docker load -i ../../evidence/week-44/app.tar\ndocker network create devopps-recovery\ndocker volume create devopps-recovery-data\ndocker run -d --name devopps-recovery-db --network devopps-recovery --network-alias db -e POSTGRES_USER=taskboard -e POSTGRES_DB=taskboard -e POSTGRES_PASSWORD -v devopps-recovery-data:/var/lib/postgresql/data postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826\nfor attempt in $(seq 1 30); do docker exec devopps-recovery-db pg_isready -U taskboard -d taskboard && break; sleep 1; done\ndocker exec devopps-recovery-db pg_isready -U taskboard -d taskboard || { printf \"Recovery DB not ready; stop here.\\n\"; exit 1; }\ndocker exec -i devopps-recovery-db pg_restore -U taskboard -d taskboard --exit-on-error --no-owner --no-privileges < ../../evidence/week-44/taskboard.dump || { printf \"Restore failed; do not start the app.\\n\"; exit 1; }\nexport DATABASE_URL=\"postgresql://taskboard:$POSTGRES_PASSWORD@db:5432/taskboard\"\ndocker run -d --name devopps-recovery-app --network devopps-recovery -p 127.0.0.1:8100:8000 -e DATABASE_URL -e LAB_ALICE_TOKEN -e LAB_BOB_TOKEN devopps-taskboard:local",
+          "explain": [
+            "load restores saved image bytes. The named network/volume isolate recovery from source. The pinned Postgres container has no published database port.",
+            "The bounded readiness loop checks at most 30 times; the final check must pass before restore. exec-i passes binary dump data; exit-on-error prevents silent continuation.",
+            "The app uses the new network alias db and publishes only loopback 8100. -e NAME forwards a variable without putting its value in the command text.",
+            "Explicit failure branches stop the sequence if database readiness or restoration fails; the application cannot start after a failed restore."
+          ],
+          "expected": "Fresh recovery database and private HTTP listener.",
+          "troubleshoot": "If a recovery name already exists, inspect the prior attempt. Do not delete it automatically to make the exercise pass."
+        }
+      ],
+      "checkpoint": "Primary remains stopped while recovery operates."
+    },
+    {
+      "title": "4 · Validate meaningful service",
+      "purpose": "Known records plus negative authorization complete the recovery check.",
+      "commands": [
+        {
+          "code": "curl --retry 10 --retry-delay 1 --retry-connrefused --max-time 5 -fsS http://127.0.0.1:8100/readyz\nTASKBOARD_BASE_URL=http://127.0.0.1:8100 python -m pytest tests/system -q\ndate -u +%FT%TZ > ../../evidence/week-44/recovery-verified.txt",
+          "explain": [
+            "Retry only this read-only readiness check with explicit limits. System tests validate real HTTP behavior and ownership.",
+            "Also read the three saved pre-incident tasks using their owners. New test records alone cannot establish old-data recovery. Record the end time only after both checks pass."
+          ],
+          "expected": "Useful service and measured recovery interval.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "checkpoint": "Report actual RTO/RPO and the shared dependencies that remain."
+    }
+  ],
+  "failure": {
+    "title": "A required recovery configuration copy is missing",
+    "boundary": "Move only the private backup copy, not the working .env.",
+    "inject": [
+      {
+        "code": "mv ../../evidence/week-44/recovery.env ../../evidence/week-44/recovery.env.saved\ntest -f ../../evidence/week-44/recovery.env",
+        "explain": [
+          "Temporarily move the recovery copy and test its required path."
+        ],
+        "expected": "The presence check fails.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "ls -l ../../evidence/week-44/",
+        "explain": [
+          "Inspect file names and permissions without printing secrets."
+        ],
+        "expected": "Data/image backups exist but configuration recovery is incomplete.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "Does a dump contain application identity settings?",
+      "Would the same account failure remove the saved copy?"
+    ],
+    "answer": {
+      "explanation": [
+        "Recovery needs configuration/credential access as well as database bytes. Restore the bounded copy; then redesign and test an independent controlled recovery location for the broader failure scenario."
+      ],
+      "recover": [
+        {
+          "code": "mv ../../evidence/week-44/recovery.env.saved ../../evidence/week-44/recovery.env",
+          "explain": [
+            "Restore exactly the deliberately moved file."
+          ],
+          "expected": "Configuration copy available.",
+          "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+        }
+      ],
+      "verification": {
+        "code": "test -s ../../evidence/week-44/recovery.env",
+        "explain": [
+          "Check nonzero size without displaying credentials."
+        ],
+        "expected": "Exit 0.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Does this prove disk-loss recovery?",
+      "hint": "Where are the artifacts physically stored?",
+      "answer": "No. The host disk is shared; state that limit and test a second storage/location before expanding the claim."
+    },
+    {
+      "prompt": "Why retain the source volume?",
+      "hint": "What if restored content is wrong?",
+      "answer": "It preserves investigation, newer data and rollback options. Delete only after independently verified recovery and retention decisions."
+    },
+    {
+      "prompt": "When is the RTO clock stopped?",
+      "hint": "Can users perform the promised action?",
+      "answer": "After known-data and business/authorization checks pass. File restoration or a green DB health check is insufficient."
+    }
+  ],
+  "exercise": {
+    "brief": "Repeat with another operator, or label a fresh-terminal self-review.",
+    "constraints": [
+      "No live source DB reads after incident start.",
+      "No credentials in public evidence."
+    ],
+    "deliverables": [
+      "Timestamped recovery timeline and dependency map."
+    ],
+    "acceptance": [
+      "Targets pass or are explicitly failed with remediation.",
+      "Known records and ownership work while source remains stopped."
+    ],
+    "hints": [
+      "Include artifact discovery and credential retrieval in timing."
+    ],
+    "solution": [
+      "Restore into new storage/network, verify bytes/config, then inspect known records through HTTP before declaring recovery."
+    ]
+  },
+  "capstone": {
+    "title": "Gate 11 · recover without the normal environment",
+    "scenario": "The primary service is unusable; a teammate needs its saved tasks within your declared window.",
+    "startingPoint": "Use the verified image, database backup and workload knowledge from weeks 41–43.",
+    "requirements": [
+      "Write RTO/RPO/stop conditions beforehand.",
+      "Restore into a separate volume/listener using saved artifacts only.",
+      "Verify three known records plus cross-user denials.",
+      "Audit shared failure boundaries for backup, keys, configuration and operator access."
+    ],
+    "acceptance": [
+      "Recovery interval is measured and compared to target.",
+      "Data loss is measured against known operations/snapshot cutoff.",
+      "Primary remains unchanged for comparison."
+    ],
+    "runbook": [
+      {
+        "code": "sha256sum -c ../../evidence/week-44/artifacts.sha256",
+        "explain": [
+          "Verify saved artifact bytes before restore."
+        ],
+        "expected": "Both checksum checks pass.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      },
+      {
+        "code": "TASKBOARD_BASE_URL=http://127.0.0.1:8100 python -m pytest tests/system -q",
+        "explain": [
+          "Validate actual recovery HTTP behavior."
+        ],
+        "expected": "System checks pass.",
+        "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+      }
+    ],
+    "hints": [
+      "A matching row count can still hide altered owners.",
+      "Report a missed target instead of changing it after the fact."
+    ],
+    "solution": [
+      "Use independent network/volume and preserved identity settings; restore then prove original task meaning through HTTP.",
+      "Retest the highest-risk failure found in the drill before marking its remediation complete."
+    ],
+    "rubric": [
+      {
+        "criterion": "Independence",
+        "evidence": "Resource list/source stopped",
+        "pass": "No live source dependency used."
+      },
+      {
+        "criterion": "Data meaning",
+        "evidence": "Known-record/API comparisons",
+        "pass": "IDs, owners, titles and completion agree."
+      },
+      {
+        "criterion": "Measured recovery",
+        "evidence": "UTC timeline and lost operation list",
+        "pass": "Targets measured and limits explicit."
+      }
+    ],
+    "stretch": [
+      "Repeat on another machine with independently secured artifacts."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "docker stop devopps-recovery-app devopps-recovery-db\ndocker rm devopps-recovery-app devopps-recovery-db\ndocker network rm devopps-recovery\ndocker compose start db app",
+      "explain": [
+        "Stop/remove only named recovery containers/network, then restart retained primary. Keep recovery volume until evidence review."
+      ],
+      "expected": "Primary returns.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    },
+    {
+      "code": "docker volume inspect devopps-recovery-data",
+      "explain": [
+        "Inspect the exact recovery volume before a later explicit deletion."
+      ],
+      "expected": "No volume is silently removed.",
+      "troubleshoot": "Check the working directory with pwd, then read the first failing command before changing configuration."
+    }
+  ],
+  "references": [
+    {
+      "title": "PostgreSQL logical recovery",
+      "url": "https://www.postgresql.org/docs/17/backup-dump.html",
+      "usedFor": "Fresh destination restoration."
+    },
+    {
+      "title": "AWS disaster recovery",
+      "url": "https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/plan-for-disaster-recovery-dr.html",
+      "usedFor": "Recovery objectives and dependencies."
+    },
+    {
+      "title": "SRE reliable launches",
+      "url": "https://sre.google/sre-book/reliable-product-launches/",
+      "usedFor": "Operational readiness and recovery decisions."
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "databasus/databasus",
+      "principle": "Restore is the test of a backup",
+      "application": "A backup is a candidate recovery artifact. A restore test is evidence that it can recover the application. Record a known task and timestamp, take a backup, restore into a separate empty database and check contents through the application. Recovery time includes finding the backup, obtaining credentials and validating the result. Data loss is the gap between committed data and what the restored service contains. Practice: Restore five synthetic tasks into a separate database name. Check all titles and completion states, not only the count. Measure elapsed time and retain the source until verification finishes.",
+      "url": "https://github.com/databasus/databasus"
+    },
+    {
+      "repo": "cloudnative-pg/cloudnative-pg",
+      "principle": "Failover and backup solve different failures",
+      "application": "An operator reconciles database resources and may promote another instance after primary failure. Replication can also copy accidental deletion to every replica. A backup plus transaction history recovers an earlier state. Test failover and restoration separately and measure data loss and recovery time. Multiple Pods on one laptop do not prove zone resilience. Practice: Draw primary, standby and backup paths. In the optional operator lab, record timestamped tasks, trigger one primary Pod failure, then independently restore to a new cluster and check contents.",
+      "url": "https://github.com/cloudnative-pg/cloudnative-pg"
+    },
+    {
+      "repo": "OneUptime/oneuptime",
+      "principle": "Incidents are a coordination loop",
+      "application": "Detection, acknowledgement, mitigation, communication and learning belong together. Alerts need user impact, evidence and a first safe diagnostic action. Record failure onset, detection, changes and verified recovery. Separate facts from hypotheses in status updates. Follow-up work needs an owner and a test proving improvement. Practice: Run a ten-minute local outage drill. Write two status updates, restore the service and deliver one tested follow-up. Installing a complete incident platform is unnecessary.",
+      "url": "https://github.com/OneUptime/oneuptime"
+    },
+    {
+      "repo": "k8sgpt-ai/k8sgpt",
+      "principle": "An automated diagnosis is a testable hypothesis",
+      "application": "An assistant organizes symptoms, while cluster events, configuration and requests remain evidence. Diagnose before reading its explanation. Verify suggestions against the known fault and a disposable namespace. Minimize data and permissions exposed to analysis and keep automatic remediation out of the first exercise. Practice: Inject a wrong image and a wrong selector in separate runs. Diagnose manually, compare analyzer output and record one incomplete or mistaken suggestion.",
+      "url": "https://github.com/k8sgpt-ai/k8sgpt"
+    },
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "A map locates skill; evidence proves competence",
+      "application": "Trace requests through DNS, transport, TLS, routing, application and storage; trace changes through Git, tests, images, deployment and observation. The map locates lessons for these boundaries. Alternatives are choices, not an installation list. Completion means you can explain, operate and recover a boundary with evidence. Practice: After each level, label three nodes explain, built, repaired or operated. Attach one local evidence artifact to each claim and repeat the weakest exercise.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    },
+    {
+      "repo": "bregman-arie/devops-exercises",
+      "principle": "Questions reveal missing mental models",
+      "application": "Answer before revealing a solution. Predict output or the failing layer, then experiment in the lab. If observations disagree, correct the explanation and retain evidence. Revisit with changed conditions so recalled wording cannot replace understanding. Practice: Hide answers to three questions matching the week. Record predictions and run a safe experiment for uncertain answers. Reattempt the weakest next week.",
+      "url": "https://github.com/bregman-arie/devops-exercises"
+    },
+    {
+      "repo": "dastergon/awesome-sre",
+      "principle": "Reliability is a measured promise",
+      "application": "Define a useful user action and measure success within a meaningful latency threshold. An SLO states the target over a window; an error budget describes allowed bad events. This makes release tradeoffs explicit. Alert on actionable conditions, write symptom runbooks and examine contributing conditions after incidents. Practice: Define a Taskboard SLI from success counts and latency. Calculate good/total from a sample, inject a brief failure and connect the alert to a runbook.",
+      "url": "https://github.com/dastergon/awesome-sre"
+    },
+    {
+      "repo": "wmariuss/awesome-devops",
+      "principle": "Make a reviewable tool decision",
+      "application": "A decision record states problem, constraints, alternatives, chosen approach and reconsideration evidence. Include permissions, cost, maintenance and recovery. Keep research bounded so it becomes a tested service improvement instead of a bookmark collection. Practice: Compare two candidates for one real course problem, perform an acceptance test with the choice and specify a reassessment trigger.",
+      "url": "https://github.com/wmariuss/awesome-devops"
+    }
+  ],
+  "notes": [
+    "Commands and configurations are supplied for the stated disposable lab. Authoring host has no operational Docker/WSL; container, database and cluster exercises are not claimed executed. Record your own outputs before passing a gate."
+  ]
+}

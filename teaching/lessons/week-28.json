@@ -1,0 +1,321 @@
+{
+  "week": 28,
+  "introduction": [
+    "An incident begins with an incomplete observation: a request times out, a Pod restarts, or a release stalls. You will turn symptoms into testable hypotheses and preserve evidence before repair.",
+    "This gate integrates ownership, readiness, Service routing and permissions. It uses five different controlled failures, then a blind diagnosis. A dashboard may help after the command-line diagnosis; it must not replace the model."
+  ],
+  "prerequisites": [
+    "Ubuntu 24.04 Bash in WSL2 or a disposable Linux VM; Docker is running. Use the same terminal unless a step names a second terminal.",
+    "Week27 kind-devopps-policy cluster, app-secure.yaml and service.yaml. No database data is stored in this stage03 workload."
+  ],
+  "concepts": [
+    {
+      "title": "A troubleshooting decision tree",
+      "paragraphs": [
+        "If a Pod is Pending, ask whether scheduling or volume binding is blocked. If waiting on an image, inspect registry/image events. If it starts and exits, inspect last termination and previous logs. If it is Running but unready, examine the readiness contract. If Ready but inaccessible, inspect selector, endpoints and the request path."
+      ],
+      "example": "kubectl logs POD --previous is useful after a restart; it cannot reveal a process that never started.",
+      "judgment": "The first plausible explanation is not proof. Choose an observation that could contradict it."
+    },
+    {
+      "title": "Mitigation and explanation",
+      "paragraphs": [
+        "Restore useful service with the smallest known-good change. Record what changed and what remains uncertain. After recovery, reproduce the failure and add a regression check.",
+        "Headlamp and Freelens expose the same objects through an API identity. Repeat each relationship with kubectl so your skill remains useful when a UI is unavailable."
+      ],
+      "example": "A healthy old replica may still serve during a broken rollout; deleting it can turn a partial failure into an outage.",
+      "judgment": "An error budget describes user impact. A green final Deployment does not tell you how long users failed."
+    }
+  ],
+  "steps": [
+    {
+      "title": "Capture a baseline",
+      "purpose": "Know healthy state before interpreting an incident.",
+      "commands": [
+        {
+          "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\nmkdir -p \"$HOME/dev-opps-lab/evidence/w28\"\nkubectl -n devopps get pods -o wide\nkubectl -n devopps get events --sort-by=.metadata.creationTimestamp\nkubectl -n devopps get deployment taskboard -o yaml\nkubectl -n devopps get service taskboard -o yaml\nkubectl -n devopps get endpointslice -l kubernetes.io/service-name=taskboard -o yaml",
+          "explain": [
+            "Read state in order: scheduling/runtime, time-ordered events, controller template, Service selection, then endpoint readiness. Save relevant output before changing it."
+          ],
+          "expected": "Evidence identifies one changed boundary; names and timestamps vary.",
+          "troubleshoot": "A timeout is a symptom. Decide which observation would disprove your first hypothesis before patching."
+        }
+      ],
+      "checkpoint": "Record expected image, replica count, labels, Service selector and health paths."
+    },
+    {
+      "title": "Prepare a reusable evidence packet",
+      "purpose": "Capture previous logs only where a restarted process exists.",
+      "commands": [
+        {
+          "code": "POD=$(kubectl -n devopps get pods -l app=taskboard -o jsonpath='{.items[0].metadata.name}')\nkubectl -n devopps describe pod \"$POD\"\nkubectl -n devopps logs \"$POD\" --tail=50\nkubectl -n devopps logs \"$POD\" --previous --tail=50\nkubectl -n devopps get pod \"$POD\" -o jsonpath='{.status.containerStatuses[*].lastState}' ",
+          "explain": [
+            "Select a Pod, inspect conditions/events, then current and previous stdout. --previous may correctly report no previous terminated container. lastState shows reason and exit status."
+          ],
+          "expected": "Healthy baseline has no prior termination; a restarted faulty container supplies different evidence.",
+          "troubleshoot": "If several Pods differ, inspect the new failing revision rather than assuming the first Pod is the failed one."
+        }
+      ],
+      "checkpoint": "Explain why absence of previous logs is evidence about lifecycle, not proof of application health."
+    },
+    {
+      "title": "Practise five distinct faults",
+      "purpose": "Run one injection, diagnose, restore, and verify before moving on.",
+      "commands": [
+        {
+          "code": "kubectl -n devopps set image deployment/taskboard app=devopps-taskboard:missing",
+          "explain": [
+            "Controlled image fault. ImagePullBackOff/registry event; image never starts. Run recovery immediately after collecting evidence."
+          ],
+          "expected": "ImagePullBackOff/registry event; image never starts",
+          "troubleshoot": "Use the decision tree; restore app-secure.yaml and service.yaml before the next fault."
+        },
+        {
+          "code": "kubectl -n devopps patch deployment taskboard --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"command\":[\"python\",\"-m\",\"missing_module\"]}]}}}}'",
+          "explain": [
+            "Controlled configuration fault. Container starts then exits; previous logs mention missing module. Run recovery immediately after collecting evidence."
+          ],
+          "expected": "Container starts then exits; previous logs mention missing module",
+          "troubleshoot": "Use the decision tree; restore app-secure.yaml and service.yaml before the next fault."
+        },
+        {
+          "code": "kubectl -n devopps patch deployment taskboard --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"readinessProbe\":{\"httpGet\":{\"path\":\"/missing\",\"port\":\"http\"}}}]}}}}'",
+          "explain": [
+            "Controlled readiness fault. Running but unready; probe returns404. Run recovery immediately after collecting evidence."
+          ],
+          "expected": "Running but unready; probe returns404",
+          "troubleshoot": "Use the decision tree; restore app-secure.yaml and service.yaml before the next fault."
+        },
+        {
+          "code": "kubectl -n devopps patch service taskboard -p '{\"spec\":{\"selector\":{\"app\":\"missing\"}}}'",
+          "explain": [
+            "Controlled selector fault. Ready Pods; no matching endpoints. Run recovery immediately after collecting evidence."
+          ],
+          "expected": "Ready Pods; no matching endpoints",
+          "troubleshoot": "Use the decision tree; restore app-secure.yaml and service.yaml before the next fault."
+        },
+        {
+          "code": "kubectl -n devopps patch deployment taskboard --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"resources\":{\"requests\":{\"cpu\":\"1000\"}}}]}}}}'",
+          "explain": [
+            "Controlled capacity fault. Pending Pod with FailedScheduling/Insufficient cpu. Run recovery immediately after collecting evidence."
+          ],
+          "expected": "Pending Pod with FailedScheduling/Insufficient cpu",
+          "troubleshoot": "Use the decision tree; restore app-secure.yaml and service.yaml before the next fault."
+        },
+        {
+          "code": "kubectl apply -f \"$HOME/dev-opps-lab/k8s/app-secure.yaml\" -f \"$HOME/dev-opps-lab/k8s/service.yaml\"\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "Restore recorded desired state and wait; do not merely delete the symptom Pod."
+          ],
+          "expected": "Ready replicas and endpoints recover.",
+          "troubleshoot": "If another owner immediately changes a field, identify it before applying competing fixes."
+        }
+      ],
+      "checkpoint": "Write one incident note per fault with symptom, hypothesis, falsifying check, diagnosis, repair and regression check."
+    }
+  ],
+  "failure": {
+    "title": "A replica cannot schedule",
+    "boundary": "Only a disposable application Deployment.",
+    "inject": [
+      {
+        "code": "kubectl -n devopps patch deployment taskboard --type=strategic -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"app\",\"resources\":{\"requests\":{\"cpu\":\"1000\"}}}]}}}}'",
+        "explain": [
+          "Request1000 CPUs for each new app container; this exceeds the local node."
+        ],
+        "expected": "New Pod remains Pending.",
+        "troubleshoot": "This is a request, not load generation; it does not consume1000 CPUs."
+      }
+    ],
+    "investigate": [
+      {
+        "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\nmkdir -p \"$HOME/dev-opps-lab/evidence/w28\"\nkubectl -n devopps get pods -o wide\nkubectl -n devopps get events --sort-by=.metadata.creationTimestamp\nkubectl -n devopps get deployment taskboard -o yaml\nkubectl -n devopps get service taskboard -o yaml\nkubectl -n devopps get endpointslice -l kubernetes.io/service-name=taskboard -o yaml",
+        "explain": [
+          "Read state in order: scheduling/runtime, time-ordered events, controller template, Service selection, then endpoint readiness. Save relevant output before changing it."
+        ],
+        "expected": "Evidence identifies one changed boundary; names and timestamps vary.",
+        "troubleshoot": "A timeout is a symptom. Decide which observation would disprove your first hypothesis before patching."
+      }
+    ],
+    "hints": [
+      "A Pending Pod has no application logs.",
+      "Read the scheduler event rather than changing image tags."
+    ],
+    "answer": {
+      "explanation": [
+        "The scheduler cannot satisfy the declared request. Repeated deletes reproduce the same impossible request. Restore the known resource request in desired state."
+      ],
+      "recover": [
+        {
+          "code": "kubectl apply -f \"$HOME/dev-opps-lab/k8s/app-secure.yaml\" -f \"$HOME/dev-opps-lab/k8s/service.yaml\"\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+          "explain": [
+            "Restore recorded desired state and wait; do not merely delete the symptom Pod."
+          ],
+          "expected": "Ready replicas and endpoints recover.",
+          "troubleshoot": "If another owner immediately changes a field, identify it before applying competing fixes."
+        }
+      ],
+      "verification": {
+        "code": "kubectl -n devopps get deployment taskboard\nkubectl -n devopps get pods -l app=taskboard",
+        "explain": [
+          "Verify desired and ready replicas after recovery."
+        ],
+        "expected": "2/2 and no Pending new replica.",
+        "troubleshoot": "Inspect any remaining old failed revision separately."
+      }
+    }
+  },
+  "questions": [
+    {
+      "prompt": "Which command distinguishes a crash from a pull failure?",
+      "hint": "Was there a previous process?",
+      "answer": "describe pod gives waiting/termination reasons; previous logs support a crash. No process log can explain an image that never arrived."
+    },
+    {
+      "prompt": "Why capture evidence first?",
+      "hint": "What does replacement discard?",
+      "answer": "Pod deletion can remove logs/events/context or change identities. Save the minimal relevant evidence while preserving healthy serving capacity."
+    },
+    {
+      "prompt": "What would falsify a selector hypothesis?",
+      "hint": "Compare labels and endpoint membership.",
+      "answer": "Correct matched ready endpoints weaken that hypothesis; next test port, policy and application behavior rather than patching labels anyway."
+    }
+  ],
+  "exercise": {
+    "brief": "Write a symptom-first incident decision tree.",
+    "constraints": [
+      "Use observed fields, not product guesses."
+    ],
+    "deliverables": [
+      "Five branches with commands",
+      "A healthy baseline packet"
+    ],
+    "acceptance": [
+      "Each branch includes a falsifying observation",
+      "No routine cluster-admin escalation"
+    ],
+    "hints": [
+      "Start with Pod state and whether a process ever ran."
+    ],
+    "solution": [
+      "Separate Pending, waiting-image, exited-process, unready and ready-but-unreachable. Attach the exact fields that discriminate each."
+    ]
+  },
+  "capstone": {
+    "title": "Operate and repair an unfamiliar Kubernetes symptom",
+    "scenario": "A teammate reports Taskboard is broken during an update. You receive the symptom, not the injected fault.",
+    "startingPoint": "The recovered week27 cluster and five prepared injection commands above.",
+    "requirements": [
+      "A peer chooses one prepared fault privately; solo learners shuffle written fault cards and execute one without reading its explanation.",
+      "Preserve events, template, endpoints and relevant logs before repair.",
+      "Use a hypothesis and a falsifying observation; recover from recorded desired state.",
+      "Repeat an actual request after recovery and record elapsed time."
+    ],
+    "acceptance": [
+      "Diagnosis identifies the changed boundary and explains why two alternative hypotheses are weaker.",
+      "2/2 replicas, matching ready endpoints and a fresh /livez request succeed.",
+      "Five practice notes plus one blind incident note are stored in evidence/w28."
+    ],
+    "runbook": [
+      {
+        "code": "export KUBECONFIG=\"$HOME/dev-opps-lab/k8s/kubeconfig\"\nkubectl config current-context\nmkdir -p \"$HOME/dev-opps-lab/evidence/w28\"\nkubectl -n devopps get pods -o wide\nkubectl -n devopps get events --sort-by=.metadata.creationTimestamp\nkubectl -n devopps get deployment taskboard -o yaml\nkubectl -n devopps get service taskboard -o yaml\nkubectl -n devopps get endpointslice -l kubernetes.io/service-name=taskboard -o yaml",
+        "explain": [
+          "Read state in order: scheduling/runtime, time-ordered events, controller template, Service selection, then endpoint readiness. Save relevant output before changing it."
+        ],
+        "expected": "Evidence identifies one changed boundary; names and timestamps vary.",
+        "troubleshoot": "A timeout is a symptom. Decide which observation would disprove your first hypothesis before patching."
+      },
+      {
+        "code": "kubectl apply -f \"$HOME/dev-opps-lab/k8s/app-secure.yaml\" -f \"$HOME/dev-opps-lab/k8s/service.yaml\"\nkubectl -n devopps rollout status deployment/taskboard --timeout=180s",
+        "explain": [
+          "Restore recorded desired state and wait; do not merely delete the symptom Pod."
+        ],
+        "expected": "Ready replicas and endpoints recover.",
+        "troubleshoot": "If another owner immediately changes a field, identify it before applying competing fixes."
+      },
+      {
+        "code": "kubectl -n devopps run gate-client --image=busybox:1.37 --restart=Never --command -- wget -T 3 -qO- http://taskboard/livez\nkubectl -n devopps wait --for=jsonpath='{.status.phase}'=Succeeded pod/gate-client --timeout=90s\nkubectl -n devopps logs pod/gate-client",
+        "explain": [
+          "Create a fresh bounded Service request, wait for its successful completion and then read logs. This avoids requesting logs before the client container starts."
+        ],
+        "expected": "status ok and client exits0.",
+        "troubleshoot": "Inspect pod status if logs are not available yet; an image pull delay is different from the app response."
+      }
+    ],
+    "hints": [
+      "Compare observed state to the saved baseline.",
+      "Do not sacrifice old healthy replicas while the new revision is failing."
+    ],
+    "solution": [
+      "Identify phase first, then inspect the evidence for that phase. Restore the offending desired field and verify both controller convergence and a request. Explain a second plausible cause and why its predicted observation was absent."
+    ],
+    "rubric": [
+      {
+        "criterion": "Diagnosis",
+        "evidence": "Original events and relevant object fields",
+        "pass": "Fault identified from evidence before repair"
+      },
+      {
+        "criterion": "Recovery",
+        "evidence": "Known-good manifest and fresh request",
+        "pass": "Serving behavior returns without broad permission changes"
+      },
+      {
+        "criterion": "Reasoning",
+        "evidence": "Incident note",
+        "pass": "Includes falsification, impact and a regression check"
+      }
+    ],
+    "stretch": [
+      "Use a restricted Headlamp observer after the CLI diagnosis; identify precisely which extra read permissions its interface needs."
+    ]
+  },
+  "cleanup": [
+    {
+      "code": "kubectl -n devopps delete pod gate-client --ignore-not-found",
+      "explain": [
+        "Remove only the gate request Pod. Retain the healthy cluster and manifests for operations lessons."
+      ],
+      "expected": "No temporary client remains.",
+      "troubleshoot": "--ignore-not-found makes cleanup repeatable if the client was already removed."
+    }
+  ],
+  "references": [
+    {
+      "title": "Application troubleshooting",
+      "url": "https://kubernetes.io/docs/tasks/debug/debug-application/",
+      "usedFor": "Symptom discrimination"
+    },
+    {
+      "title": "Debug running Pods",
+      "url": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/",
+      "usedFor": "Events and logs"
+    },
+    {
+      "title": "Headlamp",
+      "url": "https://github.com/kubernetes-sigs/headlamp",
+      "usedFor": "Dashboard as an API client"
+    }
+  ],
+  "repoConnections": [
+    {
+      "repo": "kubernetes-sigs/headlamp",
+      "principle": "The UI displays API evidence under an identity.",
+      "application": "Repeat the owner and endpoint inspection with CLI before optionally viewing it in the dashboard.",
+      "url": "https://github.com/kubernetes-sigs/headlamp"
+    },
+    {
+      "repo": "nilbuild/developer-roadmap",
+      "principle": "Evidence proves a skill that a roadmap only locates.",
+      "application": "Mark scheduling, startup and routing as explained/repaired only when the corresponding incident packet exists.",
+      "url": "https://github.com/nilbuild/developer-roadmap"
+    }
+  ],
+  "notes": [
+    "The scenarios are authored for the disposable cluster; no Kubernetes execution was available on the authoring host."
+  ],
+  "phase": "Kubernetes",
+  "title": "Gate 7 · diagnose Kubernetes failures",
+  "outcome": "Use symptoms and evidence to distinguish scheduling, startup, traffic and application failures."
+}
